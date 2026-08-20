@@ -85,6 +85,7 @@ export class ExtensionPackagesCoordinator {
 
   async install(source: string): Promise<InstalledExtensionPackagesSnapshot> {
     await this.packageManager.installAndPersist(source, { local: false });
+    await this.settings?.flush();
     return this.list();
   }
 

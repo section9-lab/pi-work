@@ -4,9 +4,9 @@
   <p><strong>Let pi work for you.</strong></p>
   <p>A calm, native macOS home for AI conversations, project work, skills, extensions, and scheduled tasks.</p>
   <p>
-    <a href="https://github.com/section9-lab/pi-work/releases/download/v0.1.8/PiWork-0.1.8-macos-arm64.dmg"><strong>Download for Apple Silicon</strong></a>
+    <a href="https://github.com/section9-lab/pi-work/releases/download/v0.1.9/PiWork-0.1.9-macos-arm64.dmg"><strong>Download for Apple Silicon</strong></a>
     &nbsp;&nbsp;·&nbsp;&nbsp;
-    <a href="https://github.com/section9-lab/pi-work/releases/download/v0.1.8/PiWork-0.1.8-macos-x86_64.dmg"><strong>Download for Intel</strong></a>
+    <a href="https://github.com/section9-lab/pi-work/releases/download/v0.1.9/PiWork-0.1.9-macos-x86_64.dmg"><strong>Download for Intel</strong></a>
     &nbsp;&nbsp;·&nbsp;&nbsp;
     <a href="https://github.com/section9-lab/pi-work/releases/latest">Latest release</a>
   </p>
@@ -37,12 +37,12 @@ pi-work gives [pi coding agent](https://github.com/badlogic/pi-mono) a native Ma
 
 pi-work requires macOS 13 Ventura or later.
 
-| Your Mac | Download v0.1.8 |
+| Your Mac | Download v0.1.9 |
 | --- | --- |
-| Apple Silicon — M1, M2, M3, M4, or newer | [PiWork-0.1.8-macos-arm64.dmg](https://github.com/section9-lab/pi-work/releases/download/v0.1.8/PiWork-0.1.8-macos-arm64.dmg) |
-| Intel Mac | [PiWork-0.1.8-macos-x86_64.dmg](https://github.com/section9-lab/pi-work/releases/download/v0.1.8/PiWork-0.1.8-macos-x86_64.dmg) |
+| Apple Silicon — M1, M2, M3, M4, or newer | [PiWork-0.1.9-macos-arm64.dmg](https://github.com/section9-lab/pi-work/releases/download/v0.1.9/PiWork-0.1.9-macos-arm64.dmg) |
+| Intel Mac | [PiWork-0.1.9-macos-x86_64.dmg](https://github.com/section9-lab/pi-work/releases/download/v0.1.9/PiWork-0.1.9-macos-x86_64.dmg) |
 
-[Browse all releases](https://github.com/section9-lab/pi-work/releases) · [Verify your download with SHA256SUMS.txt](https://github.com/section9-lab/pi-work/releases/download/v0.1.8/SHA256SUMS.txt)
+[Browse all releases](https://github.com/section9-lab/pi-work/releases) · [Verify your download with SHA256SUMS.txt](https://github.com/section9-lab/pi-work/releases/download/v0.1.9/SHA256SUMS.txt)
 
 Not sure which Mac you have? Open the Apple menu and choose **About This Mac**. If you see **Chip**, download the Apple Silicon version. If you see **Processor**, download the Intel version.
 

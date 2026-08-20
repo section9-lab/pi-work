@@ -272,6 +272,45 @@ describe("ExtensionPackagesCoordinator", () => {
     ]);
   });
 
+  test("flushes an installed extension before reloading the package list", async () => {
+    const calls: string[] = [];
+    const pendingSources: string[] = [];
+    const configuredSources = new Set<string>();
+    const settings = {
+      getPackages: () => [],
+      setPackages: () => {},
+      flush: async () => {
+        calls.push("flush");
+        pendingSources.splice(0).forEach((source) => configuredSources.add(source));
+      },
+    };
+    const manager: ExtensionPackageManager = {
+      listConfiguredPackages: () => Array.from(configuredSources).map((source) => ({
+        source,
+        scope: "user" as const,
+        filtered: false,
+        installedPath: `/tmp/${source.slice("npm:".length)}`,
+      })),
+      resolve: async () => resolvedPaths(Array.from(configuredSources).map((source) => ({
+        path: `/tmp/${source.slice("npm:".length)}/index.ts`,
+        enabled: true,
+        metadata: { source, scope: "user", origin: "package" },
+      }))),
+      installAndPersist: async (source) => {
+        calls.push(`install:${source}`);
+        pendingSources.push(source);
+      },
+      update: async () => {},
+      removeAndPersist: async () => true,
+    };
+    const coordinator = new ExtensionPackagesCoordinator(manager, settings);
+
+    expect(await coordinator.install("npm:pi-tools")).toMatchObject({
+      packages: [{ source: "npm:pi-tools", enabled: true }],
+    });
+    expect(calls.slice(0, 2)).toEqual(["install:npm:pi-tools", "flush"]);
+  });
+
   test("disables and enables an installed package without uninstalling it", async () => {
     let packages: Array<string | {
       source: string;

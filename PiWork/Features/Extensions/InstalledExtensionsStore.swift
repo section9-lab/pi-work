@@ -7,6 +7,7 @@ final class InstalledExtensionsStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var activePackageIDs: Set<String> = []
     @Published private(set) var errorMessage: String?
+    @Published private(set) var installationErrors: [String: String] = [:]
     @Published private(set) var settings: [AgentHostExtensionSettings] = []
     @Published private(set) var isLoadingSettings = false
     @Published private(set) var activeSettingsIDs: Set<String> = []
@@ -55,8 +56,10 @@ final class InstalledExtensionsStore: ObservableObject {
             )
             hasLoaded = true
             errorMessage = nil
+            installationErrors.removeValue(forKey: source)
         } catch {
             errorMessage = error.localizedDescription
+            installationErrors[source] = error.localizedDescription
         }
     }
 
@@ -150,6 +153,10 @@ final class InstalledExtensionsStore: ObservableObject {
 
     func isWorking(source: String) -> Bool {
         activePackageIDs.contains("user:\(source)")
+    }
+
+    func installationError(for source: String) -> String? {
+        installationErrors[source]
     }
 
     private func perform(

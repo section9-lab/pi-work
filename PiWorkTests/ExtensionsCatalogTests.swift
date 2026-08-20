@@ -59,6 +59,7 @@ final class ExtensionsCatalogTests: XCTestCase {
         XCTAssertTrue(source.contains("InstalledExtensionsButton"))
         XCTAssertTrue(source.contains("InstalledExtensionsPanel"))
         XCTAssertTrue(source.contains("await installedStore.install(source: item.packageSource)"))
+        XCTAssertTrue(source.contains("installedStore.installationError(for: item.packageSource)"))
         XCTAssertTrue(source.contains("Toggle("))
         XCTAssertTrue(source.contains("InWindowFloatingPanel("))
         XCTAssertTrue(source.contains("CatalogInstalledManagerAnchorKey"))

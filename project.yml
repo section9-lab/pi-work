@@ -72,7 +72,7 @@ targets:
         PRODUCT_NAME: PiWork
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.1.8
+        MARKETING_VERSION: 0.1.9
     postCompileScripts:
       - name: "Stage bundled agent host"
         basedOnDependencyAnalysis: false

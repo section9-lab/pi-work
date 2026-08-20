@@ -755,6 +755,14 @@ private struct ExtensionsCatalogCard: View {
                 .truncationMode(.tail)
                 .padding(.top, 10)
 
+            if let errorMessage = installedStore.installationError(for: item.packageSource) {
+                Text(errorMessage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+                    .padding(.top, 8)
+            }
+
             Spacer(minLength: 18)
 
             HStack(spacing: 8) {
