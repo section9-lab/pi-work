@@ -13,10 +13,10 @@ struct AppSettingsView: View {
     @State private var selection: SettingsDestination? = .general
 
     var body: some View {
-        NavigationSplitView {
+        HSplitView {
             SettingsSidebar(selection: $selection, language: languageStore.language)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
+                .frame(minWidth: 180, idealWidth: 200, maxWidth: 240)
+
             Group {
                 switch selection ?? .general {
                 case .general:
@@ -38,7 +38,7 @@ struct AppSettingsView: View {
                 }
             }
             .navigationTitle((selection ?? .general).title(language: languageStore.language))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 436, maxWidth: .infinity, maxHeight: .infinity)
             .environmentObject(globalInstructionsStore)
         }
         .frame(minWidth: 656, idealWidth: 720, minHeight: 560, idealHeight: 620)
