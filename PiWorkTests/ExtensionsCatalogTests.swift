@@ -1,7 +1,98 @@
 import XCTest
+import SwiftUI
 @testable import PiWork
 
 final class ExtensionsCatalogTests: XCTestCase {
+    func testPackageUpdateControlsLiveInSettingsNotTheCatalog() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let settings = try String(contentsOf: root.appendingPathComponent(
+            "PiWork/Features/Extensions/Views/ExtensionSettingsView.swift"
+        ), encoding: .utf8)
+        let catalog = try String(contentsOf: root.appendingPathComponent(
+            "PiWork/Features/Extensions/Views/ExtensionsCatalogView.swift"
+        ), encoding: .utf8)
+
+        XCTAssertTrue(settings.contains("await store.update(package)"))
+        XCTAssertTrue(settings.contains("package.version"))
+        XCTAssertTrue(settings.contains("extension-package-update-"))
+        XCTAssertFalse(catalog.contains("onUpdate"))
+    }
+
+    @MainActor
+    func testPackageUpdateRefreshesVersionAndClearsSuccessFeedbackOnFailure() async {
+        let original = AgentHostInstalledExtensionPackage(
+            source: "npm:pi-tools", scope: .user, filtered: false,
+            installedPath: nil, enabled: true, version: "1.2.3"
+        )
+        let updated = AgentHostInstalledExtensionPackage(
+            source: original.source, scope: .user, filtered: false,
+            installedPath: nil, enabled: true, version: "1.3.0"
+        )
+        let service = StubInstalledExtensionsService(packages: [original])
+        let store = InstalledExtensionsStore(service: service)
+        await store.load()
+        await service.setUpdateResult(.success([updated]))
+        await store.update(original)
+        XCTAssertEqual(store.packages.first?.version, "1.3.0")
+        XCTAssertNotNil(store.updateMessages[original.id])
+
+        await service.setUpdateResult(.failure(AgentHostClientError.requestFailed(
+            code: "invalid_request", message: "Package update failed: registry unavailable"
+        )))
+        await store.update(updated)
+        XCTAssertEqual(store.packages, [updated])
+        XCTAssertNil(store.updateMessages[original.id])
+        XCTAssertEqual(store.errorMessage, "Package update failed: registry unavailable")
+        XCTAssertTrue(store.activePackageIDs.isEmpty)
+    }
+
+    @MainActor
+    func testPluginSettingsLayoutWithAndWithoutDeclaredSettings() async throws {
+        let packages = ["@scope/task-runner", "generic-plugin"].map { name in
+            AgentHostInstalledExtensionPackage(
+                source: "npm:\(name)", scope: .user, filtered: false,
+                installedPath: nil, enabled: true, version: "1.2.3"
+            )
+        }
+        let service = StubInstalledExtensionsService(packages: packages, settings: [
+            AgentHostExtensionSettings(source: packages[0].source, scope: .user, configurable: false, fields: [])
+        ])
+        let store = InstalledExtensionsStore(service: service)
+        await store.load()
+        await store.loadSettings()
+        for scheme in [ColorScheme.light, .dark] {
+            let bitmap = try TestViewRenderer.render(
+                ExtensionSettingsView(store: store)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .environment(\.colorScheme, scheme),
+                size: CGSize(width: 520, height: 420)
+            )
+            let attachment = XCTAttachment(data: try XCTUnwrap(bitmap.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
+            attachment.name = "plugin-settings-\(scheme)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    @MainActor
+    func testPackageUpdateRefreshesPreviouslyLoadedSettings() async {
+        let package = AgentHostInstalledExtensionPackage(
+            source: "npm:pi-tools", scope: .user, filtered: false,
+            installedPath: nil, enabled: true
+        )
+        let service = StubInstalledExtensionsService(packages: [package])
+        let store = InstalledExtensionsStore(service: service)
+        await store.load()
+        await store.loadSettings()
+
+        await store.update(package)
+
+        let actions = await service.recordedActions()
+        XCTAssertEqual(actions, [.list, .listSettings, .update(package), .listSettings])
+        XCTAssertFalse(store.isWorking(on: package))
+    }
+
     func testExtensionsCatalogFeatureHasDedicatedModelAndView() {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -586,6 +677,7 @@ private actor StubInstalledExtensionsService: InstalledExtensionsServicing {
     private var packages: [AgentHostInstalledExtensionPackage]
     private var settings: [AgentHostExtensionSettings]
     private var actions: [Action] = []
+    private var updateResult: Result<[AgentHostInstalledExtensionPackage], Error>?
 
     init(
         packages: [AgentHostInstalledExtensionPackage],
@@ -680,7 +772,8 @@ private actor StubInstalledExtensionsService: InstalledExtensionsServicing {
             scope: package.scope,
             filtered: !enabled,
             installedPath: package.installedPath,
-            enabled: enabled
+            enabled: enabled,
+            version: package.version
         )
         return packages
     }
@@ -694,6 +787,7 @@ private actor StubInstalledExtensionsService: InstalledExtensionsServicing {
             $0.source == source && $0.scope == scope
         }) else { return packages }
         actions.append(.update(package))
+        if let updateResult { packages = try updateResult.get() }
         return packages
     }
 
@@ -711,6 +805,10 @@ private actor StubInstalledExtensionsService: InstalledExtensionsServicing {
     }
 
     func recordedActions() -> [Action] { actions }
+
+    func setUpdateResult(_ result: Result<[AgentHostInstalledExtensionPackage], Error>) {
+        updateResult = result
+    }
 }
 
 private final class StubExtensionsCatalogFetcher: ExtensionsCatalogFetching {

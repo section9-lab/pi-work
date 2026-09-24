@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "Plugins";
 "settings.sidebar.isolated" = "pi-work uses an isolated configuration and never modifies terminal pi.";
 "settings.extensions.title" = "Plugin Settings";
-"settings.extensions.subtitle" = "Configure installed plugins from their declared settings";
+"settings.extensions.subtitle" = "Manage installed plugin versions, updates, and settings";
+"settings.extensions.update" = "Update";
+"settings.extensions.update_finished" = "Update operation completed";
+"settings.extensions.update_help" = "Update from the configured source. Pinned versions stay unchanged.";
 "settings.extensions.refresh" = "Refresh plugin settings";
 "settings.extensions.loading" = "Loading plugin settings…";
 "settings.extensions.empty" = "No plugins are installed";

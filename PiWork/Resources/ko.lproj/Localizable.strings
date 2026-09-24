@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "플러그인";
 "settings.sidebar.isolated" = "pi-work는 독립된 설정을 사용하며 터미널의 pi를 변경하지 않습니다.";
 "settings.extensions.title" = "플러그인 설정";
-"settings.extensions.subtitle" = "플러그인이 선언한 항목으로 설치된 플러그인을 설정합니다";
+"settings.extensions.subtitle" = "설치된 플러그인의 버전, 업데이트 및 설정을 관리합니다";
+"settings.extensions.update" = "업데이트";
+"settings.extensions.update_finished" = "업데이트 작업 완료";
+"settings.extensions.update_help" = "설정된 소스에서 업데이트합니다. 고정된 버전은 변경되지 않습니다.";
 "settings.extensions.refresh" = "플러그인 설정 새로 고침";
 "settings.extensions.loading" = "플러그인 설정 불러오는 중…";
 "settings.extensions.empty" = "설치된 플러그인이 없습니다";

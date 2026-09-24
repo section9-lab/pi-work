@@ -498,7 +498,6 @@ private struct InstalledExtensionsPanel: View {
                                         await store.setEnabled(package, enabled: enabled)
                                     }
                                 },
-                                onUpdate: { Task { await store.update(package) } },
                                 onRemove: { pendingRemoval = package }
                             )
 
@@ -549,7 +548,6 @@ private struct InstalledExtensionRow: View {
     let package: AgentHostInstalledExtensionPackage
     let isWorking: Bool
     let onSetEnabled: (Bool) -> Void
-    let onUpdate: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -632,14 +630,6 @@ private struct InstalledExtensionRow: View {
                         .accessibilityLabel(L10n.string("extensions.installed.reveal"))
                     }
 
-                    Button(action: onUpdate) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .frame(width: 26, height: 26)
-                    }
-                    .disabled(!package.canUpdate)
-                    .help(L10n.string("extensions.installed.update"))
-                    .accessibilityLabel(L10n.string("extensions.installed.update"))
-
                     if !package.isRequiredPiWebAccess {
                         Button(action: onRemove) {
                             Image(systemName: "trash")
@@ -671,12 +661,6 @@ private extension AgentHostInstalledExtensionPackage {
         return source
     }
 
-    var canUpdate: Bool {
-        source.hasPrefix("npm:")
-            || source.hasPrefix("git:")
-            || source.hasPrefix("https://")
-            || source.hasPrefix("ssh://")
-    }
 }
 
 private struct ExtensionsCategoryButton: View {

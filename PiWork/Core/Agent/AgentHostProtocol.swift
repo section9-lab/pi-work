@@ -2098,6 +2098,23 @@ struct AgentHostInstalledExtensionPackage: Decodable, Equatable, Identifiable {
     let filtered: Bool
     let installedPath: String?
     let enabled: Bool
+    let version: String?
+
+    init(
+        source: String,
+        scope: AgentHostExtensionPackageScope,
+        filtered: Bool,
+        installedPath: String?,
+        enabled: Bool,
+        version: String? = nil
+    ) {
+        self.source = source
+        self.scope = scope
+        self.filtered = filtered
+        self.installedPath = installedPath
+        self.enabled = enabled
+        self.version = version
+    }
 
     var id: String { "\(scope.rawValue):\(source)" }
 }

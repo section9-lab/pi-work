@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "Complementos";
 "settings.sidebar.isolated" = "pi-work usa una configuración aislada y nunca modifica pi en la terminal.";
 "settings.extensions.title" = "Configuración de complementos";
-"settings.extensions.subtitle" = "Configura los complementos instalados mediante sus opciones declaradas";
+"settings.extensions.subtitle" = "Gestiona versiones, actualizaciones y ajustes de los complementos instalados";
+"settings.extensions.update" = "Actualizar";
+"settings.extensions.update_finished" = "Operación de actualización completada";
+"settings.extensions.update_help" = "Actualiza desde el origen configurado. Las versiones fijadas no cambian.";
 "settings.extensions.refresh" = "Actualizar configuración de complementos";
 "settings.extensions.loading" = "Cargando configuración de complementos…";
 "settings.extensions.empty" = "No hay complementos instalados";

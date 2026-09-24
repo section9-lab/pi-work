@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "プラグイン";
 "settings.sidebar.isolated" = "pi-work は独立した設定を使用し、ターミナルの pi を変更しません。";
 "settings.extensions.title" = "プラグイン設定";
-"settings.extensions.subtitle" = "プラグインが宣言した項目からインストール済みプラグインを設定します";
+"settings.extensions.subtitle" = "インストール済みプラグインのバージョン、更新、設定を管理します";
+"settings.extensions.update" = "更新";
+"settings.extensions.update_finished" = "更新操作が完了しました";
+"settings.extensions.update_help" = "設定済みの取得元から更新します。固定されたバージョンは変更されません。";
 "settings.extensions.refresh" = "プラグイン設定を更新";
 "settings.extensions.loading" = "プラグイン設定を読み込み中…";
 "settings.extensions.empty" = "プラグインはインストールされていません";

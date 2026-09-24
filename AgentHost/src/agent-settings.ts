@@ -66,8 +66,12 @@ export function createAgentSettingsManager(
 ): SettingsManager {
   const settings = SettingsManager.create(cwd, agentDirectory(environment), { projectTrusted: false });
   const bunPath = environment.PI_WORK_BUN_PATH?.trim();
-  if (bunPath && settings.getNpmCommand()?.[0] !== bunPath) {
-    settings.setNpmCommand([bunPath]);
+  if (bunPath) {
+    // Keep desktop packages independent of the terminal's registry and cached manifest URLs.
+    const command = [bunPath, "--registry=https://registry.npmjs.org", "--no-cache"];
+    if (JSON.stringify(settings.getNpmCommand()) !== JSON.stringify(command)) {
+      settings.setNpmCommand(command);
+    }
   }
   return settings;
 }

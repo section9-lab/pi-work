@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ResolvedPaths } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -14,6 +17,38 @@ function resolvedPaths(
 }
 
 describe("ExtensionPackagesCoordinator", () => {
+  test("reads installed versions and refreshes them after updating", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-work-package-version-"));
+    try {
+      const manifest = join(directory, "package.json");
+      await writeFile(manifest, JSON.stringify({ version: "1.2.3" }));
+      const manager: ExtensionPackageManager = {
+        listConfiguredPackages: () => [{
+          source: "npm:pi-tools", scope: "user", filtered: false, installedPath: directory,
+        }],
+        resolve: async () => resolvedPaths([{
+          path: join(directory, "index.ts"), enabled: true,
+          metadata: { source: "npm:pi-tools", scope: "user", origin: "package" },
+        }]),
+        installAndPersist: async () => {},
+        update: async () => { await writeFile(manifest, JSON.stringify({ version: "1.3.0" })); },
+        removeAndPersist: async () => true,
+      };
+      const coordinator = new ExtensionPackagesCoordinator(manager);
+      expect((await coordinator.list()).packages[0]).toMatchObject({ version: "1.2.3" });
+      expect((await coordinator.update("npm:pi-tools")).packages[0]).toMatchObject({ version: "1.3.0" });
+
+      for (const content of ["invalid JSON", "{}", '{"version":123}', '{"version":"  "}']) {
+        await writeFile(manifest, content);
+        expect((await coordinator.list()).packages[0]).not.toHaveProperty("version");
+      }
+      await rm(manifest);
+      expect((await coordinator.list()).packages[0]).not.toHaveProperty("version");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("installs pi-web-access as the default extension", async () => {
     const calls: string[] = [];
     const configuredSources = new Set<string>();

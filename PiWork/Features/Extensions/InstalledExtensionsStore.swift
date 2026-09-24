@@ -8,6 +8,7 @@ final class InstalledExtensionsStore: ObservableObject {
     @Published private(set) var activePackageIDs: Set<String> = []
     @Published private(set) var errorMessage: String?
     @Published private(set) var installationErrors: [String: String] = [:]
+    @Published private(set) var updateMessages: [String: String] = [:]
     @Published private(set) var settings: [AgentHostExtensionSettings] = []
     @Published private(set) var isLoadingSettings = false
     @Published private(set) var activeSettingsIDs: Set<String> = []
@@ -36,12 +37,18 @@ final class InstalledExtensionsStore: ObservableObject {
     }
 
     func update(_ package: AgentHostInstalledExtensionPackage) async {
-        await perform(on: package) {
+        guard !isWorking(on: package) else { return }
+        updateMessages.removeValue(forKey: package.id)
+        let succeeded = await perform(on: package) {
             try await service.updateInstalledExtension(
                 source: package.source,
                 scope: package.scope,
                 requestID: UUID().uuidString
             )
+        }
+        if succeeded {
+            updateMessages[package.id] = L10n.string("settings.extensions.update_finished")
+            if hasLoadedSettings { await loadSettings(force: true) }
         }
     }
 
@@ -159,18 +166,21 @@ final class InstalledExtensionsStore: ObservableObject {
         installationErrors[source]
     }
 
+    @discardableResult
     private func perform(
         on package: AgentHostInstalledExtensionPackage,
         operation: () async throws -> [AgentHostInstalledExtensionPackage]
-    ) async {
-        guard activePackageIDs.insert(package.id).inserted else { return }
+    ) async -> Bool {
+        guard activePackageIDs.insert(package.id).inserted else { return false }
         defer { activePackageIDs.remove(package.id) }
         do {
             packages = try await operation()
             hasLoaded = true
             errorMessage = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 }

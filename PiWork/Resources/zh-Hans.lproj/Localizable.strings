@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "插件";
 "settings.sidebar.isolated" = "pi-work 使用独立配置，不会修改终端中的 pi。";
 "settings.extensions.title" = "插件设置";
-"settings.extensions.subtitle" = "根据插件声明的配置项设置已安装插件";
+"settings.extensions.subtitle" = "管理已安装插件的版本、更新与配置";
+"settings.extensions.update" = "更新";
+"settings.extensions.update_finished" = "更新操作已完成";
+"settings.extensions.update_help" = "从已配置的来源更新插件；固定版本保持不变。";
 "settings.extensions.refresh" = "刷新插件设置";
 "settings.extensions.loading" = "正在载入插件设置…";
 "settings.extensions.empty" = "尚未安装插件";

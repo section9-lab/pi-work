@@ -2,6 +2,19 @@ import XCTest
 @testable import PiWork
 
 final class AgentHostProtocolTests: XCTestCase {
+    func testInstalledPackageVersionChangesAreDecodedWithoutChangingPackageIdentity() throws {
+        func package(_ versionField: String) throws -> AgentHostInstalledExtensionPackage {
+            let json = #"{"source":"npm:pi-tools","scope":"user","filtered":false,"enabled":true"#
+                + versionField + "}"
+            return try JSONDecoder().decode(AgentHostInstalledExtensionPackage.self, from: Data(json.utf8))
+        }
+        let old = try package(#", "version":"1.2.3""#)
+        let updated = try package(#", "version":"1.3.0""#)
+        XCTAssertNotEqual(old, updated)
+        XCTAssertEqual(old.id, updated.id)
+        XCTAssertEqual(try package("").source, old.source)
+    }
+
     func testDecodesPiWorkExtensionNotificationWithoutRecursion() throws {
         let data = Data(#"{"jsonrpc":"2.0","method":"_piWork/models.changed","params":{"reason":"authentication","providerId":"openai-codex"}}"#.utf8)
 

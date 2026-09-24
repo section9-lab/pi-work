@@ -20,7 +20,10 @@
 "settings.sidebar.extensions" = "外掛程式";
 "settings.sidebar.isolated" = "pi-work 使用獨立設定，不會修改終端機中的 pi。";
 "settings.extensions.title" = "外掛程式設定";
-"settings.extensions.subtitle" = "依照外掛程式宣告的設定項目配置已安裝的外掛程式";
+"settings.extensions.subtitle" = "管理已安裝外掛程式的版本、更新與設定";
+"settings.extensions.update" = "更新";
+"settings.extensions.update_finished" = "更新作業已完成";
+"settings.extensions.update_help" = "從已設定的來源更新外掛程式；固定版本保持不變。";
 "settings.extensions.refresh" = "重新整理外掛程式設定";
 "settings.extensions.loading" = "正在載入外掛程式設定…";
 "settings.extensions.empty" = "尚未安裝外掛程式";

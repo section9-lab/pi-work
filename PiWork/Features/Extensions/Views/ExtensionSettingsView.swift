@@ -83,7 +83,8 @@ struct ExtensionSettingsView: View {
                             .id(settings.formIdentity)
                         } else if !store.isLoadingSettings {
                             ExtensionSettingsUnavailableCard(
-                                package: package
+                                package: package,
+                                store: store
                             )
                         }
                     }
@@ -161,19 +162,11 @@ private struct ExtensionSettingsCard: View {
                             .fill(Color.primary.opacity(0.06))
                     )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(package.settingsDisplayName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-
-                    Text(package.scope == .user
-                        ? L10n.string("extensions.installed.user_scope")
-                        : L10n.string("extensions.installed.project_scope"))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
+                ExtensionPackageSummary(package: package, store: store)
 
                 Spacer(minLength: 8)
+
+                ExtensionPackageUpdateButton(package: package, store: store)
 
                 if !package.isRequiredExtension {
                     Toggle(
@@ -388,19 +381,21 @@ private struct ExtensionSettingsCard: View {
 
 private struct ExtensionSettingsUnavailableCard: View {
     let package: AgentHostInstalledExtensionPackage
+    @ObservedObject var store: InstalledExtensionsStore
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "puzzlepiece.extension")
                 .foregroundStyle(.secondary)
                 .frame(width: 30, height: 30)
-            Text(package.settingsDisplayName)
-                .font(.system(size: 13, weight: .semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                ExtensionPackageSummary(package: package, store: store)
+                Text(L10n.string("settings.extensions.no_options"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
-            Text(L10n.string("settings.extensions.no_options"))
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            ExtensionPackageUpdateButton(package: package, store: store)
         }
         .padding(14)
         .background(
@@ -411,6 +406,63 @@ private struct ExtensionSettingsUnavailableCard: View {
             adaptiveRoundedShape(cornerRadius: 15)
                 .stroke(AppPalette.panelBorder, lineWidth: 1)
         )
+    }
+}
+
+private struct ExtensionPackageSummary: View {
+    let package: AgentHostInstalledExtensionPackage
+    @ObservedObject var store: InstalledExtensionsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(package.settingsDisplayName)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .help(package.source)
+            HStack(spacing: 6) {
+                if let version = package.version {
+                    Text(verbatim: "v\(version)")
+                    Text("·")
+                }
+                Text(package.scope == .user
+                    ? L10n.string("extensions.installed.user_scope")
+                    : L10n.string("extensions.installed.project_scope"))
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            if let message = store.updateMessages[package.id] {
+                Label(message, systemImage: "checkmark")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct ExtensionPackageUpdateButton: View {
+    let package: AgentHostInstalledExtensionPackage
+    @ObservedObject var store: InstalledExtensionsStore
+
+    var body: some View {
+        if package.canUpdate {
+            Button {
+                Task { await store.update(package) }
+            } label: {
+                HStack(spacing: 5) {
+                    if store.isWorking(on: package) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    Text(L10n.string("settings.extensions.update"))
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isWorking(on: package) || store.activeSettingsIDs.contains(package.id))
+            .help(L10n.string("settings.extensions.update_help"))
+            .accessibilityIdentifier("extension-package-update-\(package.id)")
+        }
     }
 }
 
@@ -527,6 +579,13 @@ private struct ExtensionSettingFieldEditor: View {
 }
 
 private extension AgentHostInstalledExtensionPackage {
+    var canUpdate: Bool {
+        source.hasPrefix("npm:")
+            || source.hasPrefix("git:")
+            || source.hasPrefix("https://")
+            || source.hasPrefix("ssh://")
+    }
+
     var settingsDisplayName: String {
         for prefix in ["npm:", "git:"] where source.hasPrefix(prefix) {
             return String(source.dropFirst(prefix.count))

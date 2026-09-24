@@ -3,6 +3,8 @@ import {
   getAgentDir,
   type PackageManager,
 } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import packageMetadata from "../package.json";
 
 import {
@@ -21,6 +23,7 @@ export type InstalledExtensionPackage = {
   scope: ExtensionPackageScope;
   filtered: boolean;
   installedPath?: string;
+  version?: string;
   enabled: boolean;
 };
 
@@ -64,7 +67,7 @@ export class ExtensionPackagesCoordinator {
     const resolved = await this.packageManager.resolve(async () => "skip");
 
     return {
-      packages: configured.flatMap((pkg) => {
+      packages: (await Promise.all(configured.map(async (pkg) => {
         const resources = resolved.extensions.filter((resource) => (
           resource.metadata.origin === "package"
           && resource.metadata.source === pkg.source
@@ -72,14 +75,16 @@ export class ExtensionPackagesCoordinator {
         ));
         if (resources.length === 0) return [];
 
+        const version = await installedVersion(pkg.installedPath);
         return [{
           source: pkg.source,
           scope: pkg.scope,
           filtered: pkg.filtered,
           installedPath: pkg.installedPath,
+          ...(version ? { version } : {}),
           enabled: resources.some((resource) => resource.enabled),
         }];
-      }).sort((left, right) => left.source.localeCompare(right.source)),
+      }))).flat().sort((left, right) => left.source.localeCompare(right.source)),
     };
   }
 
@@ -165,6 +170,17 @@ export class ExtensionPackagesCoordinator {
       this.settings.setPackages("user", next);
       await this.settings.flush();
     }
+  }
+}
+
+async function installedVersion(installedPath: string | undefined): Promise<string | undefined> {
+  if (!installedPath) return undefined;
+  try {
+    const manifest = JSON.parse(await readFile(join(installedPath, "package.json"), "utf8"));
+    return typeof manifest?.version === "string" ? manifest.version.trim() || undefined : undefined;
+  } catch {
+    // Local extensions and older packages may not have a readable manifest.
+    return undefined;
   }
 }
 
