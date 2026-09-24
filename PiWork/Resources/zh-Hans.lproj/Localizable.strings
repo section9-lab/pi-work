@@ -24,7 +24,6 @@
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新操作已完成";
 "settings.extensions.update_help" = "从已配置的来源更新插件；固定版本保持不变。";
-"settings.extensions.refresh" = "刷新插件设置";
 "settings.extensions.loading" = "正在载入插件设置…";
 "settings.extensions.empty" = "尚未安装插件";
 "settings.extensions.changes_apply" = "只保存已修改的值；未显示的配置会保持不变。";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "使用 Markdown 全局指令告诉 pi-work 如何协助你";
 "settings.personal_preferences.file_title" = "pi-work 全局指令";
 "settings.personal_preferences.saved" = "已保存";
-"settings.personal_preferences.reload" = "重新读取";
 "settings.personal_preferences.revert" = "还原";
 "settings.personal_preferences.save" = "保存";
 "settings.personal_preferences.placeholder" = "描述你偏好的语言、语气、编码规范和工作规则……";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "设置 pi-coding-agent 的会话默认值与运行行为";
 "settings.agent.loading" = "正在读取 Agent 设置…";
-"settings.agent.saving" = "正在保存";
-"settings.agent.reload" = "重新读取设置";
 "settings.agent.session_defaults.title" = "会话默认值";
 "settings.agent.session_defaults.subtitle" = "用于之后创建的 Chat 和 Work 会话";
 "settings.agent.default_model.title" = "默认模型";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "登录";
 "providers.agent_auth.logout" = "退出登录";
 "providers.loading" = "正在读取模型服务商…";
-"providers.search" = "搜索服务商";
-"providers.refresh_help" = "刷新认证状态";
-"providers.no_match" = "没有匹配的服务商";
-"providers.no_match_hint" = "尝试其他名称或服务商 ID";
+"providers.empty" = "暂无可用供应商";
 "providers.disconnect_title" = "断开 %@？";
 "providers.disconnect_message" = "pi-work 保存的认证信息将被移除。环境变量或外部配置不会被修改。";
 "providers.models_available" = "%ld/%ld 个模型可用";

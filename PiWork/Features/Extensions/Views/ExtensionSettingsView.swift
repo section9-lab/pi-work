@@ -44,15 +44,6 @@ struct ExtensionSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .toolbar {
-            Button {
-                Task { await reload(force: true) }
-            } label: {
-                Label(L10n.string("settings.extensions.refresh"), systemImage: "arrow.clockwise")
-            }
-            .disabled(store.isLoading || store.isLoadingSettings)
-            .help(L10n.string("settings.extensions.refresh"))
-        }
         .task { await store.load() }
         .task(id: store.packages.map(\.id)) {
             guard !store.packages.isEmpty else { return }
@@ -294,8 +285,6 @@ private struct ExtensionPackageUpdateButton: View {
                 HStack(spacing: 5) {
                     if store.isWorking(on: package) {
                         ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
                     }
                     Text(L10n.string("settings.extensions.update"))
                 }

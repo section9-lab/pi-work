@@ -24,7 +24,6 @@
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新操作が完了しました";
 "settings.extensions.update_help" = "設定済みの取得元から更新します。固定されたバージョンは変更されません。";
-"settings.extensions.refresh" = "プラグイン設定を更新";
 "settings.extensions.loading" = "プラグイン設定を読み込み中…";
 "settings.extensions.empty" = "プラグインはインストールされていません";
 "settings.extensions.changes_apply" = "変更した値のみ保存され、ここに表示されない設定は保持されます。";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "Markdown のグローバル指示で pi-work の応答方法を設定します";
 "settings.personal_preferences.file_title" = "pi-work グローバル指示";
 "settings.personal_preferences.saved" = "保存済み";
-"settings.personal_preferences.reload" = "再読み込み";
 "settings.personal_preferences.revert" = "元に戻す";
 "settings.personal_preferences.save" = "保存";
 "settings.personal_preferences.placeholder" = "希望する言語、口調、コーディング規約、作業ルールを記述してください…";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "pi-coding-agent のセッション初期値と実行動作を設定します";
 "settings.agent.loading" = "Agent 設定を読み込み中…";
-"settings.agent.saving" = "保存中";
-"settings.agent.reload" = "設定を再読み込み";
 "settings.agent.session_defaults.title" = "セッションの初期値";
 "settings.agent.session_defaults.subtitle" = "今後作成する Chat と Work のセッションに使用されます";
 "settings.agent.default_model.title" = "デフォルトモデル";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "サインイン";
 "providers.agent_auth.logout" = "ログアウト";
 "providers.loading" = "モデルプロバイダーを読み込み中…";
-"providers.search" = "プロバイダーを検索";
-"providers.refresh_help" = "認証状態を更新";
-"providers.no_match" = "一致するプロバイダーがありません";
-"providers.no_match_hint" = "別の名前またはプロバイダー ID をお試しください";
+"providers.empty" = "利用できるプロバイダーがありません";
 "providers.disconnect_title" = "%@ との接続を解除しますか？";
 "providers.disconnect_message" = "pi-work が保存した認証情報を削除します。環境変数や外部設定は変更しません。";
 "providers.models_available" = "%ld/%ld モデルが利用可能";

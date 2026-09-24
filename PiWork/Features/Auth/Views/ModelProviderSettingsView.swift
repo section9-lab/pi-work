@@ -164,15 +164,6 @@ private struct GlobalAgentInstructionsSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .toolbar {
-            Button {
-                store.load()
-            } label: {
-                Label(L10n.string("settings.personal_preferences.reload"), systemImage: "arrow.clockwise")
-            }
-            .help(L10n.string("settings.personal_preferences.reload"))
-            .disabled(store.isLoading || store.isSaving || store.hasUnsavedChanges)
-        }
     }
 }
 
@@ -458,20 +449,6 @@ private struct AgentGeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .toolbar {
-            if store.isSaving {
-                ProgressView()
-                    .controlSize(.small)
-                    .help(L10n.string("settings.agent.saving"))
-            }
-            Button {
-                Task { await store.reload() }
-            } label: {
-                Label(L10n.string("settings.agent.reload"), systemImage: "arrow.clockwise")
-            }
-            .disabled(store.isLoading || store.isSaving)
-            .help(L10n.string("settings.agent.reload"))
-        }
     }
 
     @ViewBuilder
@@ -686,22 +663,15 @@ private extension AgentHostTransport {
 
 struct ModelProviderSettingsView: View {
     @ObservedObject var store: ProviderAuthStore
-    @State private var searchText = ""
     @State private var disconnectCandidate: AgentHostProvider?
 
-    private var visibleProviders: [AgentHostProvider] {
-        store.providers
-            .filter { provider in
-                searchText.isEmpty
-                    || provider.name.localizedCaseInsensitiveContains(searchText)
-                    || provider.id.localizedCaseInsensitiveContains(searchText)
+    private var sortedProviders: [AgentHostProvider] {
+        store.providers.sorted { lhs, rhs in
+            if lhs.status.configured != rhs.status.configured {
+                return lhs.status.configured
             }
-            .sorted { lhs, rhs in
-                if lhs.status.configured != rhs.status.configured {
-                    return lhs.status.configured
-                }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -731,15 +701,11 @@ struct ModelProviderSettingsView: View {
             Section {
                 if store.isLoading && store.providers.isEmpty && store.agentAuthMethods.isEmpty {
                     ProgressView(L10n.string("providers.loading"))
-                } else if visibleProviders.isEmpty && store.agentAuthMethods.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(L10n.string("providers.no_match"), systemImage: "magnifyingglass")
-                        Text(L10n.string("providers.no_match_hint"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                } else if store.providers.isEmpty && store.agentAuthMethods.isEmpty {
+                    Text(L10n.string("providers.empty"))
+                        .foregroundStyle(.secondary)
                 } else {
-                    ForEach(visibleProviders) { provider in
+                    ForEach(sortedProviders) { provider in
                         ProviderSettingsRow(
                             provider: provider,
                             onAuthenticate: { method in
@@ -756,16 +722,6 @@ struct ModelProviderSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .searchable(text: $searchText, prompt: L10n.string("providers.search"))
-        .toolbar {
-            Button {
-                Task { await store.reloadProviders() }
-            } label: {
-                Label(L10n.string("providers.refresh_help"), systemImage: "arrow.clockwise")
-            }
-            .disabled(store.isLoading)
-            .help(L10n.string("providers.refresh_help"))
-        }
         .task { await store.start() }
         .sheet(isPresented: flowIsPresented) {
             ProviderAuthenticationView(store: store)

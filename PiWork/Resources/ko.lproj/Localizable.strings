@@ -24,7 +24,6 @@
 "settings.extensions.update" = "업데이트";
 "settings.extensions.update_finished" = "업데이트 작업 완료";
 "settings.extensions.update_help" = "설정된 소스에서 업데이트합니다. 고정된 버전은 변경되지 않습니다.";
-"settings.extensions.refresh" = "플러그인 설정 새로 고침";
 "settings.extensions.loading" = "플러그인 설정 불러오는 중…";
 "settings.extensions.empty" = "설치된 플러그인이 없습니다";
 "settings.extensions.changes_apply" = "변경한 값만 저장하며 여기에 표시되지 않은 설정은 유지됩니다.";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "Markdown 전역 지침으로 pi-work의 작업 방식을 설정하세요";
 "settings.personal_preferences.file_title" = "pi-work 전역 지침";
 "settings.personal_preferences.saved" = "저장됨";
-"settings.personal_preferences.reload" = "다시 불러오기";
 "settings.personal_preferences.revert" = "되돌리기";
 "settings.personal_preferences.save" = "저장";
 "settings.personal_preferences.placeholder" = "선호하는 언어, 어조, 코딩 규칙 및 작업 규칙을 설명하세요…";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "pi-coding-agent의 세션 기본값과 실행 동작을 설정합니다";
 "settings.agent.loading" = "Agent 설정을 불러오는 중…";
-"settings.agent.saving" = "저장 중";
-"settings.agent.reload" = "설정 다시 불러오기";
 "settings.agent.session_defaults.title" = "세션 기본값";
 "settings.agent.session_defaults.subtitle" = "앞으로 생성할 Chat 및 Work 세션에 사용됩니다";
 "settings.agent.default_model.title" = "기본 모델";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "로그인";
 "providers.agent_auth.logout" = "로그아웃";
 "providers.loading" = "모델 제공자를 불러오는 중…";
-"providers.search" = "제공자 검색";
-"providers.refresh_help" = "인증 상태 새로 고침";
-"providers.no_match" = "일치하는 제공자가 없습니다";
-"providers.no_match_hint" = "다른 이름이나 제공자 ID를 사용해 보세요";
+"providers.empty" = "사용 가능한 제공자가 없습니다";
 "providers.disconnect_title" = "%@ 연결을 해제할까요?";
 "providers.disconnect_message" = "pi-work가 저장한 인증 정보가 삭제됩니다. 환경 변수와 외부 설정은 변경되지 않습니다.";
 "providers.models_available" = "%ld/%ld개 모델 사용 가능";

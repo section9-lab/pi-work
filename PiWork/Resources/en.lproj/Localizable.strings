@@ -24,7 +24,6 @@
 "settings.extensions.update" = "Update";
 "settings.extensions.update_finished" = "Update operation completed";
 "settings.extensions.update_help" = "Update from the configured source. Pinned versions stay unchanged.";
-"settings.extensions.refresh" = "Refresh plugin settings";
 "settings.extensions.loading" = "Loading plugin settings…";
 "settings.extensions.empty" = "No plugins are installed";
 "settings.extensions.changes_apply" = "Only changed values are saved; settings not shown here are preserved.";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "Guide pi-work with global instructions written in Markdown";
 "settings.personal_preferences.file_title" = "pi-work global instructions";
 "settings.personal_preferences.saved" = "Saved";
-"settings.personal_preferences.reload" = "Reload";
 "settings.personal_preferences.revert" = "Revert";
 "settings.personal_preferences.save" = "Save";
 "settings.personal_preferences.placeholder" = "Describe your preferred language, tone, coding conventions, and working rules…";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "Set pi-coding-agent session defaults and runtime behavior";
 "settings.agent.loading" = "Loading Agent settings…";
-"settings.agent.saving" = "Saving";
-"settings.agent.reload" = "Reload settings";
 "settings.agent.session_defaults.title" = "Session defaults";
 "settings.agent.session_defaults.subtitle" = "Used for future Chat and Work sessions";
 "settings.agent.default_model.title" = "Default model";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "Sign in";
 "providers.agent_auth.logout" = "Log out";
 "providers.loading" = "Loading model providers…";
-"providers.search" = "Search providers";
-"providers.refresh_help" = "Refresh authentication status";
-"providers.no_match" = "No matching providers";
-"providers.no_match_hint" = "Try another name or provider ID";
+"providers.empty" = "No providers available";
 "providers.disconnect_title" = "Disconnect %@?";
 "providers.disconnect_message" = "Credentials saved by pi-work will be removed. Environment variables and external configuration will not be changed.";
 "providers.models_available" = "%ld/%ld models available";

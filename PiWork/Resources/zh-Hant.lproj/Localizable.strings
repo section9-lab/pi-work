@@ -24,7 +24,6 @@
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新作業已完成";
 "settings.extensions.update_help" = "從已設定的來源更新外掛程式；固定版本保持不變。";
-"settings.extensions.refresh" = "重新整理外掛程式設定";
 "settings.extensions.loading" = "正在載入外掛程式設定…";
 "settings.extensions.empty" = "尚未安裝外掛程式";
 "settings.extensions.changes_apply" = "只儲存已修改的值；未顯示的設定會保持不變。";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "使用 Markdown 全域指令告訴 pi-work 如何協助你";
 "settings.personal_preferences.file_title" = "pi-work 全域指令";
 "settings.personal_preferences.saved" = "已儲存";
-"settings.personal_preferences.reload" = "重新讀取";
 "settings.personal_preferences.revert" = "還原";
 "settings.personal_preferences.save" = "儲存";
 "settings.personal_preferences.placeholder" = "描述你偏好的語言、語氣、編碼規範和工作規則……";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "設定 pi-coding-agent 的工作階段預設值與執行行為";
 "settings.agent.loading" = "正在讀取 Agent 設定…";
-"settings.agent.saving" = "正在儲存";
-"settings.agent.reload" = "重新讀取設定";
 "settings.agent.session_defaults.title" = "工作階段預設值";
 "settings.agent.session_defaults.subtitle" = "用於之後建立的 Chat 與 Work 工作階段";
 "settings.agent.default_model.title" = "預設模型";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "登入";
 "providers.agent_auth.logout" = "登出";
 "providers.loading" = "正在讀取模型服務商…";
-"providers.search" = "搜尋服務商";
-"providers.refresh_help" = "重新整理認證狀態";
-"providers.no_match" = "沒有符合的服務商";
-"providers.no_match_hint" = "請嘗試其他名稱或服務商 ID";
+"providers.empty" = "暫無可用供應商";
 "providers.disconnect_title" = "要中斷 %@ 的連線嗎？";
 "providers.disconnect_message" = "pi-work 儲存的認證資訊將被移除。環境變數或外部設定不會被修改。";
 "providers.models_available" = "%ld/%ld 個模型可用";

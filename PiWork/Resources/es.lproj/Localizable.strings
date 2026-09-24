@@ -24,7 +24,6 @@
 "settings.extensions.update" = "Actualizar";
 "settings.extensions.update_finished" = "Operación de actualización completada";
 "settings.extensions.update_help" = "Actualiza desde el origen configurado. Las versiones fijadas no cambian.";
-"settings.extensions.refresh" = "Actualizar configuración de complementos";
 "settings.extensions.loading" = "Cargando configuración de complementos…";
 "settings.extensions.empty" = "No hay complementos instalados";
 "settings.extensions.changes_apply" = "Solo se guardan los valores modificados; las opciones no mostradas se conservan.";
@@ -42,7 +41,6 @@
 "settings.personal_preferences.subtitle" = "Guía a pi-work con instrucciones globales escritas en Markdown";
 "settings.personal_preferences.file_title" = "Instrucciones globales de pi-work";
 "settings.personal_preferences.saved" = "Guardado";
-"settings.personal_preferences.reload" = "Recargar";
 "settings.personal_preferences.revert" = "Revertir";
 "settings.personal_preferences.save" = "Guardar";
 "settings.personal_preferences.placeholder" = "Describe el idioma, el tono, las convenciones de código y las reglas de trabajo que prefieres…";
@@ -80,8 +78,6 @@
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "Configura los valores predeterminados de sesión y el comportamiento de pi-coding-agent";
 "settings.agent.loading" = "Cargando los ajustes de Agent…";
-"settings.agent.saving" = "Guardando";
-"settings.agent.reload" = "Volver a cargar los ajustes";
 "settings.agent.session_defaults.title" = "Valores predeterminados de sesión";
 "settings.agent.session_defaults.subtitle" = "Se usarán en las próximas sesiones de Chat y Work";
 "settings.agent.default_model.title" = "Modelo predeterminado";
@@ -121,10 +117,7 @@
 "providers.agent_auth.sign_in" = "Iniciar sesión";
 "providers.agent_auth.logout" = "Cerrar sesión";
 "providers.loading" = "Cargando proveedores de modelos…";
-"providers.search" = "Buscar proveedores";
-"providers.refresh_help" = "Actualizar el estado de autenticación";
-"providers.no_match" = "No hay proveedores coincidentes";
-"providers.no_match_hint" = "Prueba con otro nombre o ID de proveedor";
+"providers.empty" = "No hay proveedores disponibles";
 "providers.disconnect_title" = "¿Desconectar %@?";
 "providers.disconnect_message" = "Se eliminarán las credenciales guardadas por pi-work. Las variables de entorno y la configuración externa no se modificarán.";
 "providers.models_available" = "%ld/%ld modelos disponibles";
