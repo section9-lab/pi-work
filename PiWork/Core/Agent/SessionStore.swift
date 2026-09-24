@@ -35,6 +35,9 @@ struct SessionToolRecord: Equatable, Identifiable {
     let name: String
     let summary: String
     let output: String
+    let content: [AgentHostACPToolCallContent]
+    let rawInput: AgentHostJSONValue?
+    let rawOutput: AgentHostJSONValue?
     let outputTruncated: Bool
     let outputByteCount: Int?
     let state: SessionToolRunState
@@ -46,6 +49,9 @@ struct SessionToolRecord: Equatable, Identifiable {
         name: String,
         summary: String,
         output: String = "",
+        content: [AgentHostACPToolCallContent] = [],
+        rawInput: AgentHostJSONValue? = nil,
+        rawOutput: AgentHostJSONValue? = nil,
         outputTruncated: Bool = false,
         outputByteCount: Int? = nil,
         state: SessionToolRunState,
@@ -56,6 +62,9 @@ struct SessionToolRecord: Equatable, Identifiable {
         self.name = name
         self.summary = summary
         self.output = output
+        self.content = content
+        self.rawInput = rawInput
+        self.rawOutput = rawOutput
         self.outputTruncated = outputTruncated
         self.outputByteCount = outputByteCount
         self.state = state
@@ -132,7 +141,9 @@ struct SessionRecord: Equatable, Identifiable {
     var modelOptions: AgentHostModelOptions
     var accessMode: AgentHostAccessMode
     var pendingApprovals: [AgentHostApprovalRequest]
+    var pendingElicitations: [AgentHostACPElicitationRequest] = []
     var errorMessage: String?
+    var acpState: AgentHostACPSessionState
 }
 
 enum SessionStoreEffect: Equatable {
@@ -157,6 +168,44 @@ struct SessionStoreReducer {
 
     mutating func apply(_ record: SessionRecord) {
         records[record.id] = record
+    }
+
+    mutating func applyACPState(
+        _ state: AgentHostACPSessionState,
+        sessionId: String
+    ) {
+        guard var record = records[sessionId] else { return }
+        if let modes = state.modes {
+            record.acpState.modes = modes
+        }
+        record.acpState.configOptions = state.configOptions
+        if let cost = state.cost {
+            record.acpState.cost = cost
+        }
+        if let availableCommands = state.availableCommands {
+            record.acpState.availableCommands = availableCommands
+        }
+        if let plan = state.plan {
+            record.acpState.plan = plan
+        }
+        if !state.extensionStatuses.isEmpty {
+            record.acpState.extensionStatuses.merge(state.extensionStatuses) { _, latest in latest }
+        }
+        if !state.extensionWidgets.isEmpty {
+            record.acpState.extensionWidgets.merge(state.extensionWidgets) { _, latest in latest }
+        }
+        if let updatedAt = state.updatedAt {
+            record.acpState.updatedAt = updatedAt
+        }
+        record.acpState.supportsImages = state.supportsImages
+        if let model = record.acpState.model, record.model != model {
+            record.model = model
+        }
+        record.thinkingLevel = record.acpState.thinkingLevel ?? record.thinkingLevel
+        record.availableThinkingLevels = record.acpState.availableThinkingLevels
+        record.modelOptions = record.acpState.modelOptions
+        record.accessMode = record.acpState.accessMode ?? record.accessMode
+        records[sessionId] = record
     }
 
     static func project(
@@ -194,7 +243,49 @@ struct SessionStoreReducer {
             modelOptions: snapshot.modelOptions,
             accessMode: snapshot.accessMode,
             pendingApprovals: snapshot.pendingApprovals,
-            errorMessage: nil
+            errorMessage: nil,
+            acpState: AgentHostACPSessionState(
+                plan: snapshot.plan,
+                extensionStatuses: snapshot.extensionStatuses ?? [:],
+                extensionWidgets: snapshot.extensionWidgets ?? [:]
+            )
+        )
+    }
+
+    static func project(
+        summary: AgentHostSessionSummary,
+        profile: AgentHostSessionProfile,
+        sessionDirectory: String?,
+        acpState: AgentHostACPSessionState = .empty
+    ) -> SessionRecord {
+        SessionRecord(
+            descriptor: AgentHostSessionDescriptor(
+                id: summary.id,
+                path: summary.path,
+                cwd: summary.cwd,
+                title: summary.title
+            ),
+            profile: profile,
+            sessionDirectory: sessionDirectory,
+            messages: [],
+            tools: [],
+            transcript: [],
+            historyCursor: nil,
+            historyRevision: nil,
+            hasEarlierMessages: false,
+            runState: .idle,
+            lastSequence: 0,
+            activeTurnId: nil,
+            gitBranch: nil,
+            model: acpState.model,
+            contextUsage: nil,
+            thinkingLevel: acpState.thinkingLevel ?? .off,
+            availableThinkingLevels: acpState.availableThinkingLevels,
+            modelOptions: acpState.modelOptions,
+            accessMode: acpState.accessMode ?? (profile == .chat ? .none : .ask),
+            pendingApprovals: [],
+            errorMessage: nil,
+            acpState: acpState
         )
     }
 
@@ -315,6 +406,16 @@ struct SessionStoreReducer {
         records[sessionId] = record
     }
 
+    mutating func promptCompleted(sessionId: String, turnId: String) {
+        guard var record = records[sessionId], record.activeTurnId == turnId else { return }
+        finishUnfinishedTools(in: &record, state: .cancelled)
+        finishUnfinishedThinking(in: &record)
+        record.runState = .idle
+        record.activeTurnId = nil
+        record.pendingApprovals = []
+        records[sessionId] = record
+    }
+
     mutating func promptFailed(sessionId: String, turnId: String, message: String) {
         guard var record = records[sessionId], record.activeTurnId == turnId else { return }
         record.runState = .failed
@@ -405,12 +506,25 @@ struct SessionStoreReducer {
                         name: tool.name,
                         summary: tool.summary,
                         output: tool.output,
+                        content: tool.content,
+                        rawInput: tool.rawInput,
+                        rawOutput: tool.rawOutput,
                         state: .running,
                         isError: nil
                     )
                 }
             }
             record.pendingApprovals = []
+        }
+        records[sessionId] = record
+    }
+
+    mutating func selectSessionMode(sessionId: String, modeId: String) {
+        guard var record = records[sessionId], var modes = record.acpState.modes else { return }
+        modes.currentModeId = modeId
+        record.acpState.modes = modes
+        if let accessMode = AgentHostAccessMode(rawValue: modeId) {
+            record.accessMode = accessMode
         }
         records[sessionId] = record
     }
@@ -426,11 +540,20 @@ struct SessionStoreReducer {
                     name: tool.name,
                     summary: tool.summary,
                     output: tool.output,
+                    content: tool.content,
+                    rawInput: tool.rawInput,
+                    rawOutput: tool.rawOutput,
                     state: .running,
                     isError: nil
                 )
             }
         }
+        records[sessionId] = record
+    }
+
+    mutating func resolveElicitation(sessionId: String, requestId: String) {
+        guard var record = records[sessionId] else { return }
+        record.pendingElicitations.removeAll { $0.id == requestId }
         records[sessionId] = record
     }
 
@@ -442,6 +565,19 @@ struct SessionStoreReducer {
         _ event: AgentHostServerEvent,
         timestamp: String
     ) -> [SessionStoreEffect] {
+        if case .elicitationRequested(let request) = event,
+           let sessionId = request.sessionId {
+            guard var record = records[sessionId] else {
+                return [.requestSnapshot(sessionId: sessionId)]
+            }
+            if let index = record.pendingElicitations.firstIndex(where: { $0.id == request.id }) {
+                record.pendingElicitations[index] = request
+            } else {
+                record.pendingElicitations.append(request)
+            }
+            records[sessionId] = record
+            return []
+        }
         guard let identity = eventIdentity(event) else { return [] }
         guard var record = records[identity.sessionId] else {
             return [.requestSnapshot(sessionId: identity.sessionId)]
@@ -473,40 +609,56 @@ struct SessionStoreReducer {
             record.runState = .running
             record.activeTurnId = payload.turnId
             append(delta: payload.delta, turnId: payload.turnId, timestamp: timestamp, to: &record)
+        case .sessionUserContent(let payload):
+            appendUserContent(payload, timestamp: timestamp, to: &record)
         case .sessionAssistantContent(let payload):
             record.runState = .running
             record.activeTurnId = payload.turnId
             applyAssistantContent(payload, timestamp: timestamp, to: &record)
         case .sessionToolStarted(let payload):
+            let existing = record.tools.first { $0.id == payload.toolCallId }
             let tool = SessionToolRecord(
                 id: payload.toolCallId,
                 name: payload.toolName,
                 summary: payload.summary,
-                output: "",
+                output: existing?.output ?? "",
+                content: payload.content ?? existing?.content ?? [],
+                rawInput: payload.rawInput ?? existing?.rawInput,
+                rawOutput: existing?.rawOutput,
                 state: .running,
                 isError: nil
             )
             replaceOrAppend(tool, in: &record.tools)
             replaceOrAppend(tool, turnId: payload.turnId, timestamp: timestamp, in: &record.transcript)
         case .sessionToolUpdated(let payload):
-            let summary = record.tools.first(where: { $0.id == payload.toolCallId })?.summary ?? ""
+            let existing = record.tools.first { $0.id == payload.toolCallId }
             let tool = SessionToolRecord(
                 id: payload.toolCallId,
                 name: payload.toolName,
-                summary: summary,
-                output: payload.output,
+                summary: existing?.summary ?? "",
+                output: payload.content == nil && payload.output.isEmpty
+                    ? existing?.output ?? ""
+                    : payload.output,
+                content: payload.content ?? existing?.content ?? [],
+                rawInput: existing?.rawInput,
+                rawOutput: payload.rawOutput ?? existing?.rawOutput,
                 state: .running,
                 isError: nil
             )
             replaceOrAppend(tool, in: &record.tools)
             replaceOrAppend(tool, turnId: payload.turnId, timestamp: timestamp, in: &record.transcript)
         case .sessionToolCompleted(let payload):
-            let summary = record.tools.first(where: { $0.id == payload.toolCallId })?.summary ?? ""
+            let existing = record.tools.first { $0.id == payload.toolCallId }
             let tool = SessionToolRecord(
                 id: payload.toolCallId,
                 name: payload.toolName,
-                summary: summary,
-                output: payload.output,
+                summary: existing?.summary ?? "",
+                output: payload.content == nil && payload.output.isEmpty
+                    ? existing?.output ?? ""
+                    : payload.output,
+                content: payload.content ?? existing?.content ?? [],
+                rawInput: existing?.rawInput,
+                rawOutput: payload.rawOutput ?? existing?.rawOutput,
                 state: .completed,
                 isError: payload.isError
             )
@@ -522,6 +674,9 @@ struct SessionStoreReducer {
                 name: payload.toolName,
                 summary: summary,
                 output: existing?.output ?? "",
+                content: existing?.content ?? [],
+                rawInput: existing?.rawInput,
+                rawOutput: existing?.rawOutput,
                 state: .awaitingApproval,
                 isError: nil,
                 approval: payload.approval
@@ -539,12 +694,81 @@ struct SessionStoreReducer {
             record.activeTurnId = nil
             record.pendingApprovals = []
             record.errorMessage = payload.message
+        case .sessionModeChanged(let payload):
+            if var modes = record.acpState.modes {
+                modes.currentModeId = payload.currentModeId
+                record.acpState.modes = modes
+            } else {
+                record.acpState.modes = AgentHostACPSessionModeState(
+                    currentModeId: payload.currentModeId,
+                    availableModes: []
+                )
+            }
+            if let accessMode = AgentHostAccessMode(rawValue: payload.currentModeId) {
+                record.accessMode = accessMode
+            }
+        case .sessionConfigOptionsChanged(let payload):
+            record.acpState.configOptions = payload.configOptions
+            if let model = record.acpState.model {
+                if record.model?.provider != model.provider || record.model?.id != model.id {
+                    record.model = model
+                }
+            }
+            record.thinkingLevel = record.acpState.thinkingLevel ?? record.thinkingLevel
+            record.availableThinkingLevels = record.acpState.availableThinkingLevels
+            record.modelOptions = record.acpState.modelOptions
+        case .sessionInfoChanged(let payload):
+            if let title = payload.title {
+                record.descriptor = AgentHostSessionDescriptor(
+                    id: record.descriptor.id,
+                    path: record.descriptor.path,
+                    cwd: record.descriptor.cwd,
+                    title: title
+                )
+            }
+            if let updatedAt = payload.updatedAt {
+                record.acpState.updatedAt = updatedAt
+            }
+        case .sessionUsageChanged(let payload):
+            record.contextUsage = AgentHostContextUsage(
+                tokens: payload.used,
+                contextWindow: payload.size,
+                percent: payload.size > 0
+                    ? Double(payload.used) / Double(payload.size) * 100
+                    : nil
+            )
+            if let model = record.model, payload.size > 0 {
+                record.model = AgentHostModel(
+                    provider: model.provider,
+                    id: model.id,
+                    name: model.name,
+                    contextWindow: payload.size,
+                    maxTokens: model.maxTokens,
+                    reasoning: model.reasoning,
+                    supportsImages: model.supportsImages,
+                    supportsFastMode: model.supportsFastMode
+                )
+            }
+            record.acpState.cost = payload.cost
+        case .sessionAvailableCommandsChanged(let payload):
+            record.acpState.availableCommands = payload.availableCommands
+        case .sessionPlanChanged(let payload):
+            record.acpState.plan = payload.entries
+        case .sessionExtensionStatusChanged(let payload):
+            if let text = payload.text {
+                record.acpState.extensionStatuses[payload.key] = text
+            } else {
+                record.acpState.extensionStatuses[payload.key] = nil
+            }
+        case .sessionExtensionWidgetChanged(let payload):
+            record.acpState.extensionWidgets[payload.key] = payload.widget
         case .hostHello,
              .authPrompt,
              .authPromptCancelled,
              .authNotice,
              .authFinished,
              .modelsChanged,
+             .elicitationRequested,
              .unknown:
             break
         }
@@ -559,6 +783,8 @@ struct SessionStoreReducer {
             return (payload.sessionId, payload.sequence)
         case .sessionMessageDelta(let payload):
             return (payload.sessionId, payload.sequence)
+        case .sessionUserContent(let payload):
+            return (payload.sessionId, payload.sequence)
         case .sessionAssistantContent(let payload):
             return (payload.sessionId, payload.sequence)
         case .sessionToolStarted(let payload):
@@ -571,12 +797,29 @@ struct SessionStoreReducer {
             return (payload.sessionId, payload.sequence)
         case .sessionError(let payload):
             return (payload.sessionId, payload.sequence)
+        case .sessionModeChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionConfigOptionsChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionInfoChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionUsageChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionAvailableCommandsChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionPlanChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionExtensionStatusChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionExtensionWidgetChanged(let payload):
+            return (payload.sessionId, payload.sequence)
         case .hostHello,
              .authPrompt,
              .authPromptCancelled,
              .authNotice,
              .authFinished,
              .modelsChanged,
+             .elicitationRequested,
              .unknown:
             return nil
         }
@@ -628,6 +871,67 @@ struct SessionStoreReducer {
                 isError: nil
             )
         )
+    }
+
+    private func appendUserContent(
+        _ payload: AgentHostSessionUserContentPayload,
+        timestamp: String,
+        to record: inout SessionRecord
+    ) {
+        let messageID = "message:\(payload.messageId):user"
+        if let messageIndex = record.messages.firstIndex(where: { $0.id == messageID }) {
+            let message = record.messages[messageIndex]
+            let text = message.content.reduce(into: "") { result, content in
+                if case .text(let value) = content { result += value }
+            }
+            record.messages[messageIndex] = AgentHostSessionMessage(
+                id: message.id,
+                role: .user,
+                content: [.text(text + payload.text)],
+                timestamp: message.timestamp,
+                provider: nil,
+                model: nil,
+                stopReason: nil,
+                errorMessage: nil,
+                toolCallId: nil,
+                toolName: nil,
+                isError: nil
+            )
+        } else {
+            record.messages.append(
+                AgentHostSessionMessage(
+                    id: messageID,
+                    role: .user,
+                    content: [.text(payload.text)],
+                    timestamp: timestamp,
+                    provider: nil,
+                    model: nil,
+                    stopReason: nil,
+                    errorMessage: nil,
+                    toolCallId: nil,
+                    toolName: nil,
+                    isError: nil
+                )
+            )
+        }
+
+        if let transcriptIndex = record.transcript.firstIndex(where: { $0.id == messageID }),
+           let partIndex = record.transcript[transcriptIndex].parts.indices.last,
+           case .text(let partID, let text) = record.transcript[transcriptIndex].parts[partIndex] {
+            record.transcript[transcriptIndex].parts[partIndex] = .text(
+                id: partID,
+                text: text + payload.text
+            )
+        } else {
+            record.transcript.append(
+                SessionTranscriptMessage(
+                    id: messageID,
+                    role: .user,
+                    parts: [.text(id: "\(messageID):text:0", text: payload.text)],
+                    timestamp: timestamp
+                )
+            )
+        }
     }
 
     private func applyAssistantContent(
@@ -726,6 +1030,9 @@ struct SessionStoreReducer {
                 name: call.name,
                 summary: call.argumentsSummary,
                 output: existing?.output ?? "",
+                content: existing?.content ?? [],
+                rawInput: existing?.rawInput,
+                rawOutput: existing?.rawOutput,
                 state: existing?.state ?? .running,
                 isError: existing?.isError,
                 approval: existing?.approval
@@ -788,6 +1095,9 @@ struct SessionStoreReducer {
                     name: tool.name,
                     summary: tool.summary,
                     output: output,
+                    content: tool.content,
+                    rawInput: tool.rawInput,
+                    rawOutput: tool.rawOutput,
                     state: state,
                     isError: errorMessage == nil ? tool.isError : true
                 )
@@ -963,6 +1273,9 @@ struct SessionStoreReducer {
                         name: tool.name,
                         summary: tool.summary,
                         output: tool.output,
+                        content: tool.content,
+                        rawInput: tool.rawInput,
+                        rawOutput: tool.rawOutput,
                         outputTruncated: tool.outputTruncated,
                         outputByteCount: tool.outputByteCount,
                         state: .awaitingApproval,
@@ -1133,6 +1446,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var selectedChatSessionId: String?
     @Published private(set) var selectedWorkSessionIdByProjectPath: [String: String] = [:]
     @Published private(set) var connectionState: SessionStoreConnectionState = .disconnected
+    @Published private(set) var pendingElicitations: [AgentHostACPElicitationRequest] = []
 
     private let service: any AgentHostServicing
     private let now: () -> Date
@@ -1144,6 +1458,8 @@ final class SessionStore: ObservableObject {
     private var didBeginObserving = false
     private var didStart = false
     private var isStopped = false
+    private var piWorkCapabilities: Set<AgentHostPiWorkCapability> = []
+    private var supportsACPImagePrompts = false
     private var selectedSessionIds: Set<String> = []
     private var snapshotRequestsInFlight: Set<String> = []
     private var historyRequestsInFlight: Set<String> = []
@@ -1204,7 +1520,9 @@ final class SessionStore: ObservableObject {
         connectionState = .connecting
         await beginObserving()
         do {
-            _ = try await service.start()
+            let hello = try await service.start()
+            piWorkCapabilities = hello.piWorkCapabilities
+            supportsACPImagePrompts = hello.acpCapabilities.promptImages
         } catch {
             didStart = false
             connectionState = .failed(String(describing: error))
@@ -1223,8 +1541,15 @@ final class SessionStore: ObservableObject {
             sessionDirectory: sessionDirectory,
             requestID: UUID().uuidString
         )
-        async let listedModels = service.listModels(requestID: UUID().uuidString)
-        let (sessions, models) = try await (listedSessions, listedModels)
+        var models: [AgentHostModel] = []
+        if supportsPiWorkCapability(.modelsList) {
+            do {
+                models = try await service.listModels(requestID: UUID().uuidString)
+            } catch where Self.isMethodNotFound(error) {
+                models = []
+            }
+        }
+        let sessions = try await listedSessions
         let sortedSessions = sessions.sorted { lhs, rhs in
             lhs.modifiedAt == rhs.modifiedAt ? lhs.id < rhs.id : lhs.modifiedAt > rhs.modifiedAt
         }
@@ -1243,6 +1568,7 @@ final class SessionStore: ObservableObject {
         selectSession: Bool = true,
         performanceTraceID: UUID? = nil
     ) async throws {
+        var provisionalSessionID: String?
         do {
             try await start()
             if let performanceTraceID {
@@ -1264,16 +1590,27 @@ final class SessionStore: ObservableObject {
                 }
                 return
             }
+            reducer.apply(
+                SessionStoreReducer.project(
+                    summary: summary,
+                    profile: profile,
+                    sessionDirectory: sessionDirectory
+                )
+            )
+            provisionalSessionID = summary.id
+            let openResult: AgentHostSessionOpenResult
             do {
-                _ = try await service.openSession(
-                    path: summary.path,
+                openResult = try await service.openSession(
+                    sessionId: summary.id,
+                    cwd: summary.cwd,
                     sessionDirectory: sessionDirectory,
                     profile: profile,
                     requestID: UUID().uuidString
                 )
             } catch AgentHostClientError.requestTimedOut {
-                _ = try await service.openSession(
-                    path: summary.path,
+                openResult = try await service.openSession(
+                    sessionId: summary.id,
+                    cwd: summary.cwd,
                     sessionDirectory: sessionDirectory,
                     profile: profile,
                     requestID: UUID().uuidString
@@ -1282,23 +1619,43 @@ final class SessionStore: ObservableObject {
             if let performanceTraceID {
                 performanceTracer.mark(traceID: performanceTraceID, stage: .openRPCCompleted)
             }
-            let snapshot = try await service.snapshot(
-                sessionId: summary.id,
-                requestID: UUID().uuidString
-            )
+            var snapshot: AgentHostSessionSnapshotResult?
+            if supportsPiWorkCapability(.sessionSnapshot) {
+                do {
+                    snapshot = try await service.snapshot(
+                        sessionId: summary.id,
+                        requestID: UUID().uuidString
+                    )
+                } catch where Self.isMethodNotFound(error) {
+                    snapshot = nil
+                }
+            }
             if let performanceTraceID {
                 performanceTracer.mark(
                     traceID: performanceTraceID,
                     stage: .snapshotCompleted,
-                    messageCount: snapshot.messages.count,
-                    hasEarlierMessages: snapshot.history?.hasMore
+                    messageCount: snapshot?.messages.count,
+                    hasEarlierMessages: snapshot?.history?.hasMore
                 )
             }
-            let projectedRecord = await project(
-                snapshot: snapshot,
-                profile: profile,
-                sessionDirectory: sessionDirectory
-            )
+            if let snapshot {
+                reducer.apply(
+                    await project(
+                        snapshot: snapshot,
+                        profile: profile,
+                        sessionDirectory: sessionDirectory
+                    )
+                )
+            } else {
+                reducer.applyACPState(
+                    normalizedACPState(openResult.acpState),
+                    sessionId: summary.id
+                )
+            }
+            guard let projectedRecord = reducer.records[summary.id] else {
+                throw SessionStoreError.sessionNotOpen(summary.id)
+            }
+            mergeAvailableModels(normalizedACPState(openResult.acpState).availableModels)
             if let performanceTraceID {
                 performanceTracer.mark(
                     traceID: performanceTraceID,
@@ -1306,10 +1663,13 @@ final class SessionStore: ObservableObject {
                     transcriptCount: projectedRecord.transcript.count
                 )
             }
-            reducer.apply(projectedRecord)
             touchSession(projectedRecord.id)
             if selectSession {
-                select(snapshot.session.id, profile: profile, cwd: snapshot.session.cwd)
+                select(
+                    projectedRecord.id,
+                    profile: profile,
+                    cwd: projectedRecord.descriptor.cwd
+                )
                 if let performanceTraceID {
                     performanceTracer.mark(
                         traceID: performanceTraceID,
@@ -1325,7 +1685,12 @@ final class SessionStore: ObservableObject {
             if let performanceTraceID {
                 performanceTracer.mark(traceID: performanceTraceID, stage: .cacheTrimCompleted)
             }
+            provisionalSessionID = nil
         } catch {
+            if let provisionalSessionID {
+                reducer.remove(sessionId: provisionalSessionID)
+                publishReducerState()
+            }
             if let performanceTraceID {
                 performanceTracer.fail(traceID: performanceTraceID)
             }
@@ -1340,6 +1705,9 @@ final class SessionStore: ObservableObject {
         downloadsDirectory: URL? = nil
     ) async throws -> URL {
         try await start()
+        guard supportsPiWorkCapability(.sessionExportHTML) else {
+            throw AgentHostServiceError.missingPiWorkCapability(.sessionExportHTML)
+        }
         let destinationDirectory: URL
         if let downloadsDirectory {
             destinationDirectory = downloadsDirectory
@@ -1400,6 +1768,9 @@ final class SessionStore: ObservableObject {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
         guard record.hasEarlierMessages, let cursor = record.historyCursor else { return 0 }
+        guard supportsPiWorkCapability(.sessionTranscriptPage) else {
+            throw AgentHostServiceError.missingPiWorkCapability(.sessionTranscriptPage)
+        }
         guard historyRequestsInFlight.insert(sessionId).inserted else { return 0 }
         defer { historyRequestsInFlight.remove(sessionId) }
 
@@ -1425,21 +1796,43 @@ final class SessionStore: ObservableObject {
         selectSession: Bool = true
     ) async throws -> SessionRecord {
         try await start()
-        let summary = try await service.createDraft(
+        let result = try await service.createDraft(
             cwd: cwd,
             sessionDirectory: sessionDirectory,
             profile: profile,
             requestID: UUID().uuidString
         )
-        let snapshot = try await service.snapshot(
-            sessionId: summary.id,
-            requestID: UUID().uuidString
-        )
-        let projectedRecord = await project(
-            snapshot: snapshot,
-            profile: profile,
-            sessionDirectory: sessionDirectory
-        )
+        let summary = result.session
+        let acpState = normalizedACPState(result.acpState)
+        let projectedRecord: SessionRecord
+        if supportsPiWorkCapability(.sessionSnapshot) {
+            do {
+                let snapshot = try await service.snapshot(
+                    sessionId: summary.id,
+                    requestID: UUID().uuidString
+                )
+                projectedRecord = await project(
+                    snapshot: snapshot,
+                    profile: profile,
+                    sessionDirectory: sessionDirectory
+                )
+            } catch where Self.isMethodNotFound(error) {
+                projectedRecord = SessionStoreReducer.project(
+                    summary: summary,
+                    profile: profile,
+                    sessionDirectory: sessionDirectory,
+                    acpState: acpState
+                )
+            }
+        } else {
+            projectedRecord = SessionStoreReducer.project(
+                summary: summary,
+                profile: profile,
+                sessionDirectory: sessionDirectory,
+                acpState: acpState
+            )
+        }
+        mergeAvailableModels(acpState.availableModels)
         reducer.apply(projectedRecord)
         touchSession(projectedRecord.id)
         appendSummaryIfNeeded(summary, profile: profile, cwd: cwd)
@@ -1455,9 +1848,19 @@ final class SessionStore: ObservableObject {
     }
 
     func slashCommands(sessionId: String) async throws -> [AgentHostSlashCommand] {
-        guard records[sessionId] != nil else {
+        guard let record = records[sessionId] else {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
+        if let commands = record.acpState.availableCommands {
+            return commands.map {
+                AgentHostSlashCommand(
+                    name: $0.name,
+                    description: $0.description,
+                    source: .agent
+                )
+            }
+        }
+        guard supportsPiWorkCapability(.sessionCommands) else { return [] }
         return try await service.listSlashCommands(
             sessionId: sessionId,
             requestID: UUID().uuidString
@@ -1468,6 +1871,9 @@ final class SessionStore: ObservableObject {
         guard records[sessionId] != nil else {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
+        guard supportsPiWorkCapability(.sessionToolOutput) else {
+            throw AgentHostServiceError.missingPiWorkCapability(.sessionToolOutput)
+        }
         return try await service.toolOutput(
             sessionId: sessionId,
             toolCallId: toolCallId,
@@ -1477,6 +1883,7 @@ final class SessionStore: ObservableObject {
 
     func gitBranches(cwd: String) async throws -> AgentHostGitBranchesResult {
         try await start()
+        guard supportsPiWorkCapability(.gitBranches) else { return .unavailable }
         return try await service.gitBranches(
             cwd: cwd,
             requestID: UUID().uuidString
@@ -1486,6 +1893,9 @@ final class SessionStore: ObservableObject {
     func setGitBranch(_ branch: String, sessionId: String) async throws {
         guard records[sessionId] != nil else {
             throw SessionStoreError.sessionNotOpen(sessionId)
+        }
+        guard supportsPiWorkCapability(.sessionSetGitBranch) else {
+            throw AgentHostServiceError.missingPiWorkCapability(.sessionSetGitBranch)
         }
         let result = try await service.setGitBranch(
             sessionId: sessionId,
@@ -1526,7 +1936,7 @@ final class SessionStore: ObservableObject {
                 images: images,
                 requestID: UUID().uuidString
             )
-            reducer.promptAccepted(sessionId: accepted.sessionId, turnId: accepted.turnId)
+            reducer.promptCompleted(sessionId: accepted.sessionId, turnId: accepted.turnId)
             publishReducerState()
             await process(effects)
             return turnId
@@ -1576,7 +1986,7 @@ final class SessionStore: ObservableObject {
         )
         reducer.selectModel(
             sessionId: sessionId,
-            model: result.model,
+            model: model,
             contextUsage: result.contextUsage,
             thinkingLevel: result.thinkingLevel,
             availableThinkingLevels: result.availableThinkingLevels,
@@ -1601,7 +2011,7 @@ final class SessionStore: ObservableObject {
         )
         reducer.selectModelOption(
             sessionId: result.sessionId,
-            model: result.model,
+            model: records[sessionId]?.model ?? result.model,
             contextUsage: result.contextUsage,
             modelOptions: result.modelOptions
         )
@@ -1625,6 +2035,37 @@ final class SessionStore: ObservableObject {
             thinkingLevel: result.thinkingLevel,
             availableThinkingLevels: result.availableThinkingLevels
         )
+        publishReducerState()
+    }
+
+    func selectConfigOption(
+        _ option: AgentHostACPSetConfigOptionResult.ConfigOption,
+        value: AgentHostACPSetConfigOptionResult.ConfigOption.Value,
+        sessionId: String
+    ) async throws {
+        guard records[sessionId] != nil else {
+            throw SessionStoreError.sessionNotOpen(sessionId)
+        }
+        let result = try await service.setConfigOption(
+            sessionId: sessionId,
+            configId: option.id,
+            value: value,
+            requestID: UUID().uuidString
+        )
+        reducer.applyACPState(normalizedACPState(result.acpState), sessionId: sessionId)
+        publishReducerState()
+    }
+
+    func selectSessionMode(_ modeId: String, sessionId: String) async throws {
+        guard records[sessionId] != nil else {
+            throw SessionStoreError.sessionNotOpen(sessionId)
+        }
+        try await service.setSessionMode(
+            sessionId: sessionId,
+            modeId: modeId,
+            requestID: UUID().uuidString
+        )
+        reducer.selectSessionMode(sessionId: sessionId, modeId: modeId)
         publishReducerState()
     }
 
@@ -1666,6 +2107,28 @@ final class SessionStore: ObservableObject {
             requestId: result.requestId
         )
         publishReducerState()
+    }
+
+    func resolveElicitation(
+        sessionId: String?,
+        requestId: String,
+        response: AgentHostACPElicitationResponse
+    ) async throws {
+        if let sessionId, records[sessionId] == nil {
+            throw SessionStoreError.sessionNotOpen(sessionId)
+        }
+        try await service.resolveElicitation(
+            sessionId: sessionId,
+            requestId: requestId,
+            response: response,
+            requestID: UUID().uuidString
+        )
+        if let sessionId {
+            reducer.resolveElicitation(sessionId: sessionId, requestId: requestId)
+            publishReducerState()
+        } else {
+            pendingElicitations.removeAll { $0.id == requestId }
+        }
     }
 
     func closeSession(sessionId: String) async throws {
@@ -1767,24 +2230,47 @@ final class SessionStore: ObservableObject {
     }
 
     private func receive(_ event: AgentHostServerEvent) async {
-        if case .modelsChanged = event {
+        if case .modelsChanged = event, supportsPiWorkCapability(.modelsList) {
             if let models = try? await service.listModels(requestID: UUID().uuidString) {
                 availableModels = models
             }
             return
         }
+        if case .elicitationRequested(let request) = event, request.sessionId == nil {
+            if let index = pendingElicitations.firstIndex(where: { $0.id == request.id }) {
+                pendingElicitations[index] = request
+            } else {
+                pendingElicitations.append(request)
+            }
+            return
+        }
         let effects = reducer.receive(event, timestamp: Self.timestamp(from: now()))
+        if case .sessionInfoChanged(let payload) = event,
+           let title = payload.title {
+            updateSummaryTitle(sessionId: payload.sessionId, title: title)
+        }
+        if case .sessionConfigOptionsChanged(let payload) = event {
+            mergeAvailableModels(
+                normalizedACPState(
+                    AgentHostACPSessionState(configOptions: payload.configOptions)
+                ).availableModels
+            )
+        }
         publishReducerState()
         await process(effects)
     }
 
     private func receive(_ event: AgentHostServiceLifecycleEvent) async {
         switch event {
-        case .connected(let generation, _):
+        case .connected(let generation, let hello):
+            piWorkCapabilities = hello.piWorkCapabilities
+            supportsACPImagePrompts = hello.acpCapabilities.promptImages
             connectionState = .connected(generation: generation)
         case .disconnected:
             connectionState = .disconnected
-        case .restarted(let generation, _):
+        case .restarted(let generation, let hello):
+            piWorkCapabilities = hello.piWorkCapabilities
+            supportsACPImagePrompts = hello.acpCapabilities.promptImages
             connectionState = .connected(generation: generation)
             await recoverSelectedSessions()
         }
@@ -1796,6 +2282,7 @@ final class SessionStore: ObservableObject {
             case .requestSnapshot(let sessionId):
                 await repairSnapshot(sessionId: sessionId)
             case .renameSession(let sessionId, let title):
+                guard supportsPiWorkCapability(.sessionRename) else { continue }
                 do {
                     _ = try await service.renameSession(
                         sessionId: sessionId,
@@ -1811,7 +2298,8 @@ final class SessionStore: ObservableObject {
     }
 
     private func repairSnapshot(sessionId: String) async {
-        guard let record = reducer.records[sessionId],
+        guard supportsPiWorkCapability(.sessionSnapshot),
+              let record = reducer.records[sessionId],
               snapshotRequestsInFlight.insert(sessionId).inserted else {
             return
         }
@@ -1844,29 +2332,43 @@ final class SessionStore: ObservableObject {
         }
         for record in recoverable {
             do {
-                _ = try await service.openSession(
-                    path: record.descriptor.path,
+                let result = try await service.openSession(
+                    sessionId: record.id,
+                    cwd: record.descriptor.cwd,
                     sessionDirectory: record.sessionDirectory,
                     profile: record.profile,
                     requestID: UUID().uuidString
                 )
-                if record.profile == .work {
+                if let modeId = record.acpState.modes?.currentModeId {
+                    try await service.setSessionMode(
+                        sessionId: record.id,
+                        modeId: modeId,
+                        requestID: UUID().uuidString
+                    )
+                } else if record.profile == .work {
                     _ = try await service.setAccessMode(
                         sessionId: record.id,
                         accessMode: record.accessMode,
                         requestID: UUID().uuidString
                     )
                 }
-                let snapshot = try await service.snapshot(
-                    sessionId: record.id,
-                    requestID: UUID().uuidString
-                )
-                let projectedRecord = await project(
-                    snapshot: snapshot,
-                    profile: record.profile,
-                    sessionDirectory: record.sessionDirectory
-                )
-                reducer.apply(projectedRecord)
+                if supportsPiWorkCapability(.sessionSnapshot) {
+                    let snapshot = try await service.snapshot(
+                        sessionId: record.id,
+                        requestID: UUID().uuidString
+                    )
+                    let projectedRecord = await project(
+                        snapshot: snapshot,
+                        profile: record.profile,
+                        sessionDirectory: record.sessionDirectory
+                    )
+                    reducer.apply(projectedRecord)
+                } else {
+                    reducer.applyACPState(
+                        normalizedACPState(result.acpState),
+                        sessionId: record.id
+                    )
+                }
                 publishReducerState()
             } catch {
                 // Keep the last projection visible; the UI can offer an explicit retry.
@@ -1973,6 +2475,46 @@ final class SessionStore: ObservableObject {
                 summary.id == sessionId ? summary.withTitle(title) : summary
             }
         }
+    }
+
+    private func mergeAvailableModels(_ models: [AgentHostModel]) {
+        let normalizedModels = models.map(normalizedModel)
+        for model in normalizedModels where !availableModels.contains(where: {
+            $0.provider == model.provider && $0.id == model.id
+        }) {
+            availableModels.append(model)
+        }
+    }
+
+    private func normalizedACPState(_ state: AgentHostACPSessionState) -> AgentHostACPSessionState {
+        var state = state
+        state.supportsImages = supportsACPImagePrompts
+        return state
+    }
+
+    private func normalizedModel(_ model: AgentHostModel) -> AgentHostModel {
+        guard supportsACPImagePrompts, !model.supportsImages else { return model }
+        return AgentHostModel(
+            provider: model.provider,
+            id: model.id,
+            name: model.name,
+            contextWindow: model.contextWindow,
+            maxTokens: model.maxTokens,
+            reasoning: model.reasoning,
+            supportsImages: true,
+            supportsFastMode: model.supportsFastMode
+        )
+    }
+
+    private func supportsPiWorkCapability(_ capability: AgentHostPiWorkCapability) -> Bool {
+        piWorkCapabilities.contains(capability)
+    }
+
+    private static func isMethodNotFound(_ error: Error) -> Bool {
+        guard case .requestFailed(let code, _) = error as? AgentHostClientError else {
+            return false
+        }
+        return code == "-32601" || code == "method_not_found"
     }
 
     private static func timestamp(from date: Date) -> String {

@@ -124,6 +124,26 @@ final class SessionStoreReducerTests: XCTestCase {
         )
     }
 
+    func testACPPromptCompletionReturnsTheLocalSessionToIdle() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one"),
+            profile: .chat,
+            sessionDirectory: nil
+        )
+        _ = reducer.submitPrompt(
+            sessionId: "session-one",
+            turnId: "turn-one",
+            text: "Build the feature",
+            timestamp: "2026-08-09T00:00:01.000Z"
+        )
+
+        reducer.promptCompleted(sessionId: "session-one", turnId: "turn-one")
+
+        XCTAssertEqual(reducer.records["session-one"]?.runState, .idle)
+        XCTAssertNil(reducer.records["session-one"]?.activeTurnId)
+    }
+
     func testMessageDeltaIgnoresDuplicatesAndRequestsSnapshotForSequenceGap() {
         var reducer = SessionStoreReducer()
         reducer.apply(
@@ -269,6 +289,64 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertEqual(reducer.records["session-one"]?.runState, .failed)
         XCTAssertEqual(reducer.records["session-one"]?.errorMessage, "Model request failed")
         XCTAssertNil(reducer.records["session-one"]?.activeTurnId)
+    }
+
+    func testStructuredACPToolContentReplacesAndPersistsAcrossStatusUpdates() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one"),
+            profile: .work,
+            sessionDirectory: nil
+        )
+
+        _ = reducer.receive(
+            .sessionToolStarted(
+                AgentHostSessionToolStartedPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    turnId: "turn-one",
+                    toolCallId: "tool-one",
+                    toolName: "edit",
+                    summary: "App.swift",
+                    content: [.diff(path: "/tmp/App.swift", oldText: "old", newText: "new")]
+                )
+            ),
+            timestamp: "2026-08-09T00:00:01.000Z"
+        )
+        let imageContent: [AgentHostACPToolCallContent] = [
+            .content(.image(mimeType: "image/png", data: Data([0x89]), uri: nil))
+        ]
+        _ = reducer.receive(
+            .sessionToolUpdated(
+                AgentHostSessionToolUpdatedPayload(
+                    sessionId: "session-one",
+                    sequence: 2,
+                    turnId: "turn-one",
+                    toolCallId: "tool-one",
+                    toolName: "edit",
+                    output: "",
+                    content: imageContent
+                )
+            ),
+            timestamp: "2026-08-09T00:00:02.000Z"
+        )
+        _ = reducer.receive(
+            .sessionToolCompleted(
+                AgentHostSessionToolCompletedPayload(
+                    sessionId: "session-one",
+                    sequence: 3,
+                    turnId: "turn-one",
+                    toolCallId: "tool-one",
+                    toolName: "edit",
+                    isError: false
+                )
+            ),
+            timestamp: "2026-08-09T00:00:03.000Z"
+        )
+
+        let tool = try XCTUnwrap(reducer.records["session-one"]?.tools.first)
+        XCTAssertEqual(tool.content, imageContent)
+        XCTAssertEqual(tool.state, .completed)
     }
 
     func testTranscriptPreservesTextToolProgressAndFollowingTextOrder() throws {
@@ -878,6 +956,38 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertEqual(reducer.records["session-one"]?.lastSequence, 1)
     }
 
+    func testStandardACPElicitationIsQueuedWithoutASequenceAndRemovedAfterResponse() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one"),
+            profile: .work,
+            sessionDirectory: nil
+        )
+        let request = AgentHostACPElicitationRequest(
+            id: "73",
+            sessionId: "session-one",
+            message: "Choose an action",
+            schema: AgentHostACPElicitationSchema(
+                properties: [
+                    "value": AgentHostACPElicitationProperty(type: .string)
+                ],
+                required: ["value"]
+            )
+        )
+
+        let effects = reducer.receive(
+            .elicitationRequested(request),
+            timestamp: "2026-08-29T00:00:00.000Z"
+        )
+
+        XCTAssertEqual(effects, [])
+        XCTAssertEqual(reducer.records["session-one"]?.pendingElicitations, [request])
+        XCTAssertEqual(reducer.records["session-one"]?.lastSequence, 0)
+
+        reducer.resolveElicitation(sessionId: "session-one", requestId: request.id)
+        XCTAssertEqual(reducer.records["session-one"]?.pendingElicitations, [])
+    }
+
     func testApprovalIsAttachedToItsToolInsideTheTranscript() throws {
         var reducer = SessionStoreReducer()
         reducer.apply(
@@ -940,6 +1050,141 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertNil(resumedTool.approval)
     }
 
+    func testStructuredPluginStateSurvivesToolUpdates() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one"),
+            profile: .work,
+            sessionDirectory: nil
+        )
+        let rawInput = AgentHostJSONValue.object([
+            "agent": .string("reviewer"),
+            "task": .string("Review changes")
+        ])
+        let rawOutput = AgentHostJSONValue.object([
+            "mode": .string("single"),
+            "results": .array([
+                .object([
+                    "agent": .string("reviewer"),
+                    "task": .string("Review changes"),
+                    "exitCode": .number(0)
+                ])
+            ])
+        ])
+
+        _ = reducer.receive(
+            .sessionToolStarted(
+                AgentHostSessionToolStartedPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    turnId: "turn-one",
+                    toolCallId: "tool-one",
+                    toolName: "subagent",
+                    summary: "",
+                    rawInput: rawInput
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionToolUpdated(
+                AgentHostSessionToolUpdatedPayload(
+                    sessionId: "session-one",
+                    sequence: 2,
+                    turnId: "turn-one",
+                    toolCallId: "tool-one",
+                    toolName: "subagent",
+                    output: "running",
+                    rawOutput: rawOutput
+                )
+            ),
+            timestamp: "2026-08-29T00:00:01Z"
+        )
+
+        let tool = try XCTUnwrap(reducer.records["session-one"]?.tools.first)
+        XCTAssertEqual(tool.rawInput, rawInput)
+        XCTAssertEqual(tool.rawOutput, rawOutput)
+    }
+
+    func testExtensionStatusUpdatesAndClearsTheSessionProjection() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one"),
+            profile: .work,
+            sessionDirectory: nil
+        )
+
+        _ = reducer.receive(
+            .sessionExtensionStatusChanged(
+                AgentHostSessionExtensionStatusChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    key: "status-demo",
+                    text: "Ready"
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        XCTAssertEqual(
+            reducer.records["session-one"]?.acpState.extensionStatuses,
+            ["status-demo": "Ready"]
+        )
+
+        _ = reducer.receive(
+            .sessionExtensionStatusChanged(
+                AgentHostSessionExtensionStatusChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 2,
+                    key: "status-demo",
+                    text: nil
+                )
+            ),
+            timestamp: "2026-08-29T00:00:01Z"
+        )
+        XCTAssertEqual(reducer.records["session-one"]?.acpState.extensionStatuses, [:])
+    }
+
+    func testWidgetUpdatesReplaceOnlyTheirOwnKeyAndStayInTheirSession() throws {
+        var reducer = SessionStoreReducer()
+        for sessionId in ["session-one", "session-two"] {
+            reducer.apply(snapshot: makeSnapshot(sessionId: sessionId), profile: .work, sessionDirectory: nil)
+        }
+        let updates = [
+            #"{"key":"alpha","lines":["☐ Inspect"],"placement":"aboveEditor"}"#,
+            #"{"key":"beta","lines":["2 workers running"],"placement":"belowEditor"}"#,
+            #"{"key":"alpha","lines":["✓ Inspect","☐ Verify"]}"#,
+            #"{"key":"beta"}"#
+        ]
+        for (index, json) in updates.enumerated() {
+            var update = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+            update["sessionUpdate"] = "_piWork/extension_widget"
+            update["_meta"] = ["sequence": index + 1]
+            let data = try JSONSerialization.data(withJSONObject: [
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": ["sessionId": "session-one", "update": update]
+            ])
+            XCTAssertEqual(reducer.receive(try AgentHostServerEvent.decode(from: data), timestamp: "now"), [])
+        }
+        XCTAssertEqual(reducer.records["session-one"]?.acpState.extensionWidgets, [
+            "alpha": AgentHostExtensionWidget(lines: ["✓ Inspect", "☐ Verify"])
+        ])
+        XCTAssertEqual(reducer.records["session-two"]?.acpState.extensionWidgets, [:])
+        XCTAssertNil(reducer.records["session-one"]?.acpState.plan)
+    }
+
+    func testSnapshotRestoresAndClearsWidgets() {
+        var reducer = SessionStoreReducer()
+        let widgets = ["alpha": AgentHostExtensionWidget(lines: ["Restored"], placement: .belowEditor)]
+        reducer.apply(
+            snapshot: makeSnapshot(sessionId: "session-one", extensionWidgets: widgets),
+            profile: .work,
+            sessionDirectory: nil
+        )
+        XCTAssertEqual(reducer.records["session-one"]?.acpState.extensionWidgets, widgets)
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        XCTAssertEqual(reducer.records["session-one"]?.acpState.extensionWidgets, [:])
+    }
+
     func testSnapshotPendingApprovalCreatesAnInlineToolPart() throws {
         let approval = AgentHostApprovalRequest(
             id: "approval-one",
@@ -969,6 +1214,33 @@ final class SessionStoreReducerTests: XCTestCase {
         )
         XCTAssertEqual(tool.state, .awaitingApproval)
         XCTAssertEqual(tool.approval, approval)
+    }
+
+    func testSnapshotRestoresExtensionUIStateEmittedBeforeSessionCreationCompletes() {
+        var reducer = SessionStoreReducer()
+        let plan = [
+            AgentHostACPPlanEntry(
+                content: "Verify ACP plan",
+                priority: .medium,
+                status: .inProgress
+            )
+        ]
+
+        reducer.apply(
+            snapshot: makeSnapshot(
+                sessionId: "session-one",
+                extensionStatuses: ["status-demo": "Ready"],
+                plan: plan
+            ),
+            profile: .work,
+            sessionDirectory: nil
+        )
+
+        XCTAssertEqual(
+            reducer.records["session-one"]?.acpState.extensionStatuses,
+            ["status-demo": "Ready"]
+        )
+        XCTAssertEqual(reducer.records["session-one"]?.acpState.plan, plan)
     }
 
     func testSelectingAccessModeAndResolvingApprovalUpdatesProjection() {
@@ -1081,13 +1353,113 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertEqual(effects, [])
         XCTAssertEqual(reducer.records["session-one"]?.contextUsage, updatedUsage)
     }
+
+    func testStandardACPStateUpdatesAreProjectedIntoTheSessionRecord() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(
+            SessionStoreReducer.project(
+                summary: makeACPSummary(),
+                profile: .work,
+                sessionDirectory: nil
+            )
+        )
+        let configOptions = makeACPState().configOptions
+        let cost = AgentHostACPSessionCost(amount: 0.42, currency: "USD")
+        let commands = [
+            AgentHostACPAvailableCommand(name: "review", description: "Review changes")
+        ]
+        let plan = [
+            AgentHostACPPlanEntry(content: "Inspect", priority: .high, status: .inProgress)
+        ]
+
+        _ = reducer.receive(
+            .sessionModeChanged(
+                AgentHostSessionModeChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    currentModeId: "full"
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionConfigOptionsChanged(
+                AgentHostSessionConfigOptionsChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 2,
+                    configOptions: configOptions
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionUsageChanged(
+                AgentHostSessionUsageChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 3,
+                    used: 32,
+                    size: 128,
+                    cost: cost
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionAvailableCommandsChanged(
+                AgentHostSessionAvailableCommandsChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 4,
+                    availableCommands: commands
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionPlanChanged(
+                AgentHostSessionPlanChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 5,
+                    entries: plan
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+        _ = reducer.receive(
+            .sessionInfoChanged(
+                AgentHostSessionInfoChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 6,
+                    title: "Renamed",
+                    updatedAt: "2026-08-29T00:00:00Z"
+                )
+            ),
+            timestamp: "2026-08-29T00:00:00Z"
+        )
+
+        let record = reducer.records["session-one"]
+        XCTAssertEqual(record?.accessMode, .full)
+        XCTAssertEqual(record?.model?.id, "opus")
+        XCTAssertEqual(record?.model?.contextWindow, 128)
+        XCTAssertEqual(record?.thinkingLevel, .high)
+        XCTAssertEqual(record?.contextUsage?.tokens, 32)
+        XCTAssertEqual(record?.contextUsage?.contextWindow, 128)
+        XCTAssertEqual(record?.contextUsage?.percent, 25)
+        XCTAssertEqual(record?.acpState.cost, cost)
+        XCTAssertEqual(record?.acpState.availableCommands, commands)
+        XCTAssertEqual(record?.acpState.plan, plan)
+        XCTAssertEqual(record?.descriptor.title, "Renamed")
+        XCTAssertEqual(record?.acpState.updatedAt, "2026-08-29T00:00:00Z")
+    }
 }
 
 private func makeSnapshot(
     sessionId: String,
     messages: [AgentHostSessionMessage] = [],
     pendingApprovals: [AgentHostApprovalRequest] = [],
-    contextUsage: AgentHostContextUsage? = nil
+    contextUsage: AgentHostContextUsage? = nil,
+    extensionStatuses: [String: String] = [:],
+    extensionWidgets: [String: AgentHostExtensionWidget] = [:],
+    plan: [AgentHostACPPlanEntry]? = nil
 ) -> AgentHostSessionSnapshotResult {
     AgentHostSessionSnapshotResult(
         session: AgentHostSessionDescriptor(
@@ -1105,7 +1477,10 @@ private func makeSnapshot(
         thinkingLevel: .off,
         availableThinkingLevels: [],
         accessMode: .ask,
-        pendingApprovals: pendingApprovals
+        pendingApprovals: pendingApprovals,
+        extensionStatuses: extensionStatuses,
+        extensionWidgets: extensionWidgets,
+        plan: plan
     )
 }
 
@@ -1132,5 +1507,54 @@ private func assistantContent(
             content: content,
             toolCall: toolCall
         )
+    )
+}
+
+private func makeACPSummary() -> AgentHostSessionSummary {
+    AgentHostSessionSummary(
+        id: "session-one",
+        path: "session-one",
+        cwd: "/tmp/project",
+        title: "Session",
+        firstMessage: "",
+        messageCount: 0,
+        createdAt: "2026-08-29T00:00:00Z",
+        modifiedAt: "2026-08-29T00:00:00Z"
+    )
+}
+
+private func makeACPState() -> AgentHostACPSessionState {
+    AgentHostACPSessionState(
+        modes: AgentHostACPSessionModeState(
+            currentModeId: "ask",
+            availableModes: [
+                AgentHostACPSessionMode(id: "ask", name: "Ask", description: nil),
+                AgentHostACPSessionMode(id: "full", name: "Full", description: nil)
+            ]
+        ),
+        configOptions: [
+            AgentHostACPSetConfigOptionResult.ConfigOption(
+                id: "agent-model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: .string("opus"),
+                options: [
+                    .init(value: "sonnet", name: "Sonnet"),
+                    .init(value: "opus", name: "Opus")
+                ]
+            ),
+            AgentHostACPSetConfigOptionResult.ConfigOption(
+                id: "reasoning",
+                name: "Thinking",
+                category: "thought_level",
+                type: "select",
+                currentValue: .string("high"),
+                options: [
+                    .init(value: "off", name: "Off"),
+                    .init(value: "high", name: "High")
+                ]
+            )
+        ]
     )
 }

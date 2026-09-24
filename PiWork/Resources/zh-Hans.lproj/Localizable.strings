@@ -107,6 +107,10 @@
 /* 模型服务商与认证 */
 "providers.title" = "模型与认证";
 "providers.subtitle" = "浏览器登录会在默认浏览器中打开；其他凭据可在此安全输入";
+"providers.agent_auth.title" = "Agent 认证";
+"providers.agent_auth.subtitle" = "由当前连接的 ACP Agent 管理认证。";
+"providers.agent_auth.sign_in" = "登录";
+"providers.agent_auth.logout" = "退出登录";
 "providers.loading" = "正在读取模型服务商…";
 "providers.search" = "搜索服务商";
 "providers.refresh_help" = "刷新认证状态";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Fast 模式";
 "chat.fast_unsupported" = "此模型不支持 Fast 模式";
 "chat.fast_accessibility" = "%@ Fast 模式";
+"chat.agent_settings" = "Agent 设置";
+"chat.session_plan" = "计划";
+"chat.activity.title" = "状态";
+"chat.activity.expand" = "展开状态详情";
+"chat.activity.collapse" = "收起状态详情";
+"chat.session_cost" = "费用";
+"chat.agent_mode" = "模式";
 "chat.enabled" = "已开启";
 "chat.disabled" = "已关闭";
 "chat.unsupported" = "不支持";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "允许这项操作？";
 "chat.approval.deny" = "拒绝";
 "chat.approval.allow_once" = "允许一次";
+"chat.elicitation.decline" = "拒绝";
+"chat.elicitation.submit" = "提交";
+"chat.elicitation.invalid" = "请检查必填字段。";
 "chat.image_attachment" = "[图片 · %@]";
 "chat.image.preview" = "图片附件";
 "chat.image.remove" = "移除图片";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "失败";
 "chat.tool.copy" = "复制";
 "chat.tool.cancelled" = "已取消";
+"chat.tool.diff_before" = "修改前";
+"chat.tool.diff_after" = "修改后";
+"chat.tool.terminal_reference" = "终端引用";
+"chat.tool.image" = "图片";
+"chat.tool.audio" = "音频";
+"chat.tool.unsupported_content" = "不支持的内容";
 "chat.steps.running" = "正在执行 · %d/%d";
 "chat.steps.approval_required" = "需要你的允许";
 "chat.steps.failed" = "完成 %d 个步骤 · %d 个失败";

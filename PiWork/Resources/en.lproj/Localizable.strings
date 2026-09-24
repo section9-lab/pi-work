@@ -107,6 +107,10 @@
 /* Model providers and authentication */
 "providers.title" = "Models & Authentication";
 "providers.subtitle" = "Browser sign-in opens in your default browser. Other credentials are entered securely here.";
+"providers.agent_auth.title" = "Agent authentication";
+"providers.agent_auth.subtitle" = "Authentication managed by the connected ACP agent.";
+"providers.agent_auth.sign_in" = "Sign in";
+"providers.agent_auth.logout" = "Log out";
 "providers.loading" = "Loading model providers…";
 "providers.search" = "Search providers";
 "providers.refresh_help" = "Refresh authentication status";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Fast mode";
 "chat.fast_unsupported" = "This model doesn't support Fast mode";
 "chat.fast_accessibility" = "%@ Fast mode";
+"chat.agent_settings" = "Agent settings";
+"chat.session_plan" = "Plan";
+"chat.activity.title" = "Activity";
+"chat.activity.expand" = "Expand activity";
+"chat.activity.collapse" = "Collapse activity";
+"chat.session_cost" = "Cost";
+"chat.agent_mode" = "Mode";
 "chat.enabled" = "On";
 "chat.disabled" = "Off";
 "chat.unsupported" = "Not supported";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "Allow this operation?";
 "chat.approval.deny" = "Deny";
 "chat.approval.allow_once" = "Allow Once";
+"chat.elicitation.decline" = "Decline";
+"chat.elicitation.submit" = "Submit";
+"chat.elicitation.invalid" = "Check the required fields.";
 "chat.image_attachment" = "[Image · %@]";
 "chat.image.preview" = "Image attachment";
 "chat.image.remove" = "Remove image";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "Failed";
 "chat.tool.copy" = "Copy";
 "chat.tool.cancelled" = "Cancelled";
+"chat.tool.diff_before" = "Before";
+"chat.tool.diff_after" = "After";
+"chat.tool.terminal_reference" = "Terminal reference";
+"chat.tool.image" = "Image";
+"chat.tool.audio" = "Audio";
+"chat.tool.unsupported_content" = "Unsupported content";
 "chat.steps.running" = "Running · %d/%d";
 "chat.steps.approval_required" = "Needs your approval";
 "chat.steps.failed" = "Completed %d steps · %d failed";

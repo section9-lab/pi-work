@@ -3,6 +3,7 @@ import Foundation
 enum AgentHostServiceError: Error {
     case executableNotFound
     case missingCapabilities([String])
+    case missingPiWorkCapability(AgentHostPiWorkCapability)
     case stopped
 }
 
@@ -41,9 +42,10 @@ protocol AgentHostServicing: Actor {
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String
-    ) async throws -> AgentHostSessionSummary
+    ) async throws -> AgentHostSessionCreateDraftResult
     func openSession(
-        path: String,
+        sessionId: String,
+        cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String
@@ -102,6 +104,17 @@ protocol AgentHostServicing: Actor {
         thinkingLevel: AgentHostThinkingLevel,
         requestID: String
     ) async throws -> AgentHostSessionSetThinkingLevelResult
+    func setConfigOption(
+        sessionId: String,
+        configId: String,
+        value: AgentHostACPSetConfigOptionResult.ConfigOption.Value,
+        requestID: String
+    ) async throws -> AgentHostACPSetConfigOptionResult
+    func setSessionMode(
+        sessionId: String,
+        modeId: String,
+        requestID: String
+    ) async throws
     func setAccessMode(
         sessionId: String,
         accessMode: AgentHostAccessMode,
@@ -113,6 +126,12 @@ protocol AgentHostServicing: Actor {
         decision: AgentHostApprovalDecision,
         requestID: String
     ) async throws -> AgentHostSessionResolveApprovalResult
+    func resolveElicitation(
+        sessionId: String?,
+        requestId: String,
+        response: AgentHostACPElicitationResponse,
+        requestID: String
+    ) async throws
     func prompt(
         sessionId: String,
         turnId: String,
@@ -136,9 +155,49 @@ protocol AgentHostServicing: Actor {
     ) async throws -> AgentHostSessionDeleteResult
 }
 
+extension AgentHostServicing {
+    func setConfigOption(
+        sessionId: String,
+        configId: String,
+        value: AgentHostACPSetConfigOptionResult.ConfigOption.Value,
+        requestID: String
+    ) async throws -> AgentHostACPSetConfigOptionResult {
+        throw AgentHostClientError.requestFailed(
+            code: "unsupported_config_option",
+            message: "The agent service does not support arbitrary config options"
+        )
+    }
+
+    func setSessionMode(
+        sessionId: String,
+        modeId: String,
+        requestID: String
+    ) async throws {
+        throw AgentHostClientError.requestFailed(
+            code: "unsupported_session_mode",
+            message: "The agent service does not support arbitrary session modes"
+        )
+    }
+
+    func resolveElicitation(
+        sessionId: String?,
+        requestId: String,
+        response: AgentHostACPElicitationResponse,
+        requestID: String
+    ) async throws {
+        throw AgentHostClientError.requestFailed(
+            code: "unsupported_elicitation",
+            message: "The agent service does not support ACP elicitation"
+        )
+    }
+}
+
 protocol ProviderAuthServicing: Actor {
     func events() -> AsyncStream<AgentHostServerEvent>
     func lifecycleEvents() -> AsyncStream<AgentHostServiceLifecycleEvent>
+    func agentAuthenticationMethods() async throws -> [AgentHostACPAuthMethod]
+    func authenticateAgent(methodId: String, requestID: String) async throws
+    func logoutAgent(requestID: String) async throws
     func listProviders(requestID: String) async throws -> [AgentHostProvider]
     func startAuthentication(
         flowId: String,
@@ -160,6 +219,24 @@ protocol ProviderAuthServicing: Actor {
         providerId: String,
         requestID: String
     ) async throws -> AgentHostAuthLogoutResult
+}
+
+extension ProviderAuthServicing {
+    func agentAuthenticationMethods() async throws -> [AgentHostACPAuthMethod] { [] }
+
+    func authenticateAgent(methodId: String, requestID: String) async throws {
+        throw AgentHostClientError.requestFailed(
+            code: "unsupported_agent_authentication",
+            message: "The agent service does not support ACP authentication"
+        )
+    }
+
+    func logoutAgent(requestID: String) async throws {
+        throw AgentHostClientError.requestFailed(
+            code: "unsupported_agent_logout",
+            message: "The agent service does not support ACP logout"
+        )
+    }
 }
 
 protocol AgentSettingsServicing: Actor {
@@ -206,48 +283,107 @@ protocol InstalledExtensionsServicing: Actor {
     ) async throws -> [AgentHostInstalledExtensionPackage]
 }
 
+extension AgentHostACPSessionState {
+    var thinkingLevel: AgentHostThinkingLevel? {
+        guard case .string(let value)? = thinkingConfigOption?.currentValue else {
+            return nil
+        }
+        return AgentHostThinkingLevel(rawValue: value)
+    }
+
+    var availableThinkingLevels: [AgentHostThinkingLevel] {
+        thinkingConfigOption?.options?.compactMap {
+            AgentHostThinkingLevel(rawValue: $0.value)
+        } ?? []
+    }
+
+    var modelOptions: AgentHostModelOptions {
+        AgentHostModelOptions(
+            fastMode: modelOptionState(id: "fast_mode"),
+            oneMillionContext: modelOptionState(id: "one_million_context")
+        )
+    }
+
+    var model: AgentHostModel? {
+        guard
+            let option = modelConfigOption,
+            case .string(let value) = option.currentValue
+        else { return nil }
+        let identity = modelIdentity(value)
+        let name = option.options?.first(where: { $0.value == value })?.name ?? identity.modelId
+        return AgentHostModel(
+            provider: identity.provider,
+            id: identity.modelId,
+            name: name,
+            contextWindow: 0,
+            maxTokens: 0,
+            reasoning: !availableThinkingLevels.isEmpty,
+            supportsImages: supportsImages,
+            supportsFastMode: modelOptions.fastMode.supported
+        )
+    }
+
+    var availableModels: [AgentHostModel] {
+        guard let option = modelConfigOption else { return [] }
+        return option.options?.map { choice in
+            let identity = modelIdentity(choice.value)
+            return AgentHostModel(
+                provider: identity.provider,
+                id: identity.modelId,
+                name: choice.name,
+                contextWindow: 0,
+                maxTokens: 0,
+                reasoning: !availableThinkingLevels.isEmpty,
+                supportsImages: supportsImages,
+                supportsFastMode: modelOptions.fastMode.supported
+            )
+        } ?? []
+    }
+
+    var accessMode: AgentHostAccessMode? {
+        modes.flatMap { AgentHostAccessMode(rawValue: $0.currentModeId) }
+    }
+
+    var modelConfigOption: AgentHostACPSetConfigOptionResult.ConfigOption? {
+        configOptions.first { $0.category == "model" }
+            ?? option(id: "model")
+    }
+
+    var thinkingConfigOption: AgentHostACPSetConfigOptionResult.ConfigOption? {
+        configOptions.first { $0.category == "thought_level" }
+            ?? option(id: "thought_level")
+    }
+
+    func option(id: String) -> AgentHostACPSetConfigOptionResult.ConfigOption? {
+        configOptions.first { $0.id == id }
+    }
+
+    func modelOptionState(id: String) -> AgentHostModelOptionState {
+        guard let option = option(id: id),
+              case .boolean(let enabled) = option.currentValue else {
+            return AgentHostModelOptionState(supported: false, enabled: false)
+        }
+        return AgentHostModelOptionState(supported: true, enabled: enabled)
+    }
+
+    private func modelIdentity(_ value: String) -> (provider: String, modelId: String) {
+        guard let separator = value.firstIndex(of: "/"),
+              separator != value.startIndex,
+              value.index(after: separator) != value.endIndex else {
+            return ("", value)
+        }
+        return (
+            String(value[..<separator]),
+            String(value[value.index(after: separator)...])
+        )
+    }
+}
+
 actor AgentHostService: AgentHostServicing,
     ProviderAuthServicing,
     AgentSettingsServicing,
     InstalledExtensionsServicing {
-    static let coreCapabilities: Set<String> = [
-        "sessions.list",
-        "models.list",
-        "providers.list",
-        "auth.start",
-        "auth.respond",
-        "auth.cancel",
-        "auth.logout",
-        "settings.get",
-        "settings.update",
-        "extensions.listInstalled",
-        "extensions.install",
-        "extensions.setEnabled",
-        "extensions.update",
-        "extensions.remove",
-        "extensions.settings.list",
-        "extensions.settings.update",
-        "git.branches",
-        "session.createDraft",
-        "session.exportHtml",
-        "session.open",
-        "session.snapshot",
-        "session.transcriptPage",
-        "session.toolOutput",
-        "session.commands",
-        "session.rename",
-        "session.setGitBranch",
-        "session.setAccessMode",
-        "session.resolveApproval",
-        "session.setModel",
-        "session.setModelOption",
-        "session.setThinkingLevel",
-        "session.prompt",
-        "session.promptImages",
-        "session.abort",
-        "session.close",
-        "session.delete"
-    ]
+    static let coreCapabilities: Set<String> = []
 
     static func bundled() throws -> AgentHostService {
         guard
@@ -297,6 +433,12 @@ actor AgentHostService: AgentHostServicing,
     private var automaticRecoveryAttempted = false
     private var isStopping = false
     private var startupTask: Task<StartedAgentHost, Error>?
+    private var permissionOptions: [
+        String: (sessionId: String, optionIDs: [AgentHostApprovalDecision: String])
+    ] = [:]
+    private var activeTurnIDs: [String: String] = [:]
+    private var eventSequences: [String: Int] = [:]
+    private var acpSessionStates: [String: AgentHostACPSessionState] = [:]
 
     init(
         executableURL: URL,
@@ -430,7 +572,11 @@ actor AgentHostService: AgentHostServicing,
         timeout: TimeInterval = 30,
         as responseType: Result.Type
     ) async throws -> Result {
-        _ = try await start()
+        let hello = try await start()
+        if let capability = AgentHostPiWorkCapability(rawValue: method),
+           !hello.supportsPiWorkCapability(capability) {
+            throw AgentHostServiceError.missingPiWorkCapability(capability)
+        }
         guard let client else {
             throw AgentHostClientError.notRunning
         }
@@ -448,16 +594,16 @@ actor AgentHostService: AgentHostServicing,
         sessionDirectory: String?,
         requestID: String = UUID().uuidString
     ) async throws -> [AgentHostSessionSummary] {
-        let result: AgentHostSessionListResult = try await request(
+        let result: AgentHostACPSessionListResult = try await request(
             id: requestID,
             method: "sessions.list",
             params: AgentHostSessionListParameters(
                 cwd: cwd,
                 sessionDirectory: sessionDirectory
             ),
-            as: AgentHostSessionListResult.self
+            as: AgentHostACPSessionListResult.self
         )
-        return result.sessions
+        return result.sessions.map(\.summary)
     }
 
     func listModels(
@@ -624,6 +770,33 @@ actor AgentHostService: AgentHostServicing,
         return result.providers
     }
 
+    func agentAuthenticationMethods() async throws -> [AgentHostACPAuthMethod] {
+        try await start().authMethods.filter { $0.type != "terminal" }
+    }
+
+    func authenticateAgent(
+        methodId: String,
+        requestID: String = UUID().uuidString
+    ) async throws {
+        let _: AgentHostACPEmptyResult = try await request(
+            id: requestID,
+            method: "authenticate",
+            params: AgentHostACPAuthenticateParameters(methodId: methodId),
+            as: AgentHostACPEmptyResult.self
+        )
+    }
+
+    func logoutAgent(
+        requestID: String = UUID().uuidString
+    ) async throws {
+        let _: AgentHostACPEmptyResult = try await request(
+            id: requestID,
+            method: "logout",
+            params: AgentHostEmptyParameters(),
+            as: AgentHostACPEmptyResult.self
+        )
+    }
+
     func startAuthentication(
         flowId: String,
         providerId: String,
@@ -689,8 +862,8 @@ actor AgentHostService: AgentHostServicing,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String = UUID().uuidString
-    ) async throws -> AgentHostSessionSummary {
-        let result: AgentHostSessionCreateDraftResult = try await request(
+    ) async throws -> AgentHostSessionCreateDraftResult {
+        let result: AgentHostACPSessionNewResult = try await request(
             id: requestID,
             method: "session.createDraft",
             params: AgentHostSessionCreateDraftParameters(
@@ -698,26 +871,54 @@ actor AgentHostService: AgentHostServicing,
                 sessionDirectory: sessionDirectory,
                 profile: profile
             ),
-            as: AgentHostSessionCreateDraftResult.self
+            as: AgentHostACPSessionNewResult.self
         )
-        return result.session
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let summary = AgentHostSessionSummary(
+            id: result.sessionId,
+            path: result.sessionId,
+            cwd: cwd,
+            title: "New Session",
+            firstMessage: "",
+            messageCount: 0,
+            createdAt: timestamp,
+            modifiedAt: timestamp
+        )
+        acpSessionStates[result.sessionId] = result.acpState
+        return AgentHostSessionCreateDraftResult(
+            session: summary,
+            acpState: result.acpState
+        )
     }
 
     func openSession(
-        path: String,
+        sessionId: String,
+        cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionOpenResult {
-        try await request(
+        _ = try await start()
+        let method = hello?.acpCapabilities.loadSession == true
+            ? "session/load"
+            : "session/resume"
+        let result: AgentHostACPSessionResumeResult = try await request(
             id: requestID,
-            method: "session.open",
-            params: AgentHostSessionOpenParameters(
-                path: path,
+            method: method,
+            params: AgentHostACPSessionOpenParameters(
+                sessionId: sessionId,
+                cwd: cwd,
                 sessionDirectory: sessionDirectory,
                 profile: profile
             ),
-            as: AgentHostSessionOpenResult.self
+            as: AgentHostACPSessionResumeResult.self
+        )
+        acpSessionStates[sessionId] = result.acpState
+        return AgentHostSessionOpenResult(
+            sessionId: sessionId,
+            path: sessionId,
+            cwd: cwd,
+            acpState: result.acpState
         )
     }
 
@@ -837,15 +1038,36 @@ actor AgentHostService: AgentHostServicing,
         modelId: String,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionSetModelResult {
-        try await request(
+        let state = acpSessionStates[sessionId] ?? .empty
+        let configOption = state.modelConfigOption
+        let qualifiedModelId = provider.isEmpty ? modelId : "\(provider)/\(modelId)"
+        let value = configOption?.options?.first(where: {
+            $0.value == qualifiedModelId || $0.value == modelId
+        })?.value ?? qualifiedModelId
+        let result: AgentHostACPSetConfigOptionResult = try await request(
             id: requestID,
-            method: "session.setModel",
-            params: AgentHostSessionSetModelParameters(
+            method: "session/set_config_option",
+            params: AgentHostACPSetStringConfigOptionParameters(
                 sessionId: sessionId,
-                provider: provider,
-                modelId: modelId
+                configId: configOption?.id ?? "model",
+                value: value
             ),
-            as: AgentHostSessionSetModelResult.self
+            as: AgentHostACPSetConfigOptionResult.self
+        )
+        acpSessionStates[sessionId] = result.acpState
+        guard let model = result.acpState.model else {
+            throw AgentHostClientError.requestFailed(
+                code: "missing_session_model",
+                message: "The agent did not report the selected model"
+            )
+        }
+        return AgentHostSessionSetModelResult(
+            sessionId: sessionId,
+            model: model,
+            contextUsage: nil,
+            thinkingLevel: result.acpState.thinkingLevel ?? .off,
+            availableThinkingLevels: result.acpState.availableThinkingLevels,
+            modelOptions: result.acpState.modelOptions
         )
     }
 
@@ -855,15 +1077,32 @@ actor AgentHostService: AgentHostServicing,
         enabled: Bool,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionSetModelOptionResult {
-        try await request(
+        let state = acpSessionStates[sessionId] ?? .empty
+        let fallbackConfigId = option == .oneMillionContext
+            ? "one_million_context"
+            : "fast_mode"
+        let result: AgentHostACPSetConfigOptionResult = try await request(
             id: requestID,
-            method: "session.setModelOption",
-            params: AgentHostSessionSetModelOptionParameters(
+            method: "session/set_config_option",
+            params: AgentHostACPSetBooleanConfigOptionParameters(
                 sessionId: sessionId,
-                option: option,
-                enabled: enabled
+                configId: state.option(id: fallbackConfigId)?.id ?? fallbackConfigId,
+                value: enabled
             ),
-            as: AgentHostSessionSetModelOptionResult.self
+            as: AgentHostACPSetConfigOptionResult.self
+        )
+        acpSessionStates[sessionId] = result.acpState
+        guard let model = result.acpState.model else {
+            throw AgentHostClientError.requestFailed(
+                code: "missing_session_model",
+                message: "The agent did not report the selected model"
+            )
+        }
+        return AgentHostSessionSetModelOptionResult(
+            sessionId: sessionId,
+            model: model,
+            contextUsage: nil,
+            modelOptions: result.acpState.modelOptions
         )
     }
 
@@ -872,15 +1111,77 @@ actor AgentHostService: AgentHostServicing,
         thinkingLevel: AgentHostThinkingLevel,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionSetThinkingLevelResult {
-        try await request(
+        let configId = acpSessionStates[sessionId]?.thinkingConfigOption?.id
+            ?? "thought_level"
+        let result: AgentHostACPSetConfigOptionResult = try await request(
             id: requestID,
-            method: "session.setThinkingLevel",
-            params: AgentHostSessionSetThinkingLevelParameters(
+            method: "session/set_config_option",
+            params: AgentHostACPSetStringConfigOptionParameters(
                 sessionId: sessionId,
-                thinkingLevel: thinkingLevel
+                configId: configId,
+                value: thinkingLevel.rawValue
             ),
-            as: AgentHostSessionSetThinkingLevelResult.self
+            as: AgentHostACPSetConfigOptionResult.self
         )
+        acpSessionStates[sessionId] = result.acpState
+        return AgentHostSessionSetThinkingLevelResult(
+            sessionId: sessionId,
+            thinkingLevel: result.acpState.thinkingLevel ?? thinkingLevel,
+            availableThinkingLevels: result.acpState.availableThinkingLevels
+        )
+    }
+
+    func setConfigOption(
+        sessionId: String,
+        configId: String,
+        value: AgentHostACPSetConfigOptionResult.ConfigOption.Value,
+        requestID: String = UUID().uuidString
+    ) async throws -> AgentHostACPSetConfigOptionResult {
+        let result: AgentHostACPSetConfigOptionResult
+        switch value {
+        case .string(let value):
+            result = try await request(
+                id: requestID,
+                method: "session/set_config_option",
+                params: AgentHostACPSetStringConfigOptionParameters(
+                    sessionId: sessionId,
+                    configId: configId,
+                    value: value
+                ),
+                as: AgentHostACPSetConfigOptionResult.self
+            )
+        case .boolean(let value):
+            result = try await request(
+                id: requestID,
+                method: "session/set_config_option",
+                params: AgentHostACPSetBooleanConfigOptionParameters(
+                    sessionId: sessionId,
+                    configId: configId,
+                    value: value
+                ),
+                as: AgentHostACPSetConfigOptionResult.self
+            )
+        }
+        acpSessionStates[sessionId] = result.acpState
+        return result
+    }
+
+    func setSessionMode(
+        sessionId: String,
+        modeId: String,
+        requestID: String = UUID().uuidString
+    ) async throws {
+        let _: AgentHostACPEmptyResult = try await request(
+            id: requestID,
+            method: "session/set_mode",
+            params: AgentHostACPSetModeParameters(sessionId: sessionId, modeId: modeId),
+            as: AgentHostACPEmptyResult.self
+        )
+        if var state = acpSessionStates[sessionId], var modes = state.modes {
+            modes.currentModeId = modeId
+            state.modes = modes
+            acpSessionStates[sessionId] = state
+        }
     }
 
     func setAccessMode(
@@ -888,14 +1189,14 @@ actor AgentHostService: AgentHostServicing,
         accessMode: AgentHostAccessMode,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionSetAccessModeResult {
-        try await request(
-            id: requestID,
-            method: "session.setAccessMode",
-            params: AgentHostSessionSetAccessModeParameters(
-                sessionId: sessionId,
-                accessMode: accessMode
-            ),
-            as: AgentHostSessionSetAccessModeResult.self
+        try await setSessionMode(
+            sessionId: sessionId,
+            modeId: accessMode.rawValue,
+            requestID: requestID
+        )
+        return AgentHostSessionSetAccessModeResult(
+            sessionId: sessionId,
+            accessMode: accessMode
         )
     }
 
@@ -905,16 +1206,37 @@ actor AgentHostService: AgentHostServicing,
         decision: AgentHostApprovalDecision,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionResolveApprovalResult {
-        try await request(
-            id: requestID,
-            method: "session.resolveApproval",
-            params: AgentHostSessionResolveApprovalParameters(
-                sessionId: sessionId,
-                requestId: requestId,
-                decision: decision
-            ),
-            as: AgentHostSessionResolveApprovalResult.self
+        _ = requestID
+        _ = try await start()
+        guard let client else { throw AgentHostClientError.notRunning }
+        let options = permissionOptions[requestId]
+        let optionId = options?.optionIDs[decision]
+        guard let optionId else {
+            throw AgentHostClientError.requestFailed(
+                code: "permission_option_not_found",
+                message: "The agent did not provide a matching permission option"
+            )
+        }
+        try await client.respondToPermission(requestId: requestId, optionId: optionId)
+        permissionOptions.removeValue(forKey: requestId)
+        return AgentHostSessionResolveApprovalResult(
+            sessionId: sessionId,
+            requestId: requestId,
+            decision: decision
         )
+    }
+
+    func resolveElicitation(
+        sessionId: String?,
+        requestId: String,
+        response: AgentHostACPElicitationResponse,
+        requestID: String = UUID().uuidString
+    ) async throws {
+        _ = sessionId
+        _ = requestID
+        _ = try await start()
+        guard let client else { throw AgentHostClientError.notRunning }
+        try await client.respondToElicitation(requestId: requestId, response: response)
     }
 
     func prompt(
@@ -924,16 +1246,28 @@ actor AgentHostService: AgentHostServicing,
         images: [AgentHostPromptImage] = [],
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionPromptResult {
-        try await request(
-            id: requestID,
-            method: "session.prompt",
-            params: AgentHostSessionPromptParameters(
-                sessionId: sessionId,
-                turnId: turnId,
-                text: text,
-                images: images
-            ),
-            as: AgentHostSessionPromptResult.self
+        activeTurnIDs[sessionId] = turnId
+        do {
+            let _: AgentHostACPPromptResult = try await request(
+                id: requestID,
+                method: "session.prompt",
+                params: AgentHostSessionPromptParameters(
+                    sessionId: sessionId,
+                    turnId: turnId,
+                    text: text,
+                    images: images
+                ),
+                as: AgentHostACPPromptResult.self
+            )
+        } catch {
+            activeTurnIDs.removeValue(forKey: sessionId)
+            throw error
+        }
+        activeTurnIDs.removeValue(forKey: sessionId)
+        return AgentHostSessionPromptResult(
+            accepted: true,
+            sessionId: sessionId,
+            turnId: turnId
         )
     }
 
@@ -941,23 +1275,36 @@ actor AgentHostService: AgentHostServicing,
         sessionId: String,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionAbortResult {
-        try await request(
-            id: requestID,
+        _ = requestID
+        _ = try await start()
+        guard let client else { throw AgentHostClientError.notRunning }
+        let pendingRequestIDs = permissionOptions.compactMap { requestId, options in
+            options.sessionId == sessionId ? requestId : nil
+        }
+        for requestId in pendingRequestIDs {
+            try await client.cancelPermission(requestId: requestId)
+            permissionOptions.removeValue(forKey: requestId)
+        }
+        try await client.notify(
             method: "session.abort",
-            params: AgentHostSessionIdentifierParameters(sessionId: sessionId),
-            as: AgentHostSessionAbortResult.self
+            params: AgentHostSessionIdentifierParameters(sessionId: sessionId)
         )
+        return AgentHostSessionAbortResult(aborted: true, sessionId: sessionId)
     }
 
     func closeSession(
         sessionId: String,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionCloseResult {
-        try await request(
+        let _: AgentHostACPEmptyResult = try await request(
             id: requestID,
             method: "session.close",
             params: AgentHostSessionIdentifierParameters(sessionId: sessionId),
-            as: AgentHostSessionCloseResult.self
+            as: AgentHostACPEmptyResult.self
+        )
+        return AgentHostSessionCloseResult(
+            closed: true,
+            sessionId: sessionId
         )
     }
 
@@ -967,7 +1314,7 @@ actor AgentHostService: AgentHostServicing,
         sessionDirectory: String?,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionDeleteResult {
-        try await request(
+        let _: AgentHostACPEmptyResult = try await request(
             id: requestID,
             method: "session.delete",
             params: AgentHostSessionDeleteParameters(
@@ -975,7 +1322,11 @@ actor AgentHostService: AgentHostServicing,
                 cwd: cwd,
                 sessionDirectory: sessionDirectory
             ),
-            as: AgentHostSessionDeleteResult.self
+            as: AgentHostACPEmptyResult.self
+        )
+        return AgentHostSessionDeleteResult(
+            deleted: true,
+            sessionId: sessionId
         )
     }
 
@@ -998,11 +1349,268 @@ actor AgentHostService: AgentHostServicing,
         lifecycleContinuations.removeAll()
         client = nil
         hello = nil
+        permissionOptions.removeAll()
+        activeTurnIDs.removeAll()
+        eventSequences.removeAll()
     }
 
     private func forward(_ event: AgentHostServerEvent) {
+        let event = correlate(event)
+        if case .sessionConfigOptionsChanged(let payload) = event {
+            var state = acpSessionStates[payload.sessionId] ?? .empty
+            state.configOptions = payload.configOptions
+            acpSessionStates[payload.sessionId] = state
+        } else if case .sessionModeChanged(let payload) = event {
+            var state = acpSessionStates[payload.sessionId] ?? .empty
+            if var modes = state.modes {
+                modes.currentModeId = payload.currentModeId
+                state.modes = modes
+            } else {
+                state.modes = AgentHostACPSessionModeState(
+                    currentModeId: payload.currentModeId,
+                    availableModes: []
+                )
+            }
+            acpSessionStates[payload.sessionId] = state
+        }
+        if case .sessionApprovalRequested(let payload) = event {
+            var optionIDs: [AgentHostApprovalDecision: String] = [:]
+            for option in payload.options {
+                optionIDs[option.kind.decision] = option.optionId
+            }
+            if optionIDs[.allowOnce] == nil, let allow = payload.allowOptionId {
+                optionIDs[.allowOnce] = allow
+            }
+            if optionIDs[.deny] == nil, let reject = payload.rejectOptionId {
+                optionIDs[.deny] = reject
+            }
+            permissionOptions[payload.requestId] = (
+                sessionId: payload.sessionId,
+                optionIDs: optionIDs
+            )
+        }
         for continuation in eventContinuations.values {
             continuation.yield(event)
+        }
+    }
+
+    private func correlate(_ event: AgentHostServerEvent) -> AgentHostServerEvent {
+        func values(sessionId: String, sequence: Int, turnId: String) -> (Int, String) {
+            let correlatedSequence: Int
+            if sequence > 0 {
+                correlatedSequence = sequence
+            } else {
+                correlatedSequence = (eventSequences[sessionId] ?? 0) + 1
+            }
+            eventSequences[sessionId] = max(eventSequences[sessionId] ?? 0, correlatedSequence)
+            return (correlatedSequence, turnId.isEmpty ? activeTurnIDs[sessionId] ?? "" : turnId)
+        }
+
+        switch event {
+        case .sessionStateChanged(let payload):
+            let value = values(
+                sessionId: payload.sessionId,
+                sequence: payload.sequence,
+                turnId: payload.turnId
+            )
+            return .sessionStateChanged(
+                AgentHostSessionStateChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    state: payload.state,
+                    contextUsage: payload.contextUsage
+                )
+            )
+        case .sessionMessageDelta(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionMessageDelta(
+                AgentHostSessionMessageDeltaPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    delta: payload.delta
+                )
+            )
+        case .sessionUserContent(let payload):
+            let value = values(
+                sessionId: payload.sessionId,
+                sequence: payload.sequence,
+                turnId: payload.messageId
+            )
+            return .sessionUserContent(
+                AgentHostSessionUserContentPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    messageId: value.1.isEmpty ? "acp-message-\(value.0)" : value.1,
+                    text: payload.text
+                )
+            )
+        case .sessionAssistantContent(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionAssistantContent(
+                AgentHostSessionAssistantContentPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    generationIndex: payload.generationIndex,
+                    phase: payload.phase,
+                    contentType: payload.contentType,
+                    contentIndex: payload.contentIndex,
+                    delta: payload.delta,
+                    content: payload.content,
+                    toolCall: payload.toolCall
+                )
+            )
+        case .sessionToolStarted(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionToolStarted(
+                AgentHostSessionToolStartedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    toolCallId: payload.toolCallId,
+                    toolName: payload.toolName,
+                    summary: payload.summary,
+                    content: payload.content,
+                    rawInput: payload.rawInput
+                )
+            )
+        case .sessionToolUpdated(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionToolUpdated(
+                AgentHostSessionToolUpdatedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    toolCallId: payload.toolCallId,
+                    toolName: payload.toolName,
+                    output: payload.output,
+                    content: payload.content,
+                    rawOutput: payload.rawOutput
+                )
+            )
+        case .sessionToolCompleted(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionToolCompleted(
+                AgentHostSessionToolCompletedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    toolCallId: payload.toolCallId,
+                    toolName: payload.toolName,
+                    output: payload.output,
+                    content: payload.content,
+                    rawOutput: payload.rawOutput,
+                    isError: payload.isError
+                )
+            )
+        case .sessionApprovalRequested(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionApprovalRequested(
+                AgentHostSessionApprovalRequestedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    requestId: payload.requestId,
+                    toolCallId: payload.toolCallId,
+                    toolName: payload.toolName,
+                    summary: payload.summary,
+                    allowOptionId: payload.allowOptionId,
+                    rejectOptionId: payload.rejectOptionId,
+                    options: payload.options
+                )
+            )
+        case .sessionError(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: payload.turnId)
+            return .sessionError(
+                AgentHostSessionErrorPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    turnId: value.1,
+                    code: payload.code,
+                    message: payload.message
+                )
+            )
+        case .sessionModeChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionModeChanged(
+                AgentHostSessionModeChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    currentModeId: payload.currentModeId
+                )
+            )
+        case .sessionConfigOptionsChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionConfigOptionsChanged(
+                AgentHostSessionConfigOptionsChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    configOptions: payload.configOptions
+                )
+            )
+        case .sessionInfoChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionInfoChanged(
+                AgentHostSessionInfoChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    title: payload.title,
+                    updatedAt: payload.updatedAt
+                )
+            )
+        case .sessionUsageChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionUsageChanged(
+                AgentHostSessionUsageChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    used: payload.used,
+                    size: payload.size,
+                    cost: payload.cost
+                )
+            )
+        case .sessionAvailableCommandsChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionAvailableCommandsChanged(
+                AgentHostSessionAvailableCommandsChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    availableCommands: payload.availableCommands
+                )
+            )
+        case .sessionPlanChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionPlanChanged(
+                AgentHostSessionPlanChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    entries: payload.entries
+                )
+            )
+        case .sessionExtensionStatusChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionExtensionStatusChanged(
+                AgentHostSessionExtensionStatusChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    key: payload.key,
+                    text: payload.text
+                )
+            )
+        case .sessionExtensionWidgetChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionExtensionWidgetChanged(
+                AgentHostSessionExtensionWidgetChangedPayload(
+                    sessionId: payload.sessionId,
+                    sequence: value.0,
+                    key: payload.key,
+                    widget: payload.widget
+                )
+            )
+        default:
+            return event
         }
     }
 
@@ -1019,6 +1627,10 @@ actor AgentHostService: AgentHostServicing,
         client = nil
         hello = nil
         eventForwardingTask = nil
+        permissionOptions.removeAll()
+        activeTurnIDs.removeAll()
+        eventSequences.removeAll()
+        acpSessionStates.removeAll()
 
         guard !isStopping else { return }
         let event = AgentHostServiceLifecycleEvent.disconnected(

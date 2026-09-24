@@ -107,6 +107,10 @@
 /* モデルプロバイダーと認証 */
 "providers.title" = "モデルと認証";
 "providers.subtitle" = "ブラウザでのサインインはデフォルトのブラウザで開きます。その他の認証情報はここで安全に入力できます";
+"providers.agent_auth.title" = "Agent 認証";
+"providers.agent_auth.subtitle" = "接続中の ACP Agent が管理する認証です。";
+"providers.agent_auth.sign_in" = "サインイン";
+"providers.agent_auth.logout" = "ログアウト";
 "providers.loading" = "モデルプロバイダーを読み込み中…";
 "providers.search" = "プロバイダーを検索";
 "providers.refresh_help" = "認証状態を更新";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Fast モード";
 "chat.fast_unsupported" = "このモデルは Fast モードに対応していません";
 "chat.fast_accessibility" = "%@ Fast モード";
+"chat.agent_settings" = "Agent 設定";
+"chat.session_plan" = "計画";
+"chat.activity.title" = "状態";
+"chat.activity.expand" = "状態の詳細を展開";
+"chat.activity.collapse" = "状態の詳細を折りたたむ";
+"chat.session_cost" = "費用";
+"chat.agent_mode" = "モード";
 "chat.enabled" = "オン";
 "chat.disabled" = "オフ";
 "chat.unsupported" = "非対応";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "この操作を許可しますか？";
 "chat.approval.deny" = "拒否";
 "chat.approval.allow_once" = "今回のみ許可";
+"chat.elicitation.decline" = "拒否";
+"chat.elicitation.submit" = "送信";
+"chat.elicitation.invalid" = "必須項目を確認してください。";
 "chat.image_attachment" = "[画像 · %@]";
 "chat.image.preview" = "画像の添付";
 "chat.image.remove" = "画像を削除";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "失敗";
 "chat.tool.copy" = "コピー";
 "chat.tool.cancelled" = "キャンセル済み";
+"chat.tool.diff_before" = "変更前";
+"chat.tool.diff_after" = "変更後";
+"chat.tool.terminal_reference" = "ターミナル参照";
+"chat.tool.image" = "画像";
+"chat.tool.audio" = "音声";
+"chat.tool.unsupported_content" = "未対応のコンテンツ";
 "chat.steps.running" = "実行中 · %d/%d";
 "chat.steps.approval_required" = "許可が必要です";
 "chat.steps.failed" = "%d ステップ完了 · %d 件失敗";

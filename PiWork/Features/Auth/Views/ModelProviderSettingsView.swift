@@ -980,14 +980,27 @@ struct ModelProviderSettingsView: View {
                     .padding(.top, 16)
             }
 
-            if store.isLoading && store.providers.isEmpty {
+            if store.isLoading && store.providers.isEmpty && store.agentAuthMethods.isEmpty {
                 ProgressView(L10n.string("providers.loading"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visibleProviders.isEmpty {
+            } else if visibleProviders.isEmpty && store.agentAuthMethods.isEmpty {
                 emptyState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        if !store.agentAuthMethods.isEmpty {
+                            AgentAuthenticationSection(
+                                methods: store.agentAuthMethods,
+                                activeMethodID: store.activeAgentAuthMethodID,
+                                isLoggingOut: store.isLoggingOutAgent,
+                                onAuthenticate: { method in
+                                    Task { await store.authenticateAgent(method: method) }
+                                },
+                                onLogout: {
+                                    Task { await store.logoutAgent() }
+                                }
+                            )
+                        }
                         ForEach(visibleProviders) { provider in
                             ProviderSettingsRow(
                                 provider: provider,
@@ -1097,6 +1110,51 @@ struct ModelProviderSettingsView: View {
                 if !isPresented { store.clearFlow() }
             }
         )
+    }
+}
+
+private struct AgentAuthenticationSection: View {
+    let methods: [AgentHostACPAuthMethod]
+    let activeMethodID: String?
+    let isLoggingOut: Bool
+    let onAuthenticate: (AgentHostACPAuthMethod) -> Void
+    let onLogout: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("providers.agent_auth.title"))
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(L10n.string("providers.agent_auth.subtitle"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.secondary)
+                }
+                Spacer(minLength: 12)
+                Button(L10n.string("providers.agent_auth.logout"), action: onLogout)
+                    .disabled(activeMethodID != nil || isLoggingOut)
+            }
+
+            ForEach(methods) { method in
+                HStack {
+                    Text(method.name)
+                        .font(.system(size: 13))
+                    Spacer(minLength: 12)
+                    Button(L10n.string("providers.agent_auth.sign_in")) {
+                        onAuthenticate(method)
+                    }
+                    .disabled(activeMethodID != nil || isLoggingOut)
+                    .overlay {
+                        if activeMethodID == method.id {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.primary.opacity(0.035))
+        .adaptiveCornerRadius(12)
     }
 }
 

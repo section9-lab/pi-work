@@ -38,6 +38,26 @@ final class ProviderAuthStoreTests: XCTestCase {
         }
     }
 
+    func testProviderSettingsAlsoExposesStandardACPAgentAuthentication() throws {
+        let source = try String(
+            contentsOf: repositoryRoot().appendingPathComponent(
+                "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift"
+            ),
+            encoding: .utf8
+        )
+        let storeSource = try String(
+            contentsOf: repositoryRoot().appendingPathComponent(
+                "PiWork/Core/Agent/ProviderAuthStore.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("AgentAuthenticationSection"))
+        XCTAssertTrue(source.contains("agentAuthMethods"))
+        XCTAssertTrue(storeSource.contains("authenticateAgent"))
+        XCTAssertTrue(storeSource.contains("logoutAgent"))
+    }
+
     func testAuthenticationViewExposesRetryableAndHonestInteractionStates() throws {
         let source = try String(
             contentsOf: repositoryRoot().appendingPathComponent(

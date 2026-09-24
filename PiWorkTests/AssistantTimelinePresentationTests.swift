@@ -2,6 +2,49 @@ import XCTest
 @testable import PiWork
 
 final class AssistantTimelinePresentationTests: XCTestCase {
+    func testActivityPresentationKeepsProgressAndUnknownMessagesWhenRemovingUpdateSuffixes() {
+        XCTAssertEqual(SessionActivityPresentation.statusForDisplay(
+            " bg 2 running · worker · ↑ v2.5.0 /bg-update "
+        ), "bg 2 running · worker")
+        XCTAssertEqual(SessionActivityPresentation.statusForDisplay(
+            "Running ↑ v2.5.0 /helper-update"
+        ), "Running")
+        XCTAssertEqual(SessionActivityPresentation.statusForDisplay("Upgrade available"), "Upgrade available")
+        XCTAssertEqual(SessionActivityPresentation.statusForDisplay("Release v1.2.3 /publish"), "Release v1.2.3 /publish")
+        XCTAssertNil(SessionActivityPresentation.statusForDisplay(" ⬆️ v2.5.0 /update "))
+        XCTAssertNil(SessionActivityPresentation.statusForDisplay("  \n "))
+    }
+
+    func testActivityPresentationDeduplicatesWidgetStatusAndPreservesGenericText() {
+        let activity = SessionActivityPresentation(
+            plan: [], statuses: ["arbitrary": "Tasks (1/2)"],
+            widgets: ["arbitrary": AgentHostExtensionWidget(lines: [
+                "", "Tasks (1/2)", "  └─ worker running", ""
+            ])]
+        )
+        XCTAssertEqual(activity.items.count, 1)
+        XCTAssertNil(activity.items.first?.status)
+        XCTAssertEqual(activity.items.first?.lines, ["Tasks (1/2)", "  └─ worker running"])
+        XCTAssertTrue(activity.canExpand)
+        XCTAssertEqual(activity.summary, "Tasks (1/2)")
+        XCTAssertTrue(activity.plan.isEmpty, "Widget text must not become an ACP plan")
+    }
+
+    func testActivityPresentationKeepsACPPlanIndependentAndOrdersWidgetPlacements() {
+        let plan = [AgentHostACPPlanEntry(content: "Current step", priority: .medium, status: .inProgress)]
+        let activity = SessionActivityPresentation(
+            plan: plan, statuses: ["b": "Ready"], widgets: [
+                "a": AgentHostExtensionWidget(lines: ["Footer"], placement: .belowEditor),
+                "c": AgentHostExtensionWidget(lines: ["Header"], placement: .aboveEditor)
+            ]
+        )
+        XCTAssertEqual(activity.plan, plan)
+        XCTAssertEqual(activity.summary, "Current step")
+        XCTAssertEqual(activity.items.map(\.id), ["b", "c", "a"])
+        XCTAssertTrue(activity.canExpand)
+        XCTAssertFalse(SessionActivityPresentation(plan: [], statuses: ["a": "Ready"], widgets: [:]).canExpand)
+    }
+
     func testSessionPresentationGrowsFromACompactFirstFrameToTheRequestedWindow() {
         XCTAssertEqual(SessionPresentationBatch.initialCount, 4)
         XCTAssertEqual(SessionPresentationBatch.growthCount, 12)
@@ -368,6 +411,22 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         XCTAssertTrue(AssistantToolGroupStatus.failed(total: 1, failed: 1).prefersExpanded)
         XCTAssertFalse(AssistantToolGroupStatus.completed(total: 1).prefersExpanded)
         XCTAssertFalse(AssistantToolGroupStatus.cancelled(total: 1).prefersExpanded)
+    }
+
+    func testToolOutputFallsBackToGenericRawOutput() {
+        let rawOutput: AgentHostJSONValue = .object([
+            "plugin": .string("any-extension"),
+            "state": .string("running")
+        ])
+
+        XCTAssertEqual(
+            toolOutputForDisplay(output: "", rawOutput: rawOutput),
+            "{\n  \"plugin\" : \"any-extension\",\n  \"state\" : \"running\"\n}"
+        )
+        XCTAssertEqual(
+            toolOutputForDisplay(output: "plain output", rawOutput: rawOutput),
+            "plain output"
+        )
     }
 
     func testApprovalCannotBeHiddenByManualCollapse() {

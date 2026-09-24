@@ -32,24 +32,54 @@ export type SessionHandleEvent =
       toolCallId: string;
       toolName: string;
       summary: string;
+      rawInput: Record<string, unknown>;
     }
   | {
       type: "toolUpdated";
       toolCallId: string;
       toolName: string;
       output: string;
+      content: SessionMessageContent[];
+      rawOutput?: Record<string, unknown>;
     }
   | {
       type: "toolCompleted";
       toolCallId: string;
       toolName: string;
       output: string;
+      content: SessionMessageContent[];
+      rawOutput?: Record<string, unknown>;
       isError: boolean;
     }
   | {
       type: "approvalRequested";
       approval: AccessApprovalRequest;
+    }
+  | {
+      type: "planChanged";
+      entries: SessionPlanEntry[];
+    }
+  | {
+      type: "extensionStatusChanged";
+      key: string;
+      text?: string;
+    }
+  | {
+      type: "extensionWidgetChanged";
+      key: string;
+      widget?: SessionExtensionWidget;
     };
+
+export type SessionExtensionWidget = {
+  lines: string[];
+  placement: "aboveEditor" | "belowEditor";
+};
+
+export type SessionPlanEntry = {
+  content: string;
+  priority: "high" | "medium" | "low";
+  status: "pending" | "in_progress" | "completed";
+};
 
 export type SessionModel = {
   provider: string;
@@ -150,6 +180,9 @@ export type SessionHandleSnapshot = {
   modelOptions: SessionModelOptions;
   accessMode: AccessMode;
   pendingApprovals: AccessApprovalRequest[];
+  plan?: SessionPlanEntry[];
+  extensionStatuses?: Record<string, string>;
+  extensionWidgets?: Record<string, SessionExtensionWidget>;
 };
 
 export type SessionTranscriptPage = {
@@ -250,6 +283,7 @@ export type SessionRegistryEvent =
         toolCallId: string;
         toolName: string;
         summary: string;
+        rawInput: Record<string, unknown>;
       };
     }
   | {
@@ -261,6 +295,8 @@ export type SessionRegistryEvent =
         toolCallId: string;
         toolName: string;
         output: string;
+        content: SessionMessageContent[];
+        rawOutput?: Record<string, unknown>;
       };
     }
   | {
@@ -272,6 +308,8 @@ export type SessionRegistryEvent =
         toolCallId: string;
         toolName: string;
         output: string;
+        content: SessionMessageContent[];
+        rawOutput?: Record<string, unknown>;
         isError: boolean;
       };
     }
@@ -285,6 +323,35 @@ export type SessionRegistryEvent =
         toolCallId: string;
         toolName: string;
         summary: string;
+      };
+    }
+  | {
+      event: "session.planChanged";
+      payload: {
+        sessionId: string;
+        sequence: number;
+        turnId: string | null;
+        entries: SessionPlanEntry[];
+      };
+    }
+  | {
+      event: "session.extensionStatusChanged";
+      payload: {
+        sessionId: string;
+        sequence: number;
+        turnId: string | null;
+        key: string;
+        text?: string;
+      };
+    }
+  | {
+      event: "session.extensionWidgetChanged";
+      payload: {
+        sessionId: string;
+        sequence: number;
+        turnId: string | null;
+        key: string;
+        widget?: SessionExtensionWidget;
       };
     };
 
@@ -308,6 +375,8 @@ type ManagedSession = {
   sequence: number;
   assistantGenerationIndex: number;
   activeTurnId?: string;
+  activeTurnCompletion?: Promise<"end_turn" | "cancelled">;
+  activeTurnCancelled: boolean;
   reloadPending: boolean;
   reloading: boolean;
   unsubscribe: () => void;
@@ -331,6 +400,7 @@ export class SessionRegistry {
       handle,
       sequence: 0,
       assistantGenerationIndex: -1,
+      activeTurnCancelled: false,
       reloadPending: false,
       reloading: false,
       unsubscribe: () => {},
@@ -469,16 +539,24 @@ export class SessionRegistry {
     }
 
     managed.activeTurnId = turnId;
+    managed.activeTurnCancelled = false;
     managed.assistantGenerationIndex = -1;
     this.emitState(managed, turnId, "running");
-    void managed.handle.prompt(text, images).then(async () => {
-      if (managed.closed) return;
+    const completion = managed.handle.prompt(text, images).then(async (): Promise<"end_turn" | "cancelled"> => {
+      const stopReason = managed.activeTurnCancelled ? "cancelled" : "end_turn";
+      if (managed.closed) return stopReason;
       managed.activeTurnId = undefined;
       if (managed.reloadPending) await this.reloadPendingSession(managed);
-      if (managed.closed) return;
+      if (managed.closed) return stopReason;
       this.emitState(managed, turnId, "idle");
-    }).catch((error: unknown) => {
-      if (managed.closed) return;
+      return stopReason;
+    }).catch((error: unknown): "end_turn" | "cancelled" => {
+      if (managed.closed) return managed.activeTurnCancelled ? "cancelled" : "end_turn";
+      if (managed.activeTurnCancelled) {
+        managed.activeTurnId = undefined;
+        this.emitState(managed, turnId, "idle");
+        return "cancelled";
+      }
       managed.activeTurnId = undefined;
       managed.sequence += 1;
       this.emit({
@@ -491,14 +569,26 @@ export class SessionRegistry {
           message: error instanceof Error ? error.message : String(error),
         },
       });
+      throw error;
     });
+    managed.activeTurnCompletion = completion;
+    void completion.catch(() => {});
 
     return { accepted: true, sessionId, turnId };
+  }
+
+  promptCompletion(sessionId: string, turnId: string): Promise<"end_turn" | "cancelled"> {
+    const managed = this.requireSession(sessionId);
+    if (managed.activeTurnId !== turnId || !managed.activeTurnCompletion) {
+      throw new SessionRegistryError("turn_not_found", `Turn is not running: ${turnId}`);
+    }
+    return managed.activeTurnCompletion;
   }
 
   async abort(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId);
     if (!managed) throw new Error(`Session not found: ${sessionId}`);
+    if (managed.activeTurnId) managed.activeTurnCancelled = true;
     await managed.handle.abort();
   }
 
@@ -525,6 +615,18 @@ export class SessionRegistry {
     this.sessions.delete(sessionId);
   }
 
+  async closeSession(sessionId: string): Promise<void> {
+    const managed = this.requireSession(sessionId);
+    try {
+      if (managed.activeTurnId) {
+        managed.activeTurnCancelled = true;
+        await managed.handle.abort();
+      }
+    } finally {
+      this.close(sessionId);
+    }
+  }
+
   private async reloadPendingSession(managed: ManagedSession): Promise<void> {
     while (managed.reloadPending && !managed.closed) {
       managed.reloadPending = false;
@@ -549,6 +651,50 @@ export class SessionRegistry {
 
   private consume(managed: ManagedSession, event: SessionHandleEvent): void {
     const turnId = managed.activeTurnId;
+    if (event.type === "planChanged") {
+      managed.sequence += 1;
+      this.emit({
+        event: "session.planChanged",
+        payload: {
+          sessionId: managed.handle.sessionId,
+          sequence: managed.sequence,
+          turnId: turnId ?? null,
+          entries: event.entries,
+        },
+      });
+      return;
+    }
+
+    if (event.type === "extensionStatusChanged") {
+      managed.sequence += 1;
+      this.emit({
+        event: "session.extensionStatusChanged",
+        payload: {
+          sessionId: managed.handle.sessionId,
+          sequence: managed.sequence,
+          turnId: turnId ?? null,
+          key: event.key,
+          ...(event.text === undefined ? {} : { text: event.text }),
+        },
+      });
+      return;
+    }
+
+    if (event.type === "extensionWidgetChanged") {
+      managed.sequence += 1;
+      this.emit({
+        event: "session.extensionWidgetChanged",
+        payload: {
+          sessionId: managed.handle.sessionId,
+          sequence: managed.sequence,
+          turnId: turnId ?? null,
+          key: event.key,
+          ...(event.widget === undefined ? {} : { widget: event.widget }),
+        },
+      });
+      return;
+    }
+
     if (!turnId) return;
 
     if (event.type === "assistantMessageStarted") {
@@ -604,6 +750,7 @@ export class SessionRegistry {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           summary: event.summary,
+          rawInput: event.rawInput,
         },
       });
       return;
@@ -620,6 +767,8 @@ export class SessionRegistry {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           output: event.output,
+          content: event.content,
+          ...(event.rawOutput ? { rawOutput: event.rawOutput } : {}),
         },
       });
       return;
@@ -636,6 +785,8 @@ export class SessionRegistry {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           output: event.output,
+          content: event.content,
+          ...(event.rawOutput ? { rawOutput: event.rawOutput } : {}),
           isError: event.isError,
         },
       });

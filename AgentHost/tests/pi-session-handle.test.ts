@@ -14,7 +14,10 @@ import {
   normalizeAgentSessionEvent,
 } from "../src/pi-session-handle.ts";
 import { AccessController } from "../src/access-policy.ts";
-import { SessionRegistryError } from "../src/session-registry.ts";
+import {
+  SessionRegistryError,
+  type SessionHandleEvent,
+} from "../src/session-registry.ts";
 
 const testModel = {
   id: "gpt-test",
@@ -70,6 +73,7 @@ function makePiSession(overrides: Record<string, unknown> = {}) {
     extensionRunner: {
       getRegisteredCommands: () => [],
     } as unknown as AgentSession["extensionRunner"],
+    bindExtensions: async () => {},
     resourceLoader: {
       getSkills: () => ({ skills: [], diagnostics: [] }),
     } as unknown as AgentSession["resourceLoader"],
@@ -223,7 +227,7 @@ describe("normalizeAgentSessionEvent", () => {
     });
   });
 
-  test("maps Pi tool starts without exposing the raw SDK object", () => {
+  test("maps Pi tool starts with ACP raw input", () => {
     const event = {
       type: "tool_execution_start",
       toolCallId: "tool-one",
@@ -236,17 +240,25 @@ describe("normalizeAgentSessionEvent", () => {
       toolCallId: "tool-one",
       toolName: "read",
       summary: '{"path":"README.md"}',
+      rawInput: { path: "README.md" },
     });
   });
 
-  test("maps Pi tool progress to displayable text", () => {
+  test("maps Pi tool progress to ACP content and raw output", () => {
     const event = {
       type: "tool_execution_update",
       toolCallId: "tool-one",
       toolName: "read",
       args: { path: "README.md" },
       partialResult: {
-        content: [{ type: "text", text: "\u001b[32mFirst line\u001b[0m" }],
+        content: [
+          { type: "text", text: "\u001b[32mFirst line\u001b[0m" },
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+        details: {
+          mode: "parallel",
+          results: [{ agent: "reviewer", task: "Review", exitCode: -1 }],
+        },
       },
     } as AgentSessionEvent;
 
@@ -254,7 +266,15 @@ describe("normalizeAgentSessionEvent", () => {
       type: "toolUpdated",
       toolCallId: "tool-one",
       toolName: "read",
-      output: "First line",
+      output: "First line\n[image · image/png]",
+      content: [
+        { type: "text", text: "First line" },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+      rawOutput: {
+        mode: "parallel",
+        results: [{ agent: "reviewer", task: "Review", exitCode: -1 }],
+      },
     });
   });
 
@@ -265,6 +285,7 @@ describe("normalizeAgentSessionEvent", () => {
       toolName: "read",
       result: {
         content: [{ type: "text", text: "README contents" }],
+        details: { bytes: 15 },
       },
       isError: false,
     } as AgentSessionEvent;
@@ -274,6 +295,8 @@ describe("normalizeAgentSessionEvent", () => {
       toolCallId: "tool-one",
       toolName: "read",
       output: "README contents",
+      content: [{ type: "text", text: "README contents" }],
+      rawOutput: { bytes: 15 },
       isError: false,
     });
   });
@@ -1110,6 +1133,121 @@ describe("PiSessionHandle", () => {
 });
 
 describe("createPiSessionHandle", () => {
+  test("binds Pi extension dialogs to the standard ACP UI context", async () => {
+    const manager = SessionManager.inMemory("/tmp/pi-work-project");
+    let bindings: Parameters<AgentSession["bindExtensions"]>[0] | undefined;
+    const piSession = makePiSession({
+      sessionId: manager.getSessionId(),
+      bindExtensions: async (value: Parameters<AgentSession["bindExtensions"]>[0]) => {
+        bindings = value;
+      },
+    });
+
+    await createPiSessionHandle(
+      {
+        sessionManager: manager,
+        profile: "work",
+        requestElicitation: async () => ({
+          action: "accept",
+          content: { value: "Continue" },
+        }),
+      },
+      async () => ({ session: piSession }),
+    );
+
+    expect(bindings?.mode).toBe("rpc");
+    expect(await bindings?.uiContext?.select("Action", ["Continue", "Stop"]))
+      .toBe("Continue");
+  });
+
+  test("replays extension widgets and status emitted while extensions bind", async () => {
+    const manager = SessionManager.inMemory("/tmp/pi-work-project");
+    const piSession = makePiSession({
+      sessionId: manager.getSessionId(),
+      bindExtensions: async (value: Parameters<AgentSession["bindExtensions"]>[0]) => {
+        value.uiContext?.setWidget("any-checklist-widget", ["☑ Inspect", "☐ Implement"]);
+        value.uiContext?.setStatus("status-demo", "Ready");
+      },
+    });
+
+    const handle = await createPiSessionHandle(
+      {
+        sessionManager: manager,
+        profile: "work",
+        requestElicitation: async () => ({ action: "cancel" }),
+      },
+      async () => ({ session: piSession }),
+    );
+    const events: SessionHandleEvent[] = [];
+
+    handle.subscribe((event) => events.push(event));
+
+    expect(events).toEqual([
+      { type: "extensionStatusChanged", key: "status-demo", text: "Ready" },
+      {
+        type: "extensionWidgetChanged",
+        key: "any-checklist-widget",
+        widget: { lines: ["☑ Inspect", "☐ Implement"], placement: "aboveEditor" },
+      },
+    ]);
+    expect(handle.snapshot().extensionStatuses).toEqual({
+      "status-demo": "Ready",
+    });
+    expect(handle.snapshot()).toMatchObject({
+      extensionWidgets: {
+        "any-checklist-widget": { lines: ["☑ Inspect", "☐ Implement"], placement: "aboveEditor" },
+      },
+    });
+    expect(handle.snapshot().plan).toBeUndefined();
+  });
+
+  test("clears old extension UI before publishing reloaded widgets", async () => {
+    const manager = SessionManager.inMemory("/tmp/pi-work-project");
+    let disposals = 0;
+    let ui: Parameters<AgentSession["bindExtensions"]>[0]["uiContext"];
+    const piSession = makePiSession({
+      sessionId: manager.getSessionId(),
+      bindExtensions: async (bindings: Parameters<AgentSession["bindExtensions"]>[0]) => {
+        ui = bindings.uiContext;
+        ui?.setWidget("old-plugin", () => ({
+          render: () => ["Running"],
+          invalidate() {},
+          dispose() { disposals += 1; },
+        }));
+        ui?.setStatus("old-plugin", "Ready");
+      },
+      reload: async (options?: Parameters<AgentSession["reload"]>[0]) => {
+        ui?.setStatus("old-plugin", "Shutting down");
+        await options?.beforeSessionStart?.();
+        ui?.setWidget("new-plugin", () => ({
+          render: () => ["Reloaded"],
+          invalidate() {},
+          dispose() { disposals += 1; },
+        }));
+      },
+    });
+    const handle = await createPiSessionHandle({
+      sessionManager: manager,
+      profile: "work",
+      requestElicitation: async () => ({ action: "cancel" }),
+    }, async () => ({ session: piSession }));
+    const events: SessionHandleEvent[] = [];
+    handle.subscribe((event) => events.push(event));
+    events.length = 0;
+
+    await handle.reload();
+
+    expect(disposals).toBe(1);
+    expect(handle.snapshot().extensionWidgets).toEqual({
+      "new-plugin": { lines: ["Reloaded"], placement: "aboveEditor" },
+    });
+    expect(handle.snapshot().extensionStatuses ?? {}).toEqual({});
+    expect(events).toContainEqual({ type: "extensionWidgetChanged", key: "old-plugin" });
+    expect(events).toContainEqual({ type: "extensionStatusChanged", key: "old-plugin" });
+    handle.dispose();
+    expect(disposals).toBe(2);
+  });
+
   async function injectedSystemPrompt(
     profile: "chat" | "work",
     manager: SessionManager,

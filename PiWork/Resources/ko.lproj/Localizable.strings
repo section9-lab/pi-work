@@ -107,6 +107,10 @@
 /* 모델 제공자 및 인증 */
 "providers.title" = "모델 및 인증";
 "providers.subtitle" = "브라우저 로그인은 기본 브라우저에서 열립니다. 다른 인증 정보는 여기에서 안전하게 입력할 수 있습니다";
+"providers.agent_auth.title" = "Agent 인증";
+"providers.agent_auth.subtitle" = "연결된 ACP Agent가 관리하는 인증입니다.";
+"providers.agent_auth.sign_in" = "로그인";
+"providers.agent_auth.logout" = "로그아웃";
 "providers.loading" = "모델 제공자를 불러오는 중…";
 "providers.search" = "제공자 검색";
 "providers.refresh_help" = "인증 상태 새로 고침";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Fast 모드";
 "chat.fast_unsupported" = "이 모델은 Fast 모드를 지원하지 않습니다";
 "chat.fast_accessibility" = "%@ Fast 모드";
+"chat.agent_settings" = "Agent 설정";
+"chat.session_plan" = "계획";
+"chat.activity.title" = "상태";
+"chat.activity.expand" = "상태 세부 정보 펼치기";
+"chat.activity.collapse" = "상태 세부 정보 접기";
+"chat.session_cost" = "비용";
+"chat.agent_mode" = "모드";
 "chat.enabled" = "켬";
 "chat.disabled" = "끔";
 "chat.unsupported" = "지원 안 됨";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "이 작업을 허용할까요?";
 "chat.approval.deny" = "거부";
 "chat.approval.allow_once" = "한 번 허용";
+"chat.elicitation.decline" = "거절";
+"chat.elicitation.submit" = "제출";
+"chat.elicitation.invalid" = "필수 항목을 확인하세요.";
 "chat.image_attachment" = "[이미지 · %@]";
 "chat.image.preview" = "이미지 첨부";
 "chat.image.remove" = "이미지 제거";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "실패";
 "chat.tool.copy" = "복사";
 "chat.tool.cancelled" = "취소됨";
+"chat.tool.diff_before" = "변경 전";
+"chat.tool.diff_after" = "변경 후";
+"chat.tool.terminal_reference" = "터미널 참조";
+"chat.tool.image" = "이미지";
+"chat.tool.audio" = "오디오";
+"chat.tool.unsupported_content" = "지원되지 않는 콘텐츠";
 "chat.steps.running" = "실행 중 · %d/%d";
 "chat.steps.approval_required" = "허용이 필요합니다";
 "chat.steps.failed" = "%d단계 완료 · %d개 실패";

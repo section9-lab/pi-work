@@ -1,6 +1,80 @@
 import AppKit
 import Foundation
 
+struct SessionActivityPresentation {
+    struct Item: Identifiable {
+        let id: String
+        let status: String?
+        let lines: [String]
+
+        var text: String { ([status].compactMap { $0 } + lines).joined(separator: "\n") }
+    }
+
+    let plan: [AgentHostACPPlanEntry]
+    let items: [Item]
+
+    init(
+        plan: [AgentHostACPPlanEntry],
+        statuses: [String: String],
+        widgets: [String: AgentHostExtensionWidget]
+    ) {
+        self.plan = plan
+        items = Set(statuses.keys).union(widgets.keys).sorted { left, right in
+            let leftPlacement = widgets[left]?.placement ?? .aboveEditor
+            let rightPlacement = widgets[right]?.placement ?? .aboveEditor
+            if leftPlacement != rightPlacement { return leftPlacement == .aboveEditor }
+            return left < right
+        }.compactMap { key in
+            let isBlank: (String) -> Bool = { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let lines = Array((widgets[key]?.lines ?? [])
+                .drop(while: isBlank).reversed().drop(while: isBlank).reversed())
+            var status = statuses[key].flatMap(Self.statusForDisplay)
+            if lines.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == status }) {
+                status = nil
+            }
+            guard status != nil || !lines.isEmpty else { return nil }
+            return Item(id: key, status: status, lines: lines)
+        }
+    }
+
+    var hasContent: Bool { !plan.isEmpty || !items.isEmpty }
+
+    var summary: String {
+        if let current = plan.first(where: { $0.status == .inProgress })
+            ?? plan.first(where: { $0.status == .pending }) ?? plan.last {
+            return current.content
+        }
+        return items.first?.text.components(separatedBy: "\n").first ?? ""
+    }
+
+    var canExpand: Bool {
+        if !plan.isEmpty || items.count > 1 { return true }
+        guard let text = items.first?.text else { return false }
+        return text.contains("\n") || (text as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 12)
+        ]).width > 244
+    }
+
+    private static let updateNoticePattern = try? NSRegularExpression(
+        pattern: #"(?i)[↑⬆]\uFE0F?\s*v?\d+\.\d+\.\d+(?:[-+][a-z0-9.-]+)*\s+/[a-z0-9_.:-]*update[a-z0-9_.:-]*\s*$"#
+    )
+
+    static func statusForDisplay(_ raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        // Pi has no update-notice category. Recognize only an explicit version + update command
+        // suffix; unknown messages and mixed task progress remain visible. Never execute the command.
+        guard let match = updateNoticePattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text) else { return text }
+        let prefix = String(text[..<range.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "·|")))
+        let command = text[range].split(whereSeparator: \.isWhitespace).last?.lowercased() ?? ""
+        let label = prefix.lowercased()
+        let labelCommands = ["/\(label)-update", "/\(label)_update", "/\(label).update", "/update-\(label)"]
+        return prefix.isEmpty || labelCommands.contains(command) ? nil : prefix
+    }
+}
+
 enum MessageClipboard {
     static func copy(
         _ text: String,
@@ -24,6 +98,11 @@ struct PiChatImageAttachment: Identifiable, Equatable {
     let id: String
     let mimeType: String
     let data: Data
+}
+
+func toolOutputForDisplay(output: String, rawOutput: AgentHostJSONValue?) -> String {
+    guard output.isEmpty else { return output }
+    return rawOutput?.prettyPrinted ?? ""
 }
 
 struct PiChatMessage: Identifiable, Equatable {

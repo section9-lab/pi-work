@@ -240,6 +240,126 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testOpenSessionWorksWhenPrivateSnapshotIsUnavailable() async throws {
+        let host = FakeAgentHost()
+        await host.setSupportsPiWorkExtensions(false)
+        let store = SessionStore(service: host)
+        let summary = makeSummary()
+
+        try await store.openSession(summary, profile: .chat, sessionDirectory: nil)
+
+        let record = try XCTUnwrap(store.records[summary.id])
+        XCTAssertEqual(record.descriptor.id, summary.id)
+        XCTAssertEqual(record.descriptor.path, summary.path)
+        XCTAssertEqual(record.descriptor.cwd, summary.cwd)
+        XCTAssertEqual(record.descriptor.title, summary.title)
+        XCTAssertEqual(record.messages, [])
+        XCTAssertNil(record.model)
+        XCTAssertEqual(record.accessMode, .none)
+        let snapshotCount = await host.snapshotCount
+        XCTAssertEqual(snapshotCount, 0)
+        await store.stop()
+    }
+
+    func testOpenSessionWorksWhenGranularCapabilitiesOmitSnapshot() async throws {
+        let host = FakeAgentHost()
+        await host.setPiWorkCapabilities([.modelsList])
+        let store = SessionStore(service: host)
+
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+
+        XCTAssertNotNil(store.records["session-one"])
+        let snapshotCount = await host.snapshotCount
+        XCTAssertEqual(snapshotCount, 0)
+        await store.stop()
+    }
+
+    func testOpenSessionProjectsStandardACPStateWithoutPrivateSnapshot() async throws {
+        let host = FakeAgentHost()
+        await host.rejectSnapshots(true)
+        await host.setACPState(makeACPState())
+        let store = SessionStore(service: host)
+
+        try await store.openSession(makeSummary(), profile: .work, sessionDirectory: nil)
+
+        let record = try XCTUnwrap(store.records["session-one"])
+        XCTAssertEqual(record.model?.id, "opus")
+        XCTAssertEqual(record.thinkingLevel, .high)
+        XCTAssertEqual(record.availableThinkingLevels, [.off, .high])
+        XCTAssertEqual(record.accessMode, .ask)
+        XCTAssertEqual(record.acpState.modes?.currentModeId, "ask")
+        XCTAssertEqual(store.availableModels.map(\.id), ["sonnet", "opus"])
+        await store.stop()
+    }
+
+    func testOpenSessionKeepsHistoryUpdatesReceivedBeforeTheLoadResponse() async throws {
+        let host = FakeAgentHost()
+        await host.rejectSnapshots(true)
+        await host.emitDuringOpen(
+            .sessionAssistantContent(
+                AgentHostSessionAssistantContentPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    turnId: "message-one",
+                    generationIndex: 0,
+                    phase: .delta,
+                    contentType: .text,
+                    contentIndex: 0,
+                    delta: "Loaded history",
+                    content: nil,
+                    toolCall: nil
+                )
+            )
+        )
+        let store = SessionStore(service: host)
+
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        try await waitUntil { store.records["session-one"]?.transcript.count == 1 }
+
+        let transcript = try XCTUnwrap(store.records["session-one"]?.transcript)
+        XCTAssertEqual(transcript.count, 1)
+        XCTAssertEqual(transcript.first?.role, .assistant)
+        XCTAssertEqual(transcript.first?.parts, [
+            .text(
+                id: "turn:message-one:assistant:0:content:0:0",
+                text: "Loaded history"
+            )
+        ])
+        await store.stop()
+    }
+
+    func testStandardAvailableCommandsAvoidThePrivateCommandRequest() async throws {
+        let host = FakeAgentHost()
+        await host.setSupportsPiWorkExtensions(false)
+        let store = SessionStore(service: host)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        await host.emit(
+            .sessionAvailableCommandsChanged(
+                AgentHostSessionAvailableCommandsChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 1,
+                    availableCommands: [
+                        AgentHostACPAvailableCommand(
+                            name: "review",
+                            description: "Review changes"
+                        )
+                    ]
+                )
+            )
+        )
+        try await waitUntil {
+            store.records["session-one"]?.acpState.availableCommands?.count == 1
+        }
+
+        let commands = try await store.slashCommands(sessionId: "session-one")
+
+        XCTAssertEqual(commands.map(\.name), ["review"])
+        XCTAssertEqual(commands.map(\.source), [.agent])
+        let listCommandsCount = await host.listCommandsCount
+        XCTAssertEqual(listCommandsCount, 0)
+        await store.stop()
+    }
+
     func testOpenSessionCanCacheHistoryWithoutChangingCurrentSelection() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot())
@@ -526,6 +646,75 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testElicitationRequestCanBeAccepted() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(accessMode: .ask))
+        let store = SessionStore(service: host)
+        try await store.start()
+        try await store.openSession(makeSummary(), profile: .work, sessionDirectory: nil)
+        let request = AgentHostACPElicitationRequest(
+            id: "elicitation-one",
+            sessionId: "session-one",
+            message: "Choose",
+            schema: AgentHostACPElicitationSchema(
+                properties: ["value": .init(type: .string)],
+                required: ["value"]
+            )
+        )
+        await host.emit(.elicitationRequested(request))
+        try await waitUntil {
+            store.records["session-one"]?.pendingElicitations == [request]
+        }
+
+        try await store.resolveElicitation(
+            sessionId: "session-one",
+            requestId: request.id,
+            response: .accept(["value": .string("Run")])
+        )
+
+        XCTAssertEqual(store.records["session-one"]?.pendingElicitations, [])
+        let resolutions = await host.elicitationResolutions
+        XCTAssertEqual(
+            resolutions,
+            [
+                ElicitationResolution(
+                    requestId: request.id,
+                    response: .accept(["value": .string("Run")])
+                )
+            ]
+        )
+        await store.stop()
+    }
+
+    func testRequestScopedElicitationIsPresentedWithoutAnOpenSession() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host)
+        try await store.start()
+        let request = AgentHostACPElicitationRequest(
+            id: "elicitation-global",
+            requestId: "request-one",
+            message: "Authenticate",
+            schema: AgentHostACPElicitationSchema(properties: [:])
+        )
+
+        await host.emit(.elicitationRequested(request))
+        try await waitUntil { store.pendingElicitations == [request] }
+
+        try await store.resolveElicitation(
+            sessionId: nil,
+            requestId: request.id,
+            response: .decline
+        )
+
+        XCTAssertEqual(store.pendingElicitations, [])
+        let resolutions = await host.elicitationResolutions
+        XCTAssertEqual(
+            resolutions,
+            [ElicitationResolution(requestId: request.id, response: .decline)]
+        )
+        await store.stop()
+    }
+
     func testChangingAccessModeClearsAnApprovalThatWasWaiting() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot(accessMode: .ask))
@@ -569,7 +758,8 @@ final class SessionStoreTests: XCTestCase {
                 hello: AgentHostHelloPayload(
                     hostVersion: "test-host",
                     piVersion: "0.83.0",
-                    capabilities: []
+                    capabilities: [],
+                    supportsPiWorkExtensions: true
                 )
             )
         )
@@ -732,7 +922,22 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
-    func testPromptHandlesRunningEventBeforeTheAcceptedResponse() async throws {
+    func testBootstrapWorksWhenPrivateModelCatalogIsUnavailable() async throws {
+        let host = FakeAgentHost()
+        await host.setSessions([makeSummary()])
+        await host.setSupportsPiWorkExtensions(false)
+        let store = SessionStore(service: host)
+
+        try await store.bootstrap(cwd: "/tmp/project", sessionDirectory: nil, profile: .chat)
+
+        XCTAssertEqual(store.chatSessions, [makeSummary()])
+        XCTAssertEqual(store.availableModels, [])
+        let listModelsCount = await host.listModelsCount
+        XCTAssertEqual(listModelsCount, 0)
+        await store.stop()
+    }
+
+    func testPromptCompletionWinsOverAnEarlierRunningEvent() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot())
         await host.emitRunningBeforePromptResponse(true)
@@ -747,13 +952,13 @@ final class SessionStoreTests: XCTestCase {
             sessionDirectory: "/tmp/sessions"
         )
 
-        let turnId = try await store.submitPrompt(
+        _ = try await store.submitPrompt(
             sessionId: "session-one",
             text: "Build the feature"
         )
 
-        XCTAssertEqual(store.records["session-one"]?.runState, .running)
-        XCTAssertEqual(store.records["session-one"]?.activeTurnId, turnId)
+        XCTAssertEqual(store.records["session-one"]?.runState, .idle)
+        XCTAssertNil(store.records["session-one"]?.activeTurnId)
         XCTAssertEqual(store.records["session-one"]?.descriptor.title, "Build the feature")
         let promptTexts = await host.promptTexts
         let renamedTitles = await host.renamedTitles
@@ -801,7 +1006,8 @@ final class SessionStoreTests: XCTestCase {
                 hello: AgentHostHelloPayload(
                     hostVersion: "test-host",
                     piVersion: "0.83.0",
-                    capabilities: []
+                    capabilities: [],
+                    supportsPiWorkExtensions: true
                 )
             )
         )
@@ -847,7 +1053,12 @@ private actor FakeAgentHost: AgentHostServicing {
     private var gitBranchesResult = AgentHostGitBranchesResult.unavailable
     private var shouldEmitRunningBeforeResponse = false
     private var shouldRejectPrompts = false
+    private var shouldRejectSnapshots = false
+    private var shouldRejectModelCatalog = false
     private var openSessionTimeoutsRemaining = 0
+    private var acpState = AgentHostACPSessionState.empty
+    private var eventDuringOpen: AgentHostServerEvent?
+    private var piWorkCapabilities = AgentHostPiWorkCapability.all
 
     private(set) var startCount = 0
     private(set) var openCount = 0
@@ -862,6 +1073,7 @@ private actor FakeAgentHost: AgentHostServicing {
     private(set) var selectedModelOptions: [ModelOptionSelection] = []
     private(set) var selectedAccessModes: [AgentHostAccessMode] = []
     private(set) var approvalResolutions: [ApprovalResolution] = []
+    private(set) var elicitationResolutions: [ElicitationResolution] = []
     private(set) var abortCount = 0
     private(set) var closeCount = 0
     private(set) var deleteCount = 0
@@ -869,6 +1081,7 @@ private actor FakeAgentHost: AgentHostServicing {
     private(set) var listModelsCount = 0
     private(set) var selectedGitBranches: [String] = []
     private(set) var htmlExportRequests: [HTMLExportRequest] = []
+    private(set) var listCommandsCount = 0
 
     init() {
         var eventContinuation: AsyncStream<AgentHostServerEvent>.Continuation!
@@ -889,6 +1102,30 @@ private actor FakeAgentHost: AgentHostServicing {
 
     func setSnapshot(_ snapshot: AgentHostSessionSnapshotResult) {
         snapshotResult = snapshot
+    }
+
+    func setACPState(_ state: AgentHostACPSessionState) {
+        acpState = state
+    }
+
+    func emitDuringOpen(_ event: AgentHostServerEvent?) {
+        eventDuringOpen = event
+    }
+
+    func rejectSnapshots(_ enabled: Bool) {
+        shouldRejectSnapshots = enabled
+    }
+
+    func rejectModelCatalog(_ enabled: Bool) {
+        shouldRejectModelCatalog = enabled
+    }
+
+    func setSupportsPiWorkExtensions(_ enabled: Bool) {
+        piWorkCapabilities = enabled ? AgentHostPiWorkCapability.all : []
+    }
+
+    func setPiWorkCapabilities(_ capabilities: Set<AgentHostPiWorkCapability>) {
+        piWorkCapabilities = capabilities
     }
 
     func setTranscriptPage(_ page: AgentHostSessionTranscriptPageResult) {
@@ -932,7 +1169,8 @@ private actor FakeAgentHost: AgentHostServicing {
         let hello = AgentHostHelloPayload(
             hostVersion: "test-host",
             piVersion: "0.83.0",
-            capabilities: []
+            capabilities: [],
+            piWorkCapabilities: piWorkCapabilities
         )
         lifecycleContinuation.yield(.connected(generation: 1, hello: hello))
         return hello
@@ -953,6 +1191,12 @@ private actor FakeAgentHost: AgentHostServicing {
 
     func listModels(requestID: String) async throws -> [AgentHostModel] {
         listModelsCount += 1
+        if shouldRejectModelCatalog {
+            throw AgentHostClientError.requestFailed(
+                code: "-32601",
+                message: "Method not found"
+            )
+        }
         return models
     }
 
@@ -968,12 +1212,16 @@ private actor FakeAgentHost: AgentHostServicing {
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String
-    ) async throws -> AgentHostSessionSummary {
-        makeSummary()
+    ) async throws -> AgentHostSessionCreateDraftResult {
+        AgentHostSessionCreateDraftResult(
+            session: makeSummary(),
+            acpState: acpState
+        )
     }
 
     func openSession(
-        path: String,
+        sessionId: String,
+        cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
         requestID: String
@@ -984,10 +1232,15 @@ private actor FakeAgentHost: AgentHostServicing {
             openSessionTimeoutsRemaining -= 1
             throw AgentHostClientError.requestTimedOut(requestID)
         }
+        if let eventDuringOpen {
+            serverEventContinuation.yield(eventDuringOpen)
+            await Task.yield()
+        }
         return AgentHostSessionOpenResult(
-            sessionId: snapshotResult.session.id,
-            path: path,
-            cwd: snapshotResult.session.cwd
+            sessionId: sessionId,
+            path: sessionId,
+            cwd: cwd,
+            acpState: acpState
         )
     }
 
@@ -1017,6 +1270,12 @@ private actor FakeAgentHost: AgentHostServicing {
         requestID: String
     ) async throws -> AgentHostSessionSnapshotResult {
         snapshotCount += 1
+        if shouldRejectSnapshots {
+            throw AgentHostClientError.requestFailed(
+                code: "-32601",
+                message: "Method not found"
+            )
+        }
         return snapshotResult
     }
 
@@ -1046,7 +1305,8 @@ private actor FakeAgentHost: AgentHostServicing {
         sessionId: String,
         requestID: String
     ) async throws -> [AgentHostSlashCommand] {
-        []
+        listCommandsCount += 1
+        return []
     }
 
     func setGitBranch(
@@ -1154,6 +1414,17 @@ private actor FakeAgentHost: AgentHostServicing {
         )
     }
 
+    func resolveElicitation(
+        sessionId: String?,
+        requestId: String,
+        response: AgentHostACPElicitationResponse,
+        requestID: String
+    ) async throws {
+        elicitationResolutions.append(
+            ElicitationResolution(requestId: requestId, response: response)
+        )
+    }
+
     func prompt(
         sessionId: String,
         turnId: String,
@@ -1231,6 +1502,11 @@ private struct ApprovalResolution: Equatable {
     let decision: AgentHostApprovalDecision
 }
 
+private struct ElicitationResolution: Equatable {
+    let requestId: String
+    let response: AgentHostACPElicitationResponse
+}
+
 private struct ModelOptionSelection: Equatable {
     let option: AgentHostModelOption
     let enabled: Bool
@@ -1249,6 +1525,41 @@ private func makeSummary(
         messageCount: 0,
         createdAt: "2026-08-09T00:00:00.000Z",
         modifiedAt: modifiedAt
+    )
+}
+
+private func makeACPState() -> AgentHostACPSessionState {
+    AgentHostACPSessionState(
+        modes: AgentHostACPSessionModeState(
+            currentModeId: "ask",
+            availableModes: [
+                AgentHostACPSessionMode(id: "ask", name: "Ask", description: nil)
+            ]
+        ),
+        configOptions: [
+            AgentHostACPSetConfigOptionResult.ConfigOption(
+                id: "agent-model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: .string("opus"),
+                options: [
+                    .init(value: "sonnet", name: "Sonnet"),
+                    .init(value: "opus", name: "Opus")
+                ]
+            ),
+            AgentHostACPSetConfigOptionResult.ConfigOption(
+                id: "reasoning",
+                name: "Thinking",
+                category: "thought_level",
+                type: "select",
+                currentValue: .string("high"),
+                options: [
+                    .init(value: "off", name: "Off"),
+                    .init(value: "high", name: "High")
+                ]
+            )
+        ]
     )
 }
 

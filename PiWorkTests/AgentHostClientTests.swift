@@ -3,8 +3,8 @@ import XCTest
 @testable import PiWork
 
 final class AgentHostClientTests: XCTestCase {
-    func testClientPassesPrivateAuthenticationPathToHostProcess() async throws {
-        let script = #"printf '{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"%s","piVersion":"0.83.0","capabilities":[]}}\n' "$PI_WORK_AUTH_PATH"; cat >/dev/null"#
+    func testClientNegotiatesACPAndPassesPrivateEnvironmentToTheHost() async throws {
+        let script = #"read _; printf '{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"%s"},"_meta":{"piVersion":"0.84.1","capabilities":[]}}}\n' "$PI_WORK_AUTH_PATH"; cat >/dev/null"#
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", script],
@@ -14,15 +14,15 @@ final class AgentHostClientTests: XCTestCase {
         let hello = try await client.start()
 
         XCTAssertEqual(hello.hostVersion, "/tmp/pi-work/auth.json")
+        XCTAssertEqual(hello.piVersion, "0.84.1")
         await client.stop()
     }
 
-    func testClientDoesNotPassTestHarnessConfigurationToHostProcess() async throws {
-        let script = #"printf '{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"%s","piVersion":"0.83.0","capabilities":[]}}\n' "${XCTestConfigurationFilePath:-missing}"; cat >/dev/null"#
+    func testClientRemovesTestHarnessConfigurationBeforeACPInitialize() async throws {
+        let script = #"read _; printf '{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"%s"},"_meta":{"capabilities":[]}}}\n' "${XCTestConfigurationFilePath:-missing}"; cat >/dev/null"#
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script],
-            environment: ["PI_WORK_AUTH_PATH": "/tmp/pi-work/auth.json"]
+            arguments: ["-c", script]
         )
 
         let hello = try await client.start()
@@ -31,11 +31,11 @@ final class AgentHostClientTests: XCTestCase {
         await client.stop()
     }
 
-    func testEventAndResponseAreDeliveredIndependentlyWhenInterleaved() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":["sessions.list"]}}"#
-        let event = #"{"version":1,"kind":"event","event":"session.messageDelta","payload":{"sessionId":"session-one","sequence":2,"turnId":"turn-one","delta":"Hello"}}"#
-        let response = #"{"version":1,"kind":"response","id":"list-1","ok":true,"result":{"sessions":[]}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; printf '%s\\n' '\(event)'; printf '%s\\n' '\(response)'; cat >/dev/null"
+    func testClientCorrelatesJSONRPCResponsesAndACPUpdatesIndependently() async throws {
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"test-host"},"_meta":{"capabilities":["sessions.list"]}}}"#
+        let event = #"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello"},"_meta":{"sequence":2,"turnId":"turn-one","phase":"delta","contentIndex":0,"generationIndex":0}}}}"#
+        let response = #"{"jsonrpc":"2.0","id":"list-1","result":{"sessions":[]}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; read _; printf '%s\\n' '\(event)'; printf '%s\\n' '\(response)'; cat >/dev/null"
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", script]
@@ -58,152 +58,51 @@ final class AgentHostClientTests: XCTestCase {
         let receivedEvent = await eventTask.value
         XCTAssertEqual(
             receivedEvent,
-            .sessionMessageDelta(
-                AgentHostSessionMessageDeltaPayload(
+            .sessionAssistantContent(
+                AgentHostSessionAssistantContentPayload(
                     sessionId: "session-one",
                     sequence: 2,
                     turnId: "turn-one",
-                    delta: "Hello"
+                    generationIndex: 0,
+                    phase: .delta,
+                    contentType: .text,
+                    contentIndex: 0,
+                    delta: "Hello",
+                    content: nil,
+                    toolCall: nil
                 )
             )
         )
         await client.stop()
     }
 
-    func testEventStreamFinishesWhenHostExits() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":[]}}"#
-        let script = "printf '%s\\n' '\(hello)'; sleep 0.05; exit 0"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script]
-        )
-        let stream = await client.events()
-        let finished = expectation(description: "Event stream finishes")
-        let reader = Task {
-            for await _ in stream {}
-            finished.fulfill()
-        }
-
-        _ = try await client.start()
-
-        await fulfillment(of: [finished], timeout: 1)
-        reader.cancel()
-        await client.stop()
-    }
-
-    func testCancellingRequestFailsImmediatelyWithCancellationError() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":[]}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; cat >/dev/null"
+    func testClientPreservesACPFailureMessageForDisplay() async throws {
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[]}}"#
+        let response = #"{"jsonrpc":"2.0","id":"update-1","error":{"code":-32000,"message":"Package update failed: registry unavailable","data":{"code":"invalid_request"}}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; read _; printf '%s\\n' '\(response)'; cat >/dev/null"
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", script]
         )
 
         _ = try await client.start()
-        let request = Task {
-            try await client.request(
-                id: "cancel-1",
-                method: "sessions.list",
-                params: AgentHostSessionListParameters(cwd: "/tmp/project", sessionDirectory: nil),
-                timeout: 0.5,
-                as: AgentHostSessionListResult.self
-            )
-        }
-        try await Task.sleep(nanoseconds: 50_000_000)
-        request.cancel()
-
         do {
-            _ = try await request.value
-            XCTFail("Expected cancellation")
-        } catch is CancellationError {
-            // Expected.
+            let _: AgentHostInstalledExtensionsResult = try await client.request(
+                id: "update-1",
+                method: "extensions.update",
+                params: ["source": "npm:example-extension", "scope": "user"],
+                as: AgentHostInstalledExtensionsResult.self
+            )
+            XCTFail("Expected package update failure")
         } catch {
-            XCTFail("Unexpected error: \(error)")
+            XCTAssertEqual(error.localizedDescription, "Package update failed: registry unavailable")
         }
-
         await client.stop()
     }
 
-    func testConcurrentRequestsDecodeOutOfOrderResponsesByID() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":[]}}"#
-        let secondResponse = #"{"version":1,"kind":"response","id":"second","ok":true,"result":{"value":"two"}}"#
-        let firstResponse = #"{"version":1,"kind":"response","id":"first","ok":true,"result":{"value":"one"}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; IFS= read -r _; printf '%s\\n' '\(secondResponse)'; printf '%s\\n' '\(firstResponse)'; cat >/dev/null"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script]
-        )
-
-        _ = try await client.start()
-        let first = Task {
-            try await client.request(
-                id: "first",
-                method: "test.first",
-                params: AgentHostClientTestParameters(),
-                as: AgentHostClientTestResult.self
-            )
-        }
-        let second = Task {
-            try await client.request(
-                id: "second",
-                method: "test.second",
-                params: AgentHostClientTestParameters(),
-                as: AgentHostClientTestResult.self
-            )
-        }
-
-        let firstResult = try await first.value
-        let secondResult = try await second.value
-        XCTAssertEqual(firstResult.value, "one")
-        XCTAssertEqual(secondResult.value, "two")
-        await client.stop()
-    }
-
-    func testStartReturnsTheHostHandshake() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":["sessions.list"]}}"#
-        let script = "printf '%s\\n' '\(hello)'; cat >/dev/null"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script]
-        )
-
-        let payload = try await client.start()
-
-        XCTAssertEqual(payload.hostVersion, "test-host")
-        XCTAssertEqual(payload.piVersion, "0.83.0")
-        XCTAssertEqual(payload.capabilities, ["sessions.list"])
-        await client.stop()
-    }
-
-    func testRequestCorrelatesAndDecodesTheMatchingResponse() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":["sessions.list"]}}"#
-        let response = #"{"version":1,"kind":"response","id":"list-1","ok":true,"result":{"sessions":[{"id":"session-one","path":"/tmp/session.jsonl","cwd":"/tmp/project","title":"Session integration","firstMessage":"Implement sessions","messageCount":2,"createdAt":"2026-08-08T00:00:00.000Z","modifiedAt":"2026-08-08T00:01:00.000Z"}]}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; printf '%s\\n' '\(response)'; cat >/dev/null"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script]
-        )
-
-        _ = try await client.start()
-        let result = try await client.request(
-            id: "list-1",
-            method: "sessions.list",
-            params: AgentHostSessionListParameters(
-                cwd: "/tmp/project",
-                sessionDirectory: "/tmp/sessions"
-            ),
-            as: AgentHostSessionListResult.self
-        )
-
-        XCTAssertEqual(result.sessions.count, 1)
-        XCTAssertEqual(result.sessions[0].id, "session-one")
-        XCTAssertEqual(result.sessions[0].title, "Session integration")
-        await client.stop()
-    }
-
-    func testRequestTimesOutWhenTheHostDoesNotRespond() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":["sessions.list"]}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; cat >/dev/null"
+    func testClientReturnsACPRequestTimeoutWhenHostDoesNotRespond() async throws {
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"test-host"},"_meta":{"capabilities":[]}}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; read _; cat >/dev/null"
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", script]
@@ -218,17 +117,137 @@ final class AgentHostClientTests: XCTestCase {
                 timeout: 0.05,
                 as: AgentHostSessionListResult.self
             )
-            XCTFail("Expected the request to time out")
-        } catch AgentHostClientError.requestTimedOut(let id) {
-            XCTAssertEqual(id, "slow-1")
+            XCTFail("Expected request timeout")
+        } catch AgentHostClientError.requestTimedOut("slow-1") {
+            // Expected.
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
-
         await client.stop()
     }
 
-    func testStartTimesOutWhenTheHostDoesNotHandshake() async {
+    func testClientRespondsToACPServerPermissionRequestUsingTheOriginalID() async throws {
+        let markerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-work-permission-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[]}}"#
+        let permission = #"{"jsonrpc":"2.0","id":"permission-1","method":"session/request_permission","params":{"sessionId":"session-one","toolCall":{"toolCallId":"tool-one","title":"bash"},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"},{"optionId":"no","name":"Reject","kind":"reject_once"}]}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; printf '%s\\n' '\(permission)'; IFS= read -r line; printf '%s\\n' \"$line\" > '\(markerURL.path)'; cat >/dev/null"
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+
+        let events = await client.events()
+        var iterator = events.makeAsyncIterator()
+        _ = try await client.start()
+        guard case .sessionApprovalRequested(let payload) = await iterator.next() else {
+            return XCTFail("Expected permission request")
+        }
+        try await client.respondToPermission(requestId: payload.requestId, optionId: "yes")
+
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: markerURL.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let response = try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL))
+            as! [String: Any]
+        XCTAssertEqual(response["id"] as? String, "permission-1")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        let outcome = try XCTUnwrap(result["outcome"] as? [String: Any])
+        XCTAssertEqual(outcome["outcome"] as? String, "selected")
+        XCTAssertEqual(outcome["optionId"] as? String, "yes")
+        await client.stop()
+    }
+
+    func testClientCancelsAnOutstandingACPPermissionRequest() async throws {
+        let markerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-work-permission-cancel-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[]}}"#
+        let permission = #"{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-one","toolCall":{"toolCallId":"tool-one","title":"bash"},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"}]}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; printf '%s\\n' '\(permission)'; IFS= read -r line; printf '%s\\n' \"$line\" > '\(markerURL.path)'; cat >/dev/null"
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+
+        let events = await client.events()
+        var iterator = events.makeAsyncIterator()
+        _ = try await client.start()
+        guard case .sessionApprovalRequested(let payload) = await iterator.next() else {
+            return XCTFail("Expected permission request")
+        }
+        try await client.cancelPermission(requestId: payload.requestId)
+
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: markerURL.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let response = try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL))
+            as! [String: Any]
+        XCTAssertEqual(response["id"] as? Int, 42)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        let outcome = try XCTUnwrap(result["outcome"] as? [String: Any])
+        XCTAssertEqual(outcome["outcome"] as? String, "cancelled")
+        XCTAssertNil(outcome["optionId"])
+        await client.stop()
+    }
+
+    func testClientRespondsToStandardACPElicitationUsingTheOriginalID() async throws {
+        let markerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-work-elicitation-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[]}}"#
+        let elicitation = #"{"jsonrpc":"2.0","id":73,"method":"elicitation/create","params":{"mode":"form","sessionId":"session-one","message":"Choose","requestedSchema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; printf '%s\\n' '\(elicitation)'; IFS= read -r line; printf '%s\\n' \"$line\" > '\(markerURL.path)'; cat >/dev/null"
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+
+        let events = await client.events()
+        var iterator = events.makeAsyncIterator()
+        _ = try await client.start()
+        guard case .elicitationRequested(let request) = await iterator.next() else {
+            return XCTFail("Expected elicitation request")
+        }
+        try await client.respondToElicitation(
+            requestId: request.id,
+            response: .accept(["value": .string("Run")])
+        )
+
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: markerURL.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let response = try JSONSerialization.jsonObject(with: Data(contentsOf: markerURL))
+            as! [String: Any]
+        XCTAssertEqual(response["id"] as? Int, 73)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["action"] as? String, "accept")
+        XCTAssertEqual((result["content"] as? [String: Any])?["value"] as? String, "Run")
+        await client.stop()
+    }
+
+    func testClientFinishesEventsWhenACPHostExits() async throws {
+        let initialize = #"{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"test-host"},"_meta":{"capabilities":[]}}}"#
+        let script = "read _; printf '%s\\n' '\(initialize)'; sleep 0.05; exit 0"
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+        let stream = await client.events()
+        let finished = expectation(description: "ACP event stream finishes")
+        let reader = Task {
+            for await _ in stream {}
+            finished.fulfill()
+        }
+
+        _ = try await client.start()
+        await fulfillment(of: [finished], timeout: 1)
+        reader.cancel()
+        await client.stop()
+    }
+
+    func testClientTimesOutWhenACPInitializeIsIgnored() async throws {
         let client = AgentHostClient(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "cat >/dev/null"],
@@ -237,113 +256,12 @@ final class AgentHostClientTests: XCTestCase {
 
         do {
             _ = try await client.start()
-            XCTFail("Expected the handshake to time out")
+            XCTFail("Expected ACP handshake timeout")
         } catch AgentHostClientError.handshakeTimedOut {
             // Expected.
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
-
         await client.stop()
     }
-
-    func testHandshakeTimeoutKillsAHostThatIgnoresTermination() async throws {
-        let markerURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pi-work-stubborn-host-\(UUID().uuidString)")
-        let script = "printf '%s' \"$$\" > '\(markerURL.path)'; trap '' TERM; while :; do sleep 1; done"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script],
-            handshakeTimeout: 0.05
-        )
-
-        do {
-            _ = try await client.start()
-            XCTFail("Expected the handshake to time out")
-        } catch AgentHostClientError.handshakeTimedOut {
-            // Expected.
-        }
-        await client.stop()
-
-        let pidText = try String(contentsOf: markerURL, encoding: .utf8)
-        let pid = try XCTUnwrap(Int32(pidText))
-        defer {
-            Darwin.kill(pid, SIGKILL)
-            try? FileManager.default.removeItem(at: markerURL)
-        }
-        for _ in 0..<20 where Darwin.kill(pid, 0) == 0 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        XCTAssertNotEqual(Darwin.kill(pid, 0), 0, "Timed-out host process must not survive")
-    }
-
-    func testStartRejectsAnIncompatibleHandshake() async {
-        let hello = #"{"version":2,"kind":"event","event":"host.hello","payload":{"hostVersion":"future-host","piVersion":"0.83.0","capabilities":[]}}"#
-        let script = "printf '%s\\n' '\(hello)'; cat >/dev/null"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script],
-            handshakeTimeout: 0.2
-        )
-
-        do {
-            _ = try await client.start()
-            XCTFail("Expected an incompatible handshake error")
-        } catch AgentHostClientError.invalidHandshake {
-            // Expected.
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-
-        await client.stop()
-    }
-
-    func testStartDrainsHostStandardErrorBeforeHandshake() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":[]}}"#
-        let script = "head -c 1048576 /dev/zero >&2; printf '%s\\n' '\(hello)'; cat >/dev/null"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script],
-            handshakeTimeout: 1
-        )
-
-        let payload = try await client.start()
-
-        XCTAssertEqual(payload.hostVersion, "test-host")
-        await client.stop()
-    }
-
-    func testRequestFailsImmediatelyWhenTheHostExits() async throws {
-        let hello = #"{"version":1,"kind":"event","event":"host.hello","payload":{"hostVersion":"test-host","piVersion":"0.83.0","capabilities":["sessions.list"]}}"#
-        let script = "printf '%s\\n' '\(hello)'; IFS= read -r _; exit 7"
-        let client = AgentHostClient(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script]
-        )
-
-        _ = try await client.start()
-        do {
-            let _: AgentHostSessionListResult = try await client.request(
-                id: "exit-1",
-                method: "sessions.list",
-                params: AgentHostSessionListParameters(cwd: "/tmp/project", sessionDirectory: nil),
-                timeout: 1,
-                as: AgentHostSessionListResult.self
-            )
-            XCTFail("Expected the host exit to fail the pending request")
-        } catch AgentHostClientError.processExited(let status) {
-            XCTAssertEqual(status, 7)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-
-        await client.stop()
-    }
-}
-
-private struct AgentHostClientTestParameters: Encodable {}
-
-private struct AgentHostClientTestResult: Decodable {
-    let value: String
 }

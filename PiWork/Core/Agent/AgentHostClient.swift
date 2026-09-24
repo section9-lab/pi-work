@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-enum AgentHostClientError: Error {
+enum AgentHostClientError: LocalizedError {
     case alreadyRunning
     case invalidHandshake
     case handshakeTimedOut
@@ -11,6 +11,11 @@ enum AgentHostClientError: Error {
     case requestFailed(code: String, message: String)
     case missingResponseResult
     case processExited(Int32)
+
+    var errorDescription: String? {
+        if case .requestFailed(_, let message) = self { return message }
+        return nil
+    }
 }
 
 actor AgentHostClient {
@@ -28,8 +33,10 @@ actor AgentHostClient {
     private var framer = AgentHostLineFramer()
     private var handshakeContinuation: CheckedContinuation<AgentHostHelloPayload, Error>?
     private var handshakeTimeoutTask: Task<Void, Never>?
+    private let initializeRequestID = "__pi_work_initialize__"
     private var pendingRequests: [String: CheckedContinuation<Data, Error>] = [:]
     private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
+    private var serverRequestIDs: [String: Any] = [:]
     private var serverEventStream: AsyncStream<AgentHostServerEvent>?
     private var serverEventContinuation: AsyncStream<AgentHostServerEvent>.Continuation?
 
@@ -100,6 +107,16 @@ actor AgentHostClient {
             do {
                 try task.run()
                 process = task
+                let initialize = AgentHostRequest(
+                    id: initializeRequestID,
+                    method: "initialize",
+                    params: AgentHostACPInitializeParameters(
+                        protocolVersion: 1,
+                        clientInfo: .init(name: "pi-work", version: "0.1.0"),
+                        clientCapabilities: .piWork
+                    )
+                )
+                try stdinHandle?.write(contentsOf: initialize.encodedLine())
                 let timeoutNanoseconds = UInt64(max(handshakeTimeout, 0) * 1_000_000_000)
                 handshakeTimeoutTask = Task { [weak self] in
                     do {
@@ -191,23 +208,103 @@ actor AgentHostClient {
         return result
     }
 
+    func notify<Parameters: Encodable>(
+        method: String,
+        params: Parameters
+    ) throws {
+        guard let stdinHandle, process?.isRunning == true else {
+            throw AgentHostClientError.notRunning
+        }
+        try stdinHandle.write(
+            contentsOf: AgentHostNotification(method: method, params: params).encodedLine()
+        )
+    }
+
+    func respondToPermission(requestId: String, optionId: String) throws {
+        try sendPermissionResponse(
+            requestId: requestId,
+            outcome: ["outcome": "selected", "optionId": optionId]
+        )
+    }
+
+    func cancelPermission(requestId: String) throws {
+        try sendPermissionResponse(requestId: requestId, outcome: ["outcome": "cancelled"])
+    }
+
+    func respondToElicitation(
+        requestId: String,
+        response: AgentHostACPElicitationResponse
+    ) throws {
+        guard let stdinHandle, process?.isRunning == true else {
+            throw AgentHostClientError.notRunning
+        }
+        let responseData = try JSONEncoder().encode(response)
+        let result = try JSONSerialization.jsonObject(with: responseData)
+        let wireID = serverRequestIDs[requestId] ?? requestId
+        let object: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": wireID,
+            "result": result
+        ]
+        var line = try JSONSerialization.data(withJSONObject: object)
+        line.append(0x0A)
+        try stdinHandle.write(contentsOf: line)
+        serverRequestIDs.removeValue(forKey: requestId)
+    }
+
+    private func sendPermissionResponse(
+        requestId: String,
+        outcome: [String: Any]
+    ) throws {
+        guard let stdinHandle, process?.isRunning == true else {
+            throw AgentHostClientError.notRunning
+        }
+        let wireID = serverRequestIDs[requestId] ?? requestId
+        let object: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": wireID,
+            "result": ["outcome": outcome]
+        ]
+        var line = try JSONSerialization.data(withJSONObject: object)
+        line.append(0x0A)
+        try stdinHandle.write(contentsOf: line)
+        serverRequestIDs.removeValue(forKey: requestId)
+    }
+
     private func consume(_ data: Data) {
         for record in framer.append(data) {
-            guard let header = try? JSONDecoder().decode(AgentHostWireHeader.self, from: record) else {
+            guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any] else {
                 continue
             }
+            let method = object["method"] as? String
+            let id = object["id"] as? String
 
-            if header.kind == "event", header.event == "host.hello",
+            if method != nil, let wireID = object["id"] {
+                let requestId: String?
+                if let stringID = wireID as? String {
+                    requestId = stringID
+                } else if let numberID = wireID as? NSNumber {
+                    requestId = numberID.stringValue
+                } else {
+                    requestId = nil
+                }
+                if let requestId { serverRequestIDs[requestId] = wireID }
+            }
+
+            if method == nil,
+               id == initializeRequestID,
                let continuation = handshakeContinuation {
                 handshakeContinuation = nil
                 handshakeTimeoutTask?.cancel()
                 handshakeTimeoutTask = nil
 
-                guard header.version == 1,
-                      let event = try? JSONDecoder().decode(
-                        AgentHostEvent<AgentHostHelloPayload>.self,
-                        from: record
-                      ) else {
+                guard let response = try? JSONDecoder().decode(
+                    AgentHostResponse<AgentHostACPInitializeResult>.self,
+                    from: record
+                ),
+                response.ok,
+                let result = response.result,
+                result.protocolVersion == 1 else {
                     continuation.resume(throwing: AgentHostClientError.invalidHandshake)
                     if let process, process.isRunning {
                         process.terminate()
@@ -216,19 +313,17 @@ actor AgentHostClient {
                     continue
                 }
 
-                continuation.resume(returning: event.payload)
+                continuation.resume(returning: result.helloPayload)
                 continue
             }
 
-            guard header.version == 1 else { continue }
-
-            if header.kind == "event",
+            if method != nil,
                let event = try? AgentHostServerEvent.decode(from: record) {
                 serverEventContinuation?.yield(event)
                 continue
             }
 
-            if header.kind == "response", let id = header.id,
+            if method == nil, let id,
                let continuation = pendingRequests.removeValue(forKey: id) {
                 requestTimeoutTasks.removeValue(forKey: id)?.cancel()
                 continuation.resume(returning: record)
@@ -307,5 +402,6 @@ actor AgentHostClient {
         stderrHandle = nil
         process = nil
         framer = AgentHostLineFramer()
+        serverRequestIDs.removeAll()
     }
 }

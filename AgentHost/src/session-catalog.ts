@@ -20,8 +20,10 @@ export type SessionDraft = {
 };
 
 export class SessionCatalog {
-  async list(cwd: string, sessionDirectory?: string): Promise<SessionSummary[]> {
-    const sessions = await SessionManager.list(cwd, sessionDirectory);
+  async list(cwd?: string, sessionDirectory?: string): Promise<SessionSummary[]> {
+    const sessions = cwd
+      ? await SessionManager.list(cwd, sessionDirectory)
+      : await SessionManager.listAll(sessionDirectory);
 
     return sessions.map((session) => ({
       id: session.id,

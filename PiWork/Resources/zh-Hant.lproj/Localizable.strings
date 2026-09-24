@@ -107,6 +107,10 @@
 /* 模型服務商與認證 */
 "providers.title" = "模型與認證";
 "providers.subtitle" = "瀏覽器登入會在預設瀏覽器中開啟；其他憑據可在此安全輸入";
+"providers.agent_auth.title" = "Agent 認證";
+"providers.agent_auth.subtitle" = "由目前連接的 ACP Agent 管理認證。";
+"providers.agent_auth.sign_in" = "登入";
+"providers.agent_auth.logout" = "登出";
 "providers.loading" = "正在讀取模型服務商…";
 "providers.search" = "搜尋服務商";
 "providers.refresh_help" = "重新整理認證狀態";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Fast 模式";
 "chat.fast_unsupported" = "此模型不支援 Fast 模式";
 "chat.fast_accessibility" = "%@ Fast 模式";
+"chat.agent_settings" = "Agent 設定";
+"chat.session_plan" = "計畫";
+"chat.activity.title" = "狀態";
+"chat.activity.expand" = "展開狀態詳情";
+"chat.activity.collapse" = "收起狀態詳情";
+"chat.session_cost" = "費用";
+"chat.agent_mode" = "模式";
 "chat.enabled" = "已開啟";
 "chat.disabled" = "已關閉";
 "chat.unsupported" = "不支援";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "允許這項操作？";
 "chat.approval.deny" = "拒絕";
 "chat.approval.allow_once" = "允許一次";
+"chat.elicitation.decline" = "拒絕";
+"chat.elicitation.submit" = "提交";
+"chat.elicitation.invalid" = "請檢查必填欄位。";
 "chat.image_attachment" = "[圖片 · %@]";
 "chat.image.preview" = "圖片附件";
 "chat.image.remove" = "移除圖片";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "失敗";
 "chat.tool.copy" = "複製";
 "chat.tool.cancelled" = "已取消";
+"chat.tool.diff_before" = "修改前";
+"chat.tool.diff_after" = "修改後";
+"chat.tool.terminal_reference" = "終端引用";
+"chat.tool.image" = "圖片";
+"chat.tool.audio" = "音訊";
+"chat.tool.unsupported_content" = "不支援的內容";
 "chat.steps.running" = "執行中 · %d/%d";
 "chat.steps.approval_required" = "需要你的允許";
 "chat.steps.failed" = "完成 %d 個步驟 · %d 個失敗";

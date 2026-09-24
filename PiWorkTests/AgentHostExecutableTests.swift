@@ -3,7 +3,9 @@ import XCTest
 
 final class AgentHostExecutableTests: XCTestCase {
     func testAgentSettingsDirectoryLivesInPiWorkApplicationSupport() {
-        let applicationSupport = URL(fileURLWithPath: "/Users/test/Library/Application Support")
+        let applicationSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
 
         let result = AgentHostExecutable.agentDirectoryURL(
             applicationSupportDirectory: applicationSupport
@@ -11,13 +13,15 @@ final class AgentHostExecutableTests: XCTestCase {
 
         XCTAssertEqual(
             result.path,
-            "/Users/test/Library/Application Support/pi-work/Agent"
+            applicationSupport.appendingPathComponent("pi-work/Agent").path
         )
         XCTAssertFalse(result.path.contains("/.pi/"))
     }
 
     func testAuthenticationFileLivesInPiWorkApplicationSupport() {
-        let applicationSupport = URL(fileURLWithPath: "/Users/test/Library/Application Support")
+        let applicationSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
 
         let result = AgentHostExecutable.authenticationFileURL(
             applicationSupportDirectory: applicationSupport
@@ -25,13 +29,15 @@ final class AgentHostExecutableTests: XCTestCase {
 
         XCTAssertEqual(
             result.path,
-            "/Users/test/Library/Application Support/pi-work/Agent/auth.json"
+            applicationSupport.appendingPathComponent("pi-work/Agent/auth.json").path
         )
         XCTAssertFalse(result.path.contains("/.pi/"))
     }
 
     func testGlobalInstructionsFileLivesInTheIsolatedAgentDirectory() {
-        let applicationSupport = URL(fileURLWithPath: "/Users/test/Library/Application Support")
+        let applicationSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
 
         let result = AgentHostExecutable.globalInstructionsFileURL(
             applicationSupportDirectory: applicationSupport
@@ -39,7 +45,7 @@ final class AgentHostExecutableTests: XCTestCase {
 
         XCTAssertEqual(
             result.path,
-            "/Users/test/Library/Application Support/pi-work/Agent/AGENTS.md"
+            applicationSupport.appendingPathComponent("pi-work/Agent/AGENTS.md").path
         )
         XCTAssertFalse(result.path.contains("/.pi/"))
     }
@@ -72,7 +78,9 @@ final class AgentHostExecutableTests: XCTestCase {
     @MainActor
     func testGlobalInstructionsStoreTracksChangesAndCanRevert() {
         let document = GlobalAgentInstructionsDocument(
-            fileURL: URL(fileURLWithPath: "/tmp/pi-work-tests/AGENTS.md")
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                .appendingPathComponent("AGENTS.md")
         )
         let store = GlobalAgentInstructionsStore(document: document)
 
@@ -163,7 +171,9 @@ final class AgentHostExecutableTests: XCTestCase {
     }
 
     func testPiCodingAgentVersionIsNilWhenBundledMetadataIsMissing() {
-        let appURL = URL(fileURLWithPath: "/missing/PiWork.app", isDirectory: true)
+        let appURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("PiWork.app", isDirectory: true)
 
         XCTAssertNil(AgentHostExecutable.piCodingAgentVersion(in: appURL))
     }
@@ -222,5 +232,40 @@ final class AgentHostExecutableTests: XCTestCase {
             AgentHostExecutable.resolveBun(in: appURL, architecture: "arm64"),
             bunURL
         )
+    }
+
+    func testBundledExecutablesResolveAfterAppIsMoved() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let appURL = root.appendingPathComponent("PiWork.app", isDirectory: true)
+        let movedAppURL = root.appendingPathComponent("移动后的 App.app", isDirectory: true)
+        let hostPath = "Contents/Helpers/AgentHost/arm64/pi-work-agent-host"
+        let bunPath = "Contents/Helpers/Bun/arm64/bun"
+        for path in [hostPath, bunPath] {
+            let helperURL = appURL.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: helperURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: helperURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: helperURL.path
+            )
+        }
+
+        try FileManager.default.moveItem(at: appURL, to: movedAppURL)
+
+        XCTAssertEqual(
+            AgentHostExecutable.resolve(in: movedAppURL, architecture: "arm64"),
+            movedAppURL.appendingPathComponent(hostPath)
+        )
+        XCTAssertEqual(
+            AgentHostExecutable.resolveBun(in: movedAppURL, architecture: "arm64"),
+            movedAppURL.appendingPathComponent(bunPath)
+        )
+        XCTAssertNil(AgentHostExecutable.resolve(in: appURL, architecture: "arm64"))
+        XCTAssertNil(AgentHostExecutable.resolveBun(in: appURL, architecture: "arm64"))
     }
 }

@@ -6,6 +6,7 @@ import {
   SessionRegistryError,
   type SessionHandle,
   type SessionHandleEvent,
+  type SessionExtensionWidget,
   type SessionModelOption,
   type SessionModelOptions,
   type SessionRegistryEvent,
@@ -242,6 +243,7 @@ class ControllableSession implements SessionHandle {
         toolCallId: "tool-one",
         toolName: "read",
         summary: '{"path":"README.md"}',
+        rawInput: { path: "README.md" },
       });
     }
   }
@@ -253,6 +255,8 @@ class ControllableSession implements SessionHandle {
         toolCallId: "tool-one",
         toolName: "read",
         output: "First line",
+        content: [{ type: "text", text: "First line" }],
+        rawOutput: { phase: "partial" },
       });
     }
   }
@@ -264,6 +268,8 @@ class ControllableSession implements SessionHandle {
         toolCallId: "tool-one",
         toolName: "read",
         output: "README contents",
+        content: [{ type: "text", text: "README contents" }],
+        rawOutput: { bytes: 15 },
         isError: false,
       });
     }
@@ -280,6 +286,34 @@ class ControllableSession implements SessionHandle {
           summary: "bun test",
         },
       });
+    }
+  }
+
+  emitPlanChanged(): void {
+    for (const listener of this.listeners) {
+      listener({
+        type: "planChanged",
+        entries: [
+          { content: "Inspect", priority: "medium", status: "completed" },
+          { content: "Implement", priority: "medium", status: "in_progress" },
+        ],
+      } as SessionHandleEvent);
+    }
+  }
+
+  emitExtensionStatusChanged(text: string | undefined): void {
+    for (const listener of this.listeners) {
+      listener({
+        type: "extensionStatusChanged",
+        key: "status-demo",
+        text,
+      } as SessionHandleEvent);
+    }
+  }
+
+  emitExtensionWidgetChanged(widget?: SessionExtensionWidget): void {
+    for (const listener of this.listeners) {
+      listener({ type: "extensionWidgetChanged", key: "any-widget", widget });
     }
   }
 }
@@ -514,6 +548,31 @@ describe("SessionRegistry", () => {
     });
   });
 
+  test("exposes ACP prompt completion with a stop reason", async () => {
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry(() => {});
+    registry.register(session);
+
+    registry.prompt("session-one", "turn-one", "Build the feature");
+    const completion = registry.promptCompletion("session-one", "turn-one");
+    session.settle();
+
+    await expect(completion).resolves.toBe("end_turn");
+  });
+
+  test("reports cancelled when abort rejects the active prompt", async () => {
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry(() => {});
+    registry.register(session);
+
+    registry.prompt("session-one", "turn-one", "Build the feature");
+    const completion = registry.promptCompletion("session-one", "turn-one");
+    await registry.abort("session-one");
+    session.fail(new Error("aborted"));
+
+    await expect(completion).resolves.toBe("cancelled");
+  });
+
   test("forwards prompt images to the session handle", () => {
     const session = new ControllableSession("session-one");
     const registry = new SessionRegistry(() => {});
@@ -697,6 +756,18 @@ describe("SessionRegistry", () => {
     expect(session.disposeCount).toBe(1);
   });
 
+  test("ACP close aborts active work before disposing the session", async () => {
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry(() => {});
+    registry.register(session);
+    registry.prompt("session-one", "turn-one", "Build the feature");
+
+    await registry.closeSession("session-one");
+
+    expect(session.abortCount).toBe(1);
+    expect(session.disposeCount).toBe(1);
+  });
+
   test("unsubscribes from a closed session", () => {
     const session = new ControllableSession("session-one");
     const registry = new SessionRegistry(() => {});
@@ -726,6 +797,7 @@ describe("SessionRegistry", () => {
         toolCallId: "tool-one",
         toolName: "read",
         summary: '{"path":"README.md"}',
+        rawInput: { path: "README.md" },
       },
     });
   });
@@ -748,6 +820,8 @@ describe("SessionRegistry", () => {
         toolCallId: "tool-one",
         toolName: "read",
         output: "README contents",
+        content: [{ type: "text", text: "README contents" }],
+        rawOutput: { bytes: 15 },
         isError: false,
       },
     });
@@ -771,8 +845,68 @@ describe("SessionRegistry", () => {
         toolCallId: "tool-one",
         toolName: "read",
         output: "First line",
+        content: [{ type: "text", text: "First line" }],
+        rawOutput: { phase: "partial" },
       },
     });
+  });
+
+  test("forwards plan updates while a session is idle", () => {
+    const events: SessionRegistryEvent[] = [];
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry((event) => events.push(event));
+    registry.register(session);
+
+    session.emitPlanChanged();
+
+    expect(events).toEqual([{
+      event: "session.planChanged",
+      payload: {
+        sessionId: "session-one",
+        sequence: 1,
+        turnId: null,
+        entries: [
+          { content: "Inspect", priority: "medium", status: "completed" },
+          { content: "Implement", priority: "medium", status: "in_progress" },
+        ],
+      },
+    }]);
+  });
+
+  test("forwards extension status updates while a session is idle", () => {
+    const events: SessionRegistryEvent[] = [];
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry((event) => events.push(event));
+    registry.register(session);
+
+    session.emitExtensionStatusChanged("Ready");
+
+    expect(events).toEqual([{
+      event: "session.extensionStatusChanged",
+      payload: {
+        sessionId: "session-one",
+        sequence: 1,
+        turnId: null,
+        key: "status-demo",
+        text: "Ready",
+      },
+    }]);
+  });
+
+  test("correlates idle widget updates and removal without creating a plan", () => {
+    const events: SessionRegistryEvent[] = [];
+    const session = new ControllableSession("session-one");
+    const registry = new SessionRegistry((event) => events.push(event));
+    registry.register(session);
+    const widget: SessionExtensionWidget = { lines: ["☐ Inspect"], placement: "belowEditor" };
+
+    session.emitExtensionWidgetChanged(widget);
+    session.emitExtensionWidgetChanged();
+
+    expect(events).toEqual([
+      { event: "session.extensionWidgetChanged", payload: { sessionId: "session-one", sequence: 1, turnId: null, key: "any-widget", widget } },
+      { event: "session.extensionWidgetChanged", payload: { sessionId: "session-one", sequence: 2, turnId: null, key: "any-widget" } },
+    ]);
   });
 
   test("adds session correlation to approval requests", () => {

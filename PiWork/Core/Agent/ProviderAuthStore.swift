@@ -480,12 +480,22 @@ struct ProviderAuthReducer {
         case .hostHello,
              .sessionStateChanged,
              .sessionMessageDelta,
+             .sessionUserContent,
              .sessionAssistantContent,
              .sessionToolStarted,
              .sessionToolUpdated,
              .sessionToolCompleted,
              .sessionApprovalRequested,
+             .elicitationRequested,
              .sessionError,
+             .sessionModeChanged,
+             .sessionConfigOptionsChanged,
+             .sessionInfoChanged,
+             .sessionUsageChanged,
+             .sessionAvailableCommandsChanged,
+             .sessionPlanChanged,
+             .sessionExtensionStatusChanged,
+             .sessionExtensionWidgetChanged,
              .modelsChanged,
              .unknown:
             return []
@@ -519,6 +529,9 @@ struct ProviderAuthReducer {
 @MainActor
 final class ProviderAuthStore: ObservableObject {
     @Published private(set) var providers: [AgentHostProvider] = []
+    @Published private(set) var agentAuthMethods: [AgentHostACPAuthMethod] = []
+    @Published private(set) var activeAgentAuthMethodID: String?
+    @Published private(set) var isLoggingOutAgent = false
     @Published private(set) var flow: ProviderAuthFlowState?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
@@ -551,6 +564,7 @@ final class ProviderAuthStore: ObservableObject {
                 }
             }
         }
+        await reloadAgentAuthenticationMethods()
         await reloadProviders()
     }
 
@@ -566,6 +580,44 @@ final class ProviderAuthStore: ObservableObject {
         defer { isLoading = false }
         do {
             providers = try await service.listProviders(requestID: UUID().uuidString)
+            errorMessage = nil
+        } catch AgentHostServiceError.missingPiWorkCapability(.providersList) {
+            providers = []
+        } catch {
+            errorMessage = String(describing: error)
+        }
+    }
+
+    func reloadAgentAuthenticationMethods() async {
+        do {
+            agentAuthMethods = try await service.agentAuthenticationMethods()
+        } catch {
+            agentAuthMethods = []
+            errorMessage = String(describing: error)
+        }
+    }
+
+    func authenticateAgent(method: AgentHostACPAuthMethod) async {
+        guard activeAgentAuthMethodID == nil, !isLoggingOutAgent else { return }
+        activeAgentAuthMethodID = method.id
+        defer { activeAgentAuthMethodID = nil }
+        do {
+            try await service.authenticateAgent(
+                methodId: method.id,
+                requestID: UUID().uuidString
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = String(describing: error)
+        }
+    }
+
+    func logoutAgent() async {
+        guard activeAgentAuthMethodID == nil, !isLoggingOutAgent else { return }
+        isLoggingOutAgent = true
+        defer { isLoggingOutAgent = false }
+        do {
+            try await service.logoutAgent(requestID: UUID().uuidString)
             errorMessage = nil
         } catch {
             errorMessage = String(describing: error)

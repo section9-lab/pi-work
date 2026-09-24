@@ -107,6 +107,10 @@
 /* Proveedores y autenticación */
 "providers.title" = "Modelos y autenticación";
 "providers.subtitle" = "El inicio de sesión se abre en tu navegador predeterminado. Las demás credenciales se introducen aquí de forma segura.";
+"providers.agent_auth.title" = "Autenticación del Agent";
+"providers.agent_auth.subtitle" = "Autenticación gestionada por el Agent ACP conectado.";
+"providers.agent_auth.sign_in" = "Iniciar sesión";
+"providers.agent_auth.logout" = "Cerrar sesión";
 "providers.loading" = "Cargando proveedores de modelos…";
 "providers.search" = "Buscar proveedores";
 "providers.refresh_help" = "Actualizar el estado de autenticación";
@@ -276,6 +280,13 @@
 "chat.fast_mode" = "Modo Fast";
 "chat.fast_unsupported" = "Este modelo no admite el modo Fast";
 "chat.fast_accessibility" = "Modo Fast de %@";
+"chat.agent_settings" = "Ajustes del Agent";
+"chat.session_plan" = "Plan";
+"chat.activity.title" = "Actividad";
+"chat.activity.expand" = "Expandir actividad";
+"chat.activity.collapse" = "Contraer actividad";
+"chat.session_cost" = "Coste";
+"chat.agent_mode" = "Modo";
 "chat.enabled" = "Activado";
 "chat.disabled" = "Desactivado";
 "chat.unsupported" = "No compatible";
@@ -304,6 +315,9 @@
 "chat.approval.title" = "¿Permitir esta operación?";
 "chat.approval.deny" = "Denegar";
 "chat.approval.allow_once" = "Permitir una vez";
+"chat.elicitation.decline" = "Rechazar";
+"chat.elicitation.submit" = "Enviar";
+"chat.elicitation.invalid" = "Revisa los campos obligatorios.";
 "chat.image_attachment" = "[Imagen · %@]";
 "chat.image.preview" = "Imagen adjunta";
 "chat.image.remove" = "Quitar imagen";
@@ -327,6 +341,12 @@
 "chat.tool.failed" = "Error";
 "chat.tool.copy" = "Copiar";
 "chat.tool.cancelled" = "Cancelado";
+"chat.tool.diff_before" = "Antes";
+"chat.tool.diff_after" = "Después";
+"chat.tool.terminal_reference" = "Referencia de terminal";
+"chat.tool.image" = "Imagen";
+"chat.tool.audio" = "Audio";
+"chat.tool.unsupported_content" = "Contenido no compatible";
 "chat.steps.running" = "En curso · %d/%d";
 "chat.steps.approval_required" = "Necesita tu aprobación";
 "chat.steps.failed" = "%d pasos completados · %d fallidos";

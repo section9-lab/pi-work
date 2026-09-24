@@ -116,9 +116,15 @@ struct ChatView: View {
                 selectedModel: selectedModel,
                 selectedModelName: selectedModelName,
                 contextUsage: activeRecord?.contextUsage,
+                plan: activeRecord?.acpState.plan ?? [],
+                extensionStatuses: activeRecord?.acpState.extensionStatuses ?? [:],
+                extensionWidgets: activeRecord?.acpState.extensionWidgets ?? [:],
+                cost: activeRecord?.acpState.cost,
                 selectedThinkingLevel: activeRecord?.thinkingLevel,
                 availableThinkingLevels: activeRecord?.availableThinkingLevels ?? [],
                 modelOptions: activeRecord?.modelOptions ?? .unsupported,
+                genericConfigOptions: activeRecord?.acpState.genericConfigOptions ?? [],
+                genericModeState: activeRecord?.acpState.genericModeState,
                 selectedAccessMode: activeRecord?.accessMode,
                 gitBranches: gitBranches.branches,
                 isGitAvailable: gitBranches.available,
@@ -131,6 +137,8 @@ struct ChatView: View {
                 onToggleFastMode: toggleFastMode,
                 onSelectThinkingLevel: selectThinkingLevel,
                 onSelectModelOption: selectModelOption,
+                onSelectConfigOption: selectConfigOption,
+                onSelectSessionMode: selectSessionMode,
                 onSelectAccessMode: selectAccessMode,
                 onPasteboard: handlePasteboard,
                 onRemoveImage: removeImageAttachment,
@@ -242,6 +250,12 @@ struct ChatView: View {
                     )
                 }
             }
+        }
+        .sheet(item: elicitationBinding) { request in
+            ACPElicitationFormView(request: request) { response in
+                resolve(elicitation: request, response: response)
+            }
+            .interactiveDismissDisabled()
         }
     }
 
@@ -783,6 +797,37 @@ struct ChatView: View {
         }
     }
 
+    private func selectConfigOption(
+        _ option: AgentHostACPSetConfigOptionResult.ConfigOption,
+        value: AgentHostACPSetConfigOptionResult.ConfigOption.Value
+    ) {
+        guard let sessionId = activeSessionId else { return }
+        actionError = nil
+        Task {
+            do {
+                try await sessionStore.selectConfigOption(
+                    option,
+                    value: value,
+                    sessionId: sessionId
+                )
+            } catch {
+                actionError = String(describing: error)
+            }
+        }
+    }
+
+    private func selectSessionMode(_ modeId: String) {
+        guard let sessionId = activeSessionId else { return }
+        actionError = nil
+        Task {
+            do {
+                try await sessionStore.selectSessionMode(modeId, sessionId: sessionId)
+            } catch {
+                actionError = String(describing: error)
+            }
+        }
+    }
+
     private func selectAccessMode(_ accessMode: AgentHostAccessMode) {
         guard let sessionId = activeSessionId else { return }
         actionError = nil
@@ -807,6 +852,24 @@ struct ChatView: View {
                     sessionId: sessionId,
                     requestId: approval.id,
                     decision: decision
+                )
+            } catch {
+                actionError = String(describing: error)
+            }
+        }
+    }
+
+    private func resolve(
+        elicitation: AgentHostACPElicitationRequest,
+        response: AgentHostACPElicitationResponse
+    ) {
+        actionError = nil
+        Task {
+            do {
+                try await sessionStore.resolveElicitation(
+                    sessionId: elicitation.sessionId,
+                    requestId: elicitation.id,
+                    response: response
                 )
             } catch {
                 actionError = String(describing: error)
@@ -861,6 +924,16 @@ struct ChatView: View {
     private var activeRecord: SessionRecord? {
         guard let sessionId = activeSessionId else { return nil }
         return sessionStore.records[sessionId]
+    }
+
+    private var elicitationBinding: Binding<AgentHostACPElicitationRequest?> {
+        Binding(
+            get: {
+                activeRecord?.pendingElicitations.first
+                    ?? sessionStore.pendingElicitations.first
+            },
+            set: { _ in }
+        )
     }
 
     private var presentedRecord: SessionRecord? {
@@ -1135,9 +1208,15 @@ private struct SessionComposer: View {
     let selectedModel: PiModelOption?
     let selectedModelName: String
     let contextUsage: AgentHostContextUsage?
+    let plan: [AgentHostACPPlanEntry]
+    let extensionStatuses: [String: String]
+    let extensionWidgets: [String: AgentHostExtensionWidget]
+    let cost: AgentHostACPSessionCost?
     let selectedThinkingLevel: AgentHostThinkingLevel?
     let availableThinkingLevels: [AgentHostThinkingLevel]
     let modelOptions: AgentHostModelOptions
+    let genericConfigOptions: [AgentHostACPSetConfigOptionResult.ConfigOption]
+    let genericModeState: AgentHostACPSessionModeState?
     let selectedAccessMode: AgentHostAccessMode?
     let gitBranches: [String]
     let isGitAvailable: Bool
@@ -1150,6 +1229,11 @@ private struct SessionComposer: View {
     let onToggleFastMode: (PiModelOption) -> Void
     let onSelectThinkingLevel: (AgentHostThinkingLevel) -> Void
     let onSelectModelOption: (AgentHostModelOption, Bool) -> Void
+    let onSelectConfigOption: (
+        AgentHostACPSetConfigOptionResult.ConfigOption,
+        AgentHostACPSetConfigOptionResult.ConfigOption.Value
+    ) -> Void
+    let onSelectSessionMode: (String) -> Void
     let onSelectAccessMode: (AgentHostAccessMode) -> Void
     let onPasteboard: (NSPasteboard) -> Bool
     let onRemoveImage: (UUID) -> Void
@@ -1177,9 +1261,18 @@ private struct SessionComposer: View {
     @State private var promptHistoryNavigation = SessionComposerPromptHistoryNavigation()
     @State private var previewedImageAttachment: ComposerImageAttachment?
     @State private var isInputMethodComposing = false
+    @State private var isActivityExpanded = false
 
     var body: some View {
         VStack(spacing: 9) {
+            SessionActivityPanel(
+                plan: plan,
+                statuses: extensionStatuses,
+                widgets: extensionWidgets,
+                isExpanded: $isActivityExpanded
+            )
+            .frame(maxWidth: .infinity)
+
             if isSlashCommandPanelPresented {
                 slashCommandPanel
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1210,6 +1303,7 @@ private struct SessionComposer: View {
             promptHistoryNavigation = SessionComposerPromptHistoryNavigation()
             previewedImageAttachment = nil
             isInputMethodComposing = false
+            isActivityExpanded = false
         }
         .sheet(item: $previewedImageAttachment) { attachment in
             ComposerImagePreview(data: attachment.data)
@@ -1729,8 +1823,11 @@ private struct SessionComposer: View {
                 }
 
                 Spacer(minLength: 0)
-                if let contextUsage {
-                    ContextUsageIndicator(usage: contextUsage)
+                if contextUsage != nil || cost != nil {
+                    ContextUsageIndicator(usage: contextUsage, cost: cost)
+                }
+                if genericModeState != nil || !genericConfigOptions.isEmpty {
+                    genericConfigMenu
                 }
                 HStack(spacing: 4) {
                     modelPicker
@@ -1876,6 +1973,75 @@ private struct SessionComposer: View {
         .accessibilityLabel(L10n.string("chat.select_model"))
         .popover(isPresented: $isModelPickerPresented, arrowEdge: .top) {
             modelPickerContent
+        }
+    }
+
+    private var genericConfigMenu: some View {
+        Menu {
+            if let genericModeState {
+                Section(L10n.string("chat.agent_mode")) {
+                    ForEach(genericModeState.availableModes) { mode in
+                        Button {
+                            onSelectSessionMode(mode.id)
+                        } label: {
+                            HStack {
+                                Text(mode.name)
+                                if mode.id == genericModeState.currentModeId {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                        .help(mode.description ?? mode.name)
+                    }
+                }
+            }
+
+            ForEach(genericConfigOptions, id: \.id) { option in
+                genericConfigControl(option)
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.72))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L10n.string("chat.agent_settings"))
+        .accessibilityLabel(L10n.string("chat.agent_settings"))
+        .accessibilityIdentifier("agent-config-menu")
+    }
+
+    @ViewBuilder
+    private func genericConfigControl(
+        _ option: AgentHostACPSetConfigOptionResult.ConfigOption
+    ) -> some View {
+        switch option.currentValue {
+        case .boolean(let enabled):
+            Toggle(
+                option.name,
+                isOn: Binding(
+                    get: { enabled },
+                    set: { onSelectConfigOption(option, .boolean($0)) }
+                )
+            )
+        case .string(let currentValue):
+            Menu(option.name) {
+                ForEach(option.options ?? [], id: \.value) { choice in
+                    Button {
+                        onSelectConfigOption(option, .string(choice.value))
+                    } label: {
+                        HStack {
+                            Text(choice.name)
+                            if choice.value == currentValue {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2279,31 +2445,180 @@ private struct SessionComposer: View {
     }
 }
 
+struct SessionActivityPanel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let plan: [AgentHostACPPlanEntry]
+    let statuses: [String: String]
+    let widgets: [String: AgentHostExtensionWidget]
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        let activity = SessionActivityPresentation(plan: plan, statuses: statuses, widgets: widgets)
+        let expanded = isExpanded && activity.canExpand
+        if activity.hasContent {
+            VStack(spacing: 0) {
+                if activity.canExpand {
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        header(activity, expanded: expanded)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.string(expanded ? "chat.activity.collapse" : "chat.activity.expand"))
+                    .accessibilityValue(activity.summary)
+                    .accessibilityIdentifier("session-activity-toggle")
+                } else {
+                    header(activity, expanded: false)
+                }
+
+                if expanded {
+                    Divider().padding(.horizontal, 12)
+                    ViewThatFits(in: .vertical) {
+                        details(activity).padding(12)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ScrollView(.vertical) {
+                            details(activity)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                    .accessibilityIdentifier("session-activity-details")
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .background(Color.primary.opacity(0.035))
+            .adaptiveCornerRadius(expanded ? 12 : 14)
+            .frame(maxWidth: expanded ? 440 : 320)
+            .accessibilityIdentifier("session-activity-panel")
+        }
+    }
+
+    private func header(_ activity: SessionActivityPresentation, expanded: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "list.bullet")
+                .foregroundStyle(.secondary)
+            Text(verbatim: expanded ? L10n.string("chat.activity.title") : activity.summary)
+                .font(.system(size: 12, weight: expanded ? .medium : .regular))
+                .lineLimit(1)
+                .frame(maxWidth: activity.canExpand ? .infinity : nil, alignment: .leading)
+            if !plan.isEmpty {
+                Text("\(plan.filter { $0.status == .completed }.count)/\(plan.count)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else if activity.items.count > 1 {
+                Text("\(activity.items.count)").foregroundStyle(.secondary)
+            }
+            if activity.canExpand {
+                Image(systemName: expanded ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 10)
+        .frame(minHeight: 28)
+        .contentShape(Rectangle())
+        .help(activity.summary)
+    }
+
+    private func details(_ activity: SessionActivityPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !plan.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.string("chat.session_plan"))
+                        .font(.system(size: 12, weight: .semibold))
+                    ForEach(plan.indices, id: \.self) { index in
+                        let entry = plan[index]
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: iconName(for: entry.status))
+                                .foregroundStyle(iconColor(for: entry.status))
+                            Text(entry.content)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.system(size: 12))
+                    }
+                }
+            }
+            ForEach(activity.items) { item in
+                if item.id != activity.items.first?.id || !plan.isEmpty { Divider() }
+                VStack(alignment: .leading, spacing: 4) {
+                    if let status = item.status {
+                        Text(verbatim: status)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !item.lines.isEmpty {
+                        Text(verbatim: item.lines.joined(separator: "\n"))
+                            .font(.system(size: 12, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(item.id)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(item.id)
+                .accessibilityValue(item.text)
+            }
+        }
+    }
+
+    private func iconName(for status: AgentHostACPPlanStatus) -> String {
+        switch status {
+        case .pending: "circle"
+        case .inProgress: "arrow.triangle.2.circlepath"
+        case .completed: "checkmark.circle.fill"
+        }
+    }
+
+    private func iconColor(for status: AgentHostACPPlanStatus) -> Color {
+        switch status {
+        case .pending: Color.secondary
+        case .inProgress: Color.accentColor
+        case .completed: Color.green
+        }
+    }
+}
+
 private struct ContextUsageIndicator: View {
-    let usage: AgentHostContextUsage
+    let usage: AgentHostContextUsage?
+    let cost: AgentHostACPSessionCost?
     @State private var isContextUsagePresented = false
 
-    private var presentation: ContextUsagePresentation {
-        ContextUsagePresentation(usage: usage)
+    private var presentation: ContextUsagePresentation? {
+        usage.map(ContextUsagePresentation.init)
     }
 
     var body: some View {
         Button {
             isContextUsagePresented.toggle()
         } label: {
-            ZStack {
-                Circle()
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 3)
+            Group {
+                if let presentation {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 3)
 
-                Circle()
-                    .trim(from: 0, to: presentation.progress)
-                    .stroke(
-                        Color.primary.opacity(0.58),
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
+                        Circle()
+                            .trim(from: 0, to: presentation.progress)
+                            .stroke(
+                                Color.primary.opacity(0.58),
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .frame(width: 17, height: 17)
+                } else {
+                    Image(systemName: "dollarsign.circle")
+                        .font(.system(size: 15, weight: .medium))
+                }
             }
-            .frame(width: 17, height: 17)
             .frame(width: 28, height: 32)
         }
         .buttonStyle(
@@ -2312,27 +2627,63 @@ private struct ContextUsageIndicator: View {
                 isSelected: isContextUsagePresented
             )
         )
-        .accessibilityLabel(presentation.accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("context-usage-indicator")
         .onHover { isContextUsagePresented = $0 }
         .popover(isPresented: $isContextUsagePresented, arrowEdge: .top) {
-            VStack(spacing: 7) {
-                Text(L10n.string("chat.context_window"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.primary.opacity(0.48))
+            VStack(spacing: 9) {
+                if let presentation {
+                    Text(L10n.string("chat.context_window"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.primary.opacity(0.48))
 
-                Text(presentation.percentText)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color.primary.opacity(0.68))
+                    Text(presentation.percentText)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.68))
 
-                Text(presentation.detailText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.primary.opacity(0.88))
+                    Text(presentation.detailText)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.primary.opacity(0.88))
+                }
+
+                if presentation != nil, cost != nil {
+                    Divider()
+                }
+
+                if let costText {
+                    Text(L10n.string("chat.session_cost"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.primary.opacity(0.48))
+                    Text(costText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.88))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(minWidth: 220)
         }
+    }
+
+    private var accessibilityLabel: String {
+        [
+            presentation?.accessibilityLabel,
+            costText.map { "\(L10n.string("chat.session_cost")): \($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    }
+
+    private var costText: String? {
+        guard let cost else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = L10n.currentLanguage.locale
+        formatter.currencyCode = cost.currency.uppercased()
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 6
+        return formatter.string(from: NSNumber(value: cost.amount))
+            ?? "\(cost.amount) \(cost.currency.uppercased())"
     }
 }
 
@@ -3449,17 +3800,20 @@ private struct AssistantToolStepRow: View {
 
             if showsDetails {
                 VStack(alignment: .leading, spacing: 10) {
-                    if !tool.summary.isEmpty {
+                    if tool.rawInput != nil || !tool.summary.isEmpty {
                         ToolDetailBlock(
                             title: L10n.string("chat.tool.input"),
                             text: presentation.formattedInput
                         )
                     }
-                    if !tool.output.isEmpty {
+                    if hasOutputDetails {
                         ToolDetailBlock(
                             title: L10n.string("chat.tool.output"),
-                            text: loadedOutput ?? tool.output
+                            text: loadedOutput ?? outputForDisplay
                         )
+                    }
+                    if !tool.content.isEmpty {
+                        ToolStructuredContentView(contents: tool.content)
                     }
                     if isLoadingFullOutput {
                         ProgressView()
@@ -3485,11 +3839,21 @@ private struct AssistantToolStepRow: View {
     }
 
     private var showsDetails: Bool {
-        tool.state == .awaitingApproval || isDetailExpanded
+        tool.state == .awaitingApproval
+            || isDetailExpanded
     }
 
     private var hasDetails: Bool {
-        !tool.summary.isEmpty || !tool.output.isEmpty || tool.approval != nil
+        !tool.summary.isEmpty || !tool.output.isEmpty || !tool.content.isEmpty
+            || tool.rawInput != nil || tool.rawOutput != nil || tool.approval != nil
+    }
+
+    private var hasOutputDetails: Bool {
+        !outputForDisplay.isEmpty || loadedOutput != nil
+    }
+
+    private var outputForDisplay: String {
+        toolOutputForDisplay(output: tool.output, rawOutput: tool.rawOutput)
     }
 
     private var showsExceptionalStatus: Bool {
@@ -3568,6 +3932,479 @@ private struct ToolDetailBlock: View {
     }
 }
 
+private struct ToolStructuredContentView: View {
+    let contents: [AgentHostACPToolCallContent]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(contents.indices, id: \.self) { index in
+                contentView(contents[index])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func contentView(_ content: AgentHostACPToolCallContent) -> some View {
+        switch content {
+        case .content(.text):
+            EmptyView()
+        case .content(.image(let mimeType, let data, let uri)):
+            ToolImageBlock(mimeType: mimeType, data: data, uri: uri)
+        case .content(.audio(let mimeType, _)):
+            Label(
+                "\(L10n.string("chat.tool.audio")) · \(mimeType)",
+                systemImage: "waveform"
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(Color.secondary)
+        case .content(
+            .resourceLink(
+                let name,
+                let uri,
+                let title,
+                let description,
+                let mimeType
+            )
+        ):
+            ToolResourceLinkBlock(
+                name: name,
+                uri: uri,
+                title: title,
+                description: description,
+                mimeType: mimeType
+            )
+        case .content(.resource(let uri, let mimeType, let text, let data)):
+            if let text {
+                ToolDetailBlock(title: uri, text: text)
+            } else if let mimeType, mimeType.hasPrefix("image/") {
+                ToolImageBlock(mimeType: mimeType, data: data, uri: uri)
+            } else {
+                Label(uri, systemImage: "doc")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.secondary)
+                    .textSelection(.enabled)
+            }
+        case .content(.unsupported(let type)), .unsupported(let type):
+            Label(
+                "\(L10n.string("chat.tool.unsupported_content")): \(type)",
+                systemImage: "questionmark.square.dashed"
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(Color.secondary)
+        case .diff(let path, let oldText, let newText):
+            ToolDiffBlock(path: path, oldText: oldText, newText: newText)
+        case .terminal(let id):
+            Label(
+                "\(L10n.string("chat.tool.terminal_reference")): \(id)",
+                systemImage: "terminal"
+            )
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(Color.secondary)
+            .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ToolImageBlock: View {
+    let mimeType: String
+    let data: Data?
+    let uri: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(L10n.string("chat.tool.image"))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+                .textCase(.uppercase)
+
+            if let data, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 520, maxHeight: 320, alignment: .leading)
+                    .adaptiveCornerRadius(8)
+                    .accessibilityIdentifier("tool-structured-image")
+            } else {
+                Label(uri ?? mimeType, systemImage: "photo")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.secondary)
+            }
+        }
+    }
+}
+
+private struct ToolResourceLinkBlock: View {
+    let name: String
+    let uri: String
+    let title: String?
+    let description: String?
+    let mimeType: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let url = URL(string: uri) {
+                Link(destination: url) {
+                    Label(title ?? name, systemImage: "link")
+                }
+            } else {
+                Label(title ?? name, systemImage: "link")
+            }
+
+            if let description, !description.isEmpty {
+                Text(description)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.secondary)
+            }
+
+            Text([mimeType, uri].compactMap { $0 }.joined(separator: " · "))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Color.secondary)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ToolDiffBlock: View {
+    let path: String
+    let oldText: String?
+    let newText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(path, systemImage: "square.and.pencil")
+                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.secondary)
+                .textSelection(.enabled)
+
+            HStack(alignment: .top, spacing: 8) {
+                if let oldText {
+                    diffColumn(
+                        title: L10n.string("chat.tool.diff_before"),
+                        text: oldText,
+                        color: .red
+                    )
+                }
+                diffColumn(
+                    title: L10n.string("chat.tool.diff_after"),
+                    text: newText,
+                    color: .green
+                )
+            }
+        }
+    }
+
+    private func diffColumn(title: String, text: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(color.opacity(0.8))
+                .textCase(.uppercase)
+            ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                Text(text)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(8)
+            }
+            .frame(maxHeight: 240)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(color.opacity(0.06))
+            .adaptiveCornerRadius(8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct ACPElicitationFormState {
+    let request: AgentHostACPElicitationRequest
+    var textValues: [String: String] = [:]
+    var booleanValues: [String: Bool] = [:]
+    var selectionValues: [String: Set<String>] = [:]
+
+    init(request: AgentHostACPElicitationRequest) {
+        self.request = request
+        for (key, property) in request.schema.properties {
+            switch property.type {
+            case .string:
+                if case .string(let value) = property.defaultValue {
+                    textValues[key] = value
+                } else {
+                    textValues[key] = property.options.first?.value ?? ""
+                }
+            case .integer:
+                if case .integer(let value) = property.defaultValue {
+                    textValues[key] = String(value)
+                } else {
+                    textValues[key] = ""
+                }
+            case .number:
+                if case .number(let value) = property.defaultValue {
+                    textValues[key] = String(value)
+                } else if case .integer(let value) = property.defaultValue {
+                    textValues[key] = String(value)
+                } else {
+                    textValues[key] = ""
+                }
+            case .boolean:
+                if case .boolean(let value) = property.defaultValue {
+                    booleanValues[key] = value
+                } else {
+                    booleanValues[key] = false
+                }
+            case .array:
+                if case .stringArray(let values) = property.defaultValue {
+                    selectionValues[key] = Set(values)
+                } else {
+                    selectionValues[key] = []
+                }
+            }
+        }
+    }
+
+    var content: [String: AgentHostACPElicitationValue]? {
+        var result: [String: AgentHostACPElicitationValue] = [:]
+        let required = Set(request.schema.required)
+        for (key, property) in request.schema.properties {
+            switch property.type {
+            case .string:
+                let value = textValues[key] ?? ""
+                if required.contains(key) || !value.isEmpty {
+                    guard isValidString(value, property: property) else { return nil }
+                    result[key] = .string(value)
+                }
+            case .integer:
+                let rawValue = textValues[key] ?? ""
+                guard !rawValue.isEmpty || !required.contains(key) else { return nil }
+                guard !rawValue.isEmpty else { continue }
+                guard let value = Int(rawValue), isWithinBounds(Double(value), property: property) else {
+                    return nil
+                }
+                result[key] = .integer(value)
+            case .number:
+                let rawValue = textValues[key] ?? ""
+                guard !rawValue.isEmpty || !required.contains(key) else { return nil }
+                guard !rawValue.isEmpty else { continue }
+                guard let value = Double(rawValue), value.isFinite,
+                      isWithinBounds(value, property: property) else {
+                    return nil
+                }
+                result[key] = .number(value)
+            case .boolean:
+                result[key] = .boolean(booleanValues[key] ?? false)
+            case .array:
+                let values = selectionValues[key, default: []].sorted()
+                if let minimum = property.minItems, values.count < minimum { return nil }
+                if let maximum = property.maxItems, values.count > maximum { return nil }
+                if required.contains(key) || !values.isEmpty {
+                    result[key] = .stringArray(values)
+                }
+            }
+        }
+        return result
+    }
+
+    private func isWithinBounds(
+        _ value: Double,
+        property: AgentHostACPElicitationProperty
+    ) -> Bool {
+        if let minimum = property.minimum, value < minimum { return false }
+        if let maximum = property.maximum, value > maximum { return false }
+        return true
+    }
+
+    private func isValidString(
+        _ value: String,
+        property: AgentHostACPElicitationProperty
+    ) -> Bool {
+        if let minimum = property.minLength, value.count < minimum { return false }
+        if let maximum = property.maxLength, value.count > maximum { return false }
+        if let pattern = property.pattern,
+           value.range(of: pattern, options: .regularExpression) == nil {
+            return false
+        }
+        switch property.format {
+        case .email:
+            return value.range(
+                of: #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#,
+                options: .regularExpression
+            ) != nil
+        case .uri:
+            return URLComponents(string: value)?.scheme?.isEmpty == false
+        case .date:
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.isLenient = false
+            guard let date = formatter.date(from: value) else { return false }
+            return formatter.string(from: date) == value
+        case .dateTime:
+            return ISO8601DateFormatter().date(from: value) != nil
+        case nil:
+            return true
+        }
+    }
+}
+
+private struct ACPElicitationFormView: View {
+    let request: AgentHostACPElicitationRequest
+    let onRespond: (AgentHostACPElicitationResponse) -> Void
+
+    @State private var state: ACPElicitationFormState
+
+    init(
+        request: AgentHostACPElicitationRequest,
+        onRespond: @escaping (AgentHostACPElicitationResponse) -> Void
+    ) {
+        self.request = request
+        self.onRespond = onRespond
+        _state = State(initialValue: ACPElicitationFormState(request: request))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(request.schema.title ?? request.message)
+                    .font(.system(size: 18, weight: .semibold))
+                if request.schema.title != nil {
+                    Text(request.message)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                if let description = request.schema.description {
+                    Text(description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(request.schema.properties.keys.sorted(), id: \.self) { key in
+                        if let property = request.schema.properties[key] {
+                            field(key: key, property: property)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if state.content == nil {
+                Text(L10n.string("chat.elicitation.invalid"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button(L10n.string("common.cancel")) {
+                    onRespond(.cancel)
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button(L10n.string("chat.elicitation.decline")) {
+                    onRespond(.decline)
+                }
+
+                Button(L10n.string("chat.elicitation.submit")) {
+                    if let content = state.content {
+                        onRespond(.accept(content))
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.content == nil)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 440, idealWidth: 500, minHeight: 260, maxHeight: 640)
+        .accessibilityIdentifier("acp-elicitation-form")
+    }
+
+    @ViewBuilder
+    private func field(
+        key: String,
+        property: AgentHostACPElicitationProperty
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(fieldTitle(key: key, property: property))
+                .font(.system(size: 12, weight: .semibold))
+            if let description = property.description {
+                Text(description)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            switch property.type {
+            case .string where !property.options.isEmpty:
+                Picker("", selection: textBinding(for: key)) {
+                    ForEach(property.options) { option in
+                        Text(option.title).tag(option.value)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            case .string, .integer, .number:
+                TextField("", text: textBinding(for: key), axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...8)
+            case .boolean:
+                Toggle(isOn: booleanBinding(for: key)) {
+                    Text(L10n.string("chat.enabled"))
+                }
+            case .array:
+                ForEach(property.options) { option in
+                    Toggle(isOn: selectionBinding(for: key, value: option.value)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.title)
+                            if let description = option.description {
+                                Text(description)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                }
+            }
+        }
+    }
+
+    private func fieldTitle(
+        key: String,
+        property: AgentHostACPElicitationProperty
+    ) -> String {
+        let title = property.title ?? key
+        return request.schema.required.contains(key) ? "\(title) *" : title
+    }
+
+    private func textBinding(for key: String) -> Binding<String> {
+        Binding(
+            get: { state.textValues[key] ?? "" },
+            set: { state.textValues[key] = $0 }
+        )
+    }
+
+    private func booleanBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: { state.booleanValues[key] ?? false },
+            set: { state.booleanValues[key] = $0 }
+        )
+    }
+
+    private func selectionBinding(for key: String, value: String) -> Binding<Bool> {
+        Binding(
+            get: { state.selectionValues[key, default: []].contains(value) },
+            set: { isSelected in
+                if isSelected {
+                    state.selectionValues[key, default: []].insert(value)
+                } else {
+                    state.selectionValues[key, default: []].remove(value)
+                }
+            }
+        )
+    }
+}
+
 private struct InlineApprovalActions: View {
     let approval: AgentHostApprovalRequest
     let onResolve: (AgentHostApprovalDecision) -> Void
@@ -3581,19 +4418,32 @@ private struct InlineApprovalActions: View {
             HStack {
                 Spacer(minLength: 0)
 
-                Button(L10n.string("chat.approval.deny")) {
-                    onResolve(.deny)
+                ForEach(options) { option in
+                    Button(option.name) {
+                        onResolve(option.kind.decision)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(option.kind.isAllow ? Color.accentColor : Color.red)
+                    .accessibilityIdentifier("approval-\(option.kind.rawValue)")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("deny-approval")
-
-                Button(L10n.string("chat.approval.allow_once")) {
-                    onResolve(.allowOnce)
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("allow-approval-once")
             }
         }
+    }
+
+    private var options: [AgentHostApprovalOption] {
+        if !approval.options.isEmpty { return approval.options }
+        return [
+            AgentHostApprovalOption(
+                optionId: "reject-once",
+                name: L10n.string("chat.approval.deny"),
+                kind: .rejectOnce
+            ),
+            AgentHostApprovalOption(
+                optionId: "allow-once",
+                name: L10n.string("chat.approval.allow_once"),
+                kind: .allowOnce
+            )
+        ]
     }
 }
 
@@ -3632,6 +4482,9 @@ private struct ToolCallPresentation {
     }
 
     var formattedInput: String {
+        if let rawInput = tool.rawInput?.prettyPrinted {
+            return rawInput
+        }
         guard let data = tool.summary.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               JSONSerialization.isValidJSONObject(object),

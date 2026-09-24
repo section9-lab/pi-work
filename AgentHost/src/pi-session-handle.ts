@@ -17,6 +17,11 @@ import {
   type AccessMode,
 } from "./access-policy.ts";
 import {
+  createACPExtensionUIContext,
+  type ACPElicitationRequester,
+  type ACPExtensionUIContext,
+} from "./acp-extension-ui.ts";
+import {
   SessionRegistryError,
   type SessionHandle,
   type SessionHandleEvent,
@@ -28,6 +33,7 @@ import {
   type SessionModelOption,
   type SessionModelOptions,
   type SessionModelOptionSelection,
+  type SessionExtensionWidget,
   type SessionSlashCommand,
   type SessionThinkingLevel,
   type SessionThinkingState,
@@ -53,6 +59,7 @@ type PiAgentSession = Pick<
   | "setActiveToolsByName"
   | "extensionRunner"
   | "resourceLoader"
+  | "bindExtensions"
   | "prompt"
   | "abort"
   | "reload"
@@ -172,6 +179,7 @@ export async function createPiSessionHandle(
     settingsManager?: SettingsManager;
     now?: () => Date;
     timeZone?: string;
+    requestElicitation?: ACPElicitationRequester;
   },
   createSession: CreateSession = createAgentSession,
 ): Promise<PiSessionHandle> {
@@ -210,6 +218,36 @@ export async function createPiSessionHandle(
   }
 
   const { session } = await createSession(createOptions);
+  let handle: PiSessionHandle | undefined;
+  const pendingWidgets = new Map<string, SessionExtensionWidget>();
+  const pendingStatuses = new Map<string, string>();
+  let extensionUI: ACPExtensionUIContext | undefined;
+  if (options.requestElicitation) {
+    extensionUI = createACPExtensionUIContext(
+      session.sessionId,
+      options.requestElicitation,
+      {
+        onWidgetChanged(key, widget) {
+          if (handle) handle.setExtensionWidget(key, widget);
+          else if (widget === undefined) pendingWidgets.delete(key);
+          else pendingWidgets.set(key, widget);
+        },
+        onStatusChanged(key, text) {
+          if (handle) {
+            handle.setExtensionStatus(key, text);
+          } else if (text === undefined) {
+            pendingStatuses.delete(key);
+          } else {
+            pendingStatuses.set(key, text);
+          }
+        },
+      },
+    );
+    await session.bindExtensions({
+      uiContext: extensionUI,
+      mode: "rpc",
+    });
+  }
   const extensionSelection: ExtensionToolSelection = options.profile === "chat"
     ? "pi-web-access"
     : "all";
@@ -218,18 +256,25 @@ export async function createPiSessionHandle(
     ...activeToolsForMode(accessMode),
     ...alwaysActiveToolNames,
   ]);
-  return new PiSessionHandle(
+  handle = new PiSessionHandle(
     session,
     options.sessionManager,
     accessController,
     [],
     extensionSelection,
+    extensionUI,
   );
+  for (const [key, text] of pendingStatuses) handle.setExtensionStatus(key, text);
+  for (const [key, widget] of pendingWidgets) handle.setExtensionWidget(key, widget);
+  return handle;
 }
 
 export class PiSessionHandle implements SessionHandle {
   private fastModeEnabled = false;
   private transcriptRevision = crypto.randomUUID();
+  private readonly extensionListeners = new Set<(event: SessionHandleEvent) => void>();
+  private readonly extensionWidgets = new Map<string, SessionExtensionWidget>();
+  private readonly extensionStatuses = new Map<string, string>();
 
   constructor(
     private readonly session: PiAgentSession,
@@ -240,6 +285,7 @@ export class PiSessionHandle implements SessionHandle {
     }),
     private readonly alwaysActiveToolNames: readonly string[] = [],
     private readonly extensionToolSelection: ExtensionToolSelection = "none",
+    private readonly extensionUI?: ACPExtensionUIContext,
   ) {
     const streamFunction = session.agent.streamFunction;
     session.agent.streamFunction = (model, context, streamOptions) => {
@@ -326,6 +372,14 @@ export class PiSessionHandle implements SessionHandle {
       modelOptions: this.modelOptions(),
       accessMode: this.accessController.mode,
       pendingApprovals: this.accessController.pendingApprovals(),
+      ...(this.extensionWidgets.size > 0 ? { extensionWidgets: Object.fromEntries(
+        [...this.extensionWidgets].map(([key, widget]) => [
+          key, { ...widget, lines: [...widget.lines] },
+        ]),
+      ) } : {}),
+      ...(this.extensionStatuses.size > 0
+        ? { extensionStatuses: Object.fromEntries(this.extensionStatuses) }
+        : {}),
     };
   }
 
@@ -561,13 +615,20 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   async reload(): Promise<void> {
-    await this.session.reload();
+    await this.session.reload({
+      beforeSessionStart: async () => {
+        this.extensionUI?.clearWidgets();
+        for (const key of this.extensionStatuses.keys()) this.setExtensionStatus(key, undefined);
+        for (const key of this.extensionWidgets.keys()) this.setExtensionWidget(key, undefined);
+      },
+    });
     this.transcriptRevision = crypto.randomUUID();
     this.refreshActiveTools();
   }
 
   dispose(): void {
     this.accessController.cancelAll();
+    this.extensionUI?.clearWidgets();
     this.session.dispose();
   }
 
@@ -579,10 +640,34 @@ export class PiSessionHandle implements SessionHandle {
     const unsubscribeApprovals = this.accessController.subscribe((approval) => {
       listener({ type: "approvalRequested", approval });
     });
+    this.extensionListeners.add(listener);
+    for (const [key, text] of this.extensionStatuses) {
+      listener({ type: "extensionStatusChanged", key, text });
+    }
+    for (const [key, widget] of this.extensionWidgets) {
+      listener({ type: "extensionWidgetChanged", key, widget });
+    }
     return () => {
       unsubscribeSession();
       unsubscribeApprovals();
+      this.extensionListeners.delete(listener);
     };
+  }
+
+  setExtensionWidget(key: string, widget: SessionExtensionWidget | undefined): void {
+    if (widget === undefined) this.extensionWidgets.delete(key);
+    else this.extensionWidgets.set(key, { ...widget, lines: [...widget.lines] });
+    for (const listener of this.extensionListeners) {
+      listener({ type: "extensionWidgetChanged", key, ...(widget === undefined ? {} : { widget }) });
+    }
+  }
+
+  setExtensionStatus(key: string, text: string | undefined): void {
+    if (text === undefined) this.extensionStatuses.delete(key);
+    else this.extensionStatuses.set(key, text);
+    for (const listener of this.extensionListeners) {
+      listener({ type: "extensionStatusChanged", key, ...(text === undefined ? {} : { text }) });
+    }
   }
 
   private refreshActiveTools(): void {
@@ -811,6 +896,24 @@ function safeJSONStringify(value: unknown): string {
   }
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function toolResultDetails(result: unknown): Record<string, unknown> | undefined {
+  return result && typeof result === "object" && "details" in result
+    ? recordValue(result.details)
+    : undefined;
+}
+
+function toolResultContent(result: unknown): SessionMessageContent[] {
+  return result && typeof result === "object" && "content" in result
+    ? normalizeToolResultContent(result.content)
+    : [];
+}
+
 export function normalizeAgentSessionEvent(event: AgentSessionEvent): SessionHandleEvent | undefined {
   if (event.type === "message_start" && event.message.role === "assistant") {
     return { type: "assistantMessageStarted" };
@@ -898,6 +1001,7 @@ export function normalizeAgentSessionEvent(event: AgentSessionEvent): SessionHan
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       summary: JSON.stringify(event.args),
+      rawInput: recordValue(event.args) ?? {},
     };
   }
 
@@ -907,6 +1011,10 @@ export function normalizeAgentSessionEvent(event: AgentSessionEvent): SessionHan
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       output: normalizeToolOutput(event.partialResult),
+      content: toolResultContent(event.partialResult),
+      ...(toolResultDetails(event.partialResult)
+        ? { rawOutput: toolResultDetails(event.partialResult) }
+        : {}),
     };
   }
 
@@ -916,6 +1024,8 @@ export function normalizeAgentSessionEvent(event: AgentSessionEvent): SessionHan
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       output: normalizeToolOutput(event.result),
+      content: toolResultContent(event.result),
+      ...(toolResultDetails(event.result) ? { rawOutput: toolResultDetails(event.result) } : {}),
       isError: event.isError,
     };
   }

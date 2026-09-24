@@ -2,6 +2,450 @@ import XCTest
 @testable import PiWork
 
 final class AgentHostProtocolTests: XCTestCase {
+    func testDecodesPiWorkExtensionNotificationWithoutRecursion() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"_piWork/models.changed","params":{"reason":"authentication","providerId":"openai-codex"}}"#.utf8)
+
+        let event = try AgentHostServerEvent.decode(from: data)
+
+        XCTAssertEqual(
+            event,
+            .modelsChanged(
+                AgentHostModelsChangedPayload(
+                    reason: .authentication,
+                    providerId: "openai-codex"
+                )
+            )
+        )
+    }
+
+    func testDecodesStandardNumericJSONRPCErrorCode() throws {
+        let data = Data(#"{"jsonrpc":"2.0","id":"request-one","error":{"code":-32601,"message":"Method not found"}}"#.utf8)
+
+        let response = try JSONDecoder().decode(
+            AgentHostResponse<AgentHostACPEmptyResult>.self,
+            from: data
+        )
+
+        XCTAssertEqual(response.error?.code, "-32601")
+        XCTAssertEqual(response.error?.message, "Method not found")
+    }
+
+    func testInitializeAdvertisesBooleanConfigOptionSupport() throws {
+        let request = AgentHostRequest(
+            id: "initialize-1",
+            method: "initialize",
+            params: AgentHostACPInitializeParameters(
+                protocolVersion: 1,
+                clientInfo: .init(name: "pi-work", version: "0.1.0"),
+                clientCapabilities: .piWork
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        let capabilities = try XCTUnwrap(params["clientCapabilities"] as? [String: Any])
+        let session = try XCTUnwrap(capabilities["session"] as? [String: Any])
+        let configOptions = try XCTUnwrap(session["configOptions"] as? [String: Any])
+        XCTAssertNotNil(configOptions["boolean"] as? [String: Any])
+        let elicitation = try XCTUnwrap(capabilities["elicitation"] as? [String: Any])
+        XCTAssertNotNil(elicitation["form"] as? [String: Any])
+    }
+
+    func testDecodesStandardACPElicitationFormRequest() throws {
+        let data = Data(#"{"jsonrpc":"2.0","id":"elicitation-one","method":"elicitation/create","params":{"mode":"form","sessionId":"session-one","message":"Choose an action","requestedSchema":{"type":"object","properties":{"action":{"type":"string","title":"Action","oneOf":[{"const":"run","title":"Run"},{"const":"stop","title":"Stop"}]},"confirmed":{"type":"boolean","title":"Confirm","default":false}},"required":["action"]}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .elicitationRequested(
+                AgentHostACPElicitationRequest(
+                    id: "elicitation-one",
+                    sessionId: "session-one",
+                    message: "Choose an action",
+                    schema: AgentHostACPElicitationSchema(
+                        properties: [
+                            "action": AgentHostACPElicitationProperty(
+                                type: .string,
+                                title: "Action",
+                                options: [
+                                    .init(value: "run", title: "Run"),
+                                    .init(value: "stop", title: "Stop")
+                                ]
+                            ),
+                            "confirmed": AgentHostACPElicitationProperty(
+                                type: .boolean,
+                                title: "Confirm",
+                                defaultValue: .boolean(false)
+                            )
+                        ],
+                        required: ["action"]
+                    )
+                )
+            )
+        )
+    }
+
+    func testDecodesMinimalACPInitializeResponse() throws {
+        let data = Data(#"{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true},"sessionCapabilities":{"list":{},"resume":{}}},"authMethods":[{"id":"login","name":"Sign in"}]}"#.utf8)
+
+        let result = try JSONDecoder().decode(
+            AgentHostACPInitializeResult.self,
+            from: data
+        )
+
+        XCTAssertEqual(result.protocolVersion, 1)
+        XCTAssertEqual(result.helloPayload.hostVersion, "unknown")
+        XCTAssertEqual(result.helloPayload.piVersion, "unknown")
+        XCTAssertTrue(result.helloPayload.acpCapabilities.loadSession)
+        XCTAssertTrue(result.helloPayload.acpCapabilities.listSessions)
+        XCTAssertTrue(result.helloPayload.acpCapabilities.resumeSession)
+        XCTAssertTrue(result.helloPayload.acpCapabilities.promptImages)
+        XCTAssertEqual(result.helloPayload.authMethods.map(\.id), ["login"])
+        XCTAssertFalse(result.helloPayload.supportsPiWorkExtensions)
+    }
+
+    func testACPModelProjectionUsesTheAgentImageCapability() {
+        let state = AgentHostACPSessionState(
+            configOptions: [
+                AgentHostACPSetConfigOptionResult.ConfigOption(
+                    id: "model",
+                    name: "Model",
+                    category: "model",
+                    type: "select",
+                    currentValue: .string("claude/opus"),
+                    options: [.init(value: "claude/opus", name: "Opus")]
+                )
+            ],
+            supportsImages: true
+        )
+
+        XCTAssertTrue(state.model?.supportsImages == true)
+        XCTAssertTrue(state.availableModels.allSatisfy(\.supportsImages))
+    }
+
+    func testDecodesThePiWorkExtensionMarkerFromInitialize() throws {
+        let data = Data(#"{"protocolVersion":1,"_meta":{"piWork":{"extensions":true}}}"#.utf8)
+
+        let result = try JSONDecoder().decode(
+            AgentHostACPInitializeResult.self,
+            from: data
+        )
+
+        XCTAssertTrue(result.helloPayload.supportsPiWorkExtensions)
+        XCTAssertTrue(result.helloPayload.supportsPiWorkCapability(.modelsList))
+    }
+
+    func testDecodesGranularPiWorkCapabilitiesFromInitialize() throws {
+        let data = Data(#"{"protocolVersion":1,"_meta":{"piWork":{"extensions":true,"capabilities":["models.list","session.snapshot"]}}}"#.utf8)
+
+        let result = try JSONDecoder().decode(
+            AgentHostACPInitializeResult.self,
+            from: data
+        )
+
+        XCTAssertTrue(result.helloPayload.supportsPiWorkCapability(.modelsList))
+        XCTAssertTrue(result.helloPayload.supportsPiWorkCapability(.sessionSnapshot))
+        XCTAssertFalse(result.helloPayload.supportsPiWorkCapability(.providersList))
+    }
+
+    func testDecodesGroupedACPConfigOptions() throws {
+        let data = Data(#"{"configOptions":[{"id":"agent-model","name":"Model","category":"model","type":"select","currentValue":"anthropic/opus","options":[{"group":"anthropic","name":"Anthropic","options":[{"value":"anthropic/sonnet","name":"Sonnet"},{"value":"anthropic/opus","name":"Opus"}]}]}]}"#.utf8)
+
+        let result = try JSONDecoder().decode(
+            AgentHostACPSetConfigOptionResult.self,
+            from: data
+        )
+
+        XCTAssertEqual(
+            result.acpState.availableModels.map(\.id),
+            ["sonnet", "opus"]
+        )
+        XCTAssertEqual(result.acpState.model?.id, "opus")
+    }
+
+    func testExposesOnlyUnclaimedConfigOptionsToTheGenericUI() {
+        let state = AgentHostACPSessionState(configOptions: [
+            .init(
+                id: "agent-model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: .string("sonnet"),
+                options: [.init(value: "sonnet", name: "Sonnet")]
+            ),
+            .init(
+                id: "thought_level",
+                name: "Thinking",
+                category: "thought_level",
+                type: "select",
+                currentValue: .string("high"),
+                options: [.init(value: "high", name: "High")]
+            ),
+            .init(
+                id: "auto_approve",
+                name: "Auto approve",
+                category: "behavior",
+                type: "boolean",
+                currentValue: .boolean(false),
+                options: nil
+            )
+        ])
+
+        XCTAssertEqual(state.genericConfigOptions.map(\.id), ["auto_approve"])
+    }
+
+    func testExposesNonPiWorkModesToTheGenericUI() {
+        let custom = AgentHostACPSessionState(
+            modes: AgentHostACPSessionModeState(
+                currentModeId: "plan",
+                availableModes: [
+                    AgentHostACPSessionMode(id: "plan", name: "Plan", description: nil),
+                    AgentHostACPSessionMode(id: "code", name: "Code", description: nil)
+                ]
+            )
+        )
+        let bundled = AgentHostACPSessionState(
+            modes: AgentHostACPSessionModeState(
+                currentModeId: "ask",
+                availableModes: [
+                    AgentHostACPSessionMode(id: "ask", name: "Ask", description: nil),
+                    AgentHostACPSessionMode(id: "full", name: "Full", description: nil)
+                ]
+            )
+        )
+
+        XCTAssertEqual(custom.genericModeState?.currentModeId, "plan")
+        XCTAssertNil(bundled.genericModeState)
+    }
+
+    func testDecodesACPAgentMessageChunkIntoTheSessionProjection() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"},"_meta":{"sequence":7,"turnId":"turn-one","phase":"delta","contentIndex":0,"generationIndex":0}}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionAssistantContent(
+                AgentHostSessionAssistantContentPayload(
+                    sessionId: "session-one",
+                    sequence: 7,
+                    turnId: "turn-one",
+                    generationIndex: 0,
+                    phase: .delta,
+                    contentType: .text,
+                    contentIndex: 0,
+                    delta: "hello",
+                    content: nil,
+                    toolCall: nil
+                )
+            )
+        )
+    }
+
+    func testDecodesACPUserMessageChunkWithItsStandardMessageID() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"user_message_chunk","messageId":"message-one","content":{"type":"text","text":"hello"}}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionUserContent(
+                AgentHostSessionUserContentPayload(
+                    sessionId: "session-one",
+                    sequence: 0,
+                    messageId: "message-one",
+                    text: "hello"
+                )
+            )
+        )
+    }
+
+    func testDecodesACPToolCallUpdateIntoTheSessionProjection() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-one","title":"bash","status":"completed","content":[{"type":"content","content":{"type":"text","text":"done"}}],"rawOutput":{"exitCode":0}}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionToolCompleted(
+                    AgentHostSessionToolCompletedPayload(
+                        sessionId: "session-one",
+                    sequence: 0,
+                    turnId: "",
+                    toolCallId: "tool-one",
+                    toolName: "bash",
+                    output: "done",
+                    content: [
+                        .content(.text("done"))
+                    ],
+                    rawOutput: .object(["exitCode": .number(0)]),
+                    isError: false
+                )
+            )
+        )
+    }
+
+    func testDecodesACPToolCallRawInputWithoutPiWorkSpecificFields() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"tool_call","toolCallId":"tool-one","title":"todo","status":"in_progress","rawInput":{"action":"add","text":"Verify UI"}}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionToolStarted(
+                AgentHostSessionToolStartedPayload(
+                    sessionId: "session-one",
+                    sequence: 0,
+                    turnId: "",
+                    toolCallId: "tool-one",
+                    toolName: "todo",
+                    summary: #"{"action":"add","text":"Verify UI"}"#,
+                    rawInput: .object([
+                        "action": .string("add"),
+                        "text": .string("Verify UI")
+                    ])
+                )
+            )
+        )
+    }
+
+    func testDecodesPiWorkExtensionStatusSessionUpdate() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"_piWork/extension_status","key":"status-demo","text":"Ready"}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionExtensionStatusChanged(
+                AgentHostSessionExtensionStatusChangedPayload(
+                    sessionId: "session-one",
+                    sequence: 0,
+                    key: "status-demo",
+                    text: "Ready"
+                )
+            )
+        )
+    }
+
+    func testRecognizesGenericWidgetUpdatesAndRemoval() throws {
+        let updates = [
+            #"{"sessionUpdate":"_piWork/extension_widget","key":"any-plugin","lines":["☐ Inspect","2 workers running"],"placement":"belowEditor"}"#,
+            #"{"sessionUpdate":"_piWork/extension_widget","key":"any-plugin"}"#
+        ]
+        for (index, update) in updates.enumerated() {
+            let data = Data(
+                #"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":\#(update)}}"#.utf8
+            )
+            XCTAssertEqual(
+                try AgentHostServerEvent.decode(from: data),
+                .sessionExtensionWidgetChanged(
+                    AgentHostSessionExtensionWidgetChangedPayload(
+                        sessionId: "session-one",
+                        sequence: 0,
+                        key: "any-plugin",
+                        widget: index == 0 ? AgentHostExtensionWidget(
+                            lines: ["☐ Inspect", "2 workers running"],
+                            placement: .belowEditor
+                        ) : nil
+                    )
+                )
+            )
+        }
+    }
+
+    func testDecodesStructuredACPToolCallContent() throws {
+        let data = Data(#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-one","title":"edit","status":"completed","content":[{"type":"diff","path":"/tmp/App.swift","oldText":"old","newText":"new"},{"type":"content","content":{"type":"image","mimeType":"image/png","data":"iVBORw==","uri":"file:///tmp/result.png"}},{"type":"content","content":{"type":"resource_link","name":"Docs","uri":"https://example.com/docs","title":"Reference","description":"API reference","mimeType":"text/html"}},{"type":"content","content":{"type":"resource","resource":{"uri":"file:///tmp/log.txt","mimeType":"text/plain","text":"log output"}}},{"type":"terminal","terminalId":"terminal-one"}]}}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionToolCompleted(
+                AgentHostSessionToolCompletedPayload(
+                    sessionId: "session-one",
+                    sequence: 0,
+                    turnId: "",
+                    toolCallId: "tool-one",
+                    toolName: "edit",
+                    content: [
+                        .diff(path: "/tmp/App.swift", oldText: "old", newText: "new"),
+                        .content(
+                            .image(
+                                mimeType: "image/png",
+                                data: Data([0x89, 0x50, 0x4E, 0x47]),
+                                uri: "file:///tmp/result.png"
+                            )
+                        ),
+                        .content(
+                            .resourceLink(
+                                name: "Docs",
+                                uri: "https://example.com/docs",
+                                title: "Reference",
+                                description: "API reference",
+                                mimeType: "text/html"
+                            )
+                        ),
+                        .content(
+                            .resource(
+                                uri: "file:///tmp/log.txt",
+                                mimeType: "text/plain",
+                                text: "log output",
+                                data: nil
+                            )
+                        ),
+                        .terminal(id: "terminal-one")
+                    ],
+                    isError: false
+                )
+            )
+        )
+    }
+
+    func testDecodesStandardACPSessionStateUpdates() throws {
+        let updates = [
+            #"{"sessionUpdate":"current_mode_update","currentModeId":"ask"}"#,
+            #"{"sessionUpdate":"config_option_update","configOptions":[]}"#,
+            #"{"sessionUpdate":"session_info_update","title":"Renamed"}"#,
+            #"{"sessionUpdate":"usage_update","used":32,"size":128}"#,
+            #"{"sessionUpdate":"available_commands_update","availableCommands":[]}"#,
+            #"{"sessionUpdate":"plan","entries":[]}"#
+        ]
+
+        for update in updates {
+            let data = Data(
+                #"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-one","update":\#(update)}}"#.utf8
+            )
+            let event = try AgentHostServerEvent.decode(from: data)
+            let updateType = try XCTUnwrap(
+                (JSONSerialization.jsonObject(with: Data(update.utf8)) as? [String: Any])?["sessionUpdate"]
+                    as? String
+            )
+            XCTAssertNotEqual(event, .unknown(name: updateType))
+        }
+    }
+
+    func testDecodesACPPermissionRequestIntoTheApprovalProjection() throws {
+        let data = Data(#"{"jsonrpc":"2.0","id":"permission-1","method":"session/request_permission","params":{"sessionId":"session-one","toolCall":{"toolCallId":"tool-one","title":"bash","rawInput":{"summary":"bun test"},"_meta":{"sequence":9,"turnId":"turn-one"}},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"},{"optionId":"no","name":"Reject","kind":"reject_once"}]}}"#.utf8)
+
+        XCTAssertEqual(
+            try AgentHostServerEvent.decode(from: data),
+            .sessionApprovalRequested(
+                AgentHostSessionApprovalRequestedPayload(
+                    sessionId: "session-one",
+                    sequence: 9,
+                    turnId: "turn-one",
+                    requestId: "permission-1",
+                    toolCallId: "tool-one",
+                    toolName: "bash",
+                    summary: "bun test",
+                    allowOptionId: "yes",
+                    rejectOptionId: "no",
+                    options: [
+                        AgentHostApprovalOption(
+                            optionId: "yes",
+                            name: "Allow",
+                            kind: .allowOnce
+                        ),
+                        AgentHostApprovalOption(
+                            optionId: "no",
+                            name: "Reject",
+                            kind: .rejectOnce
+                        )
+                    ]
+                )
+            )
+        )
+    }
+
     func testDecodesSchemaDrivenExtensionSettingsWithoutExposingSecrets() throws {
         let data = Data(#"{"extensions":[{"source":"npm:pi-demo","scope":"user","configurable":true,"fields":[{"path":"/enabled","title":"Enabled","kind":"boolean","value":"true","defaultValue":"true","hasValue":false},{"path":"/token","title":"API token","kind":"secure","hasValue":true},{"path":"/mode","title":"Mode","kind":"choice","value":"safe","hasValue":true,"options":[{"value":"safe","label":"Safe"}]}]}]}"#.utf8)
 
@@ -53,7 +497,12 @@ final class AgentHostProtocolTests: XCTestCase {
     }
 
     func testDecodesHTMLExportResult() throws {
-        let data = Data(#"{"sessionId":"session-one","path":"/Users/test/Downloads/report.html"}"#.utf8)
+        let exportPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Exports/report.html").path
+        let data = try JSONSerialization.data(withJSONObject: [
+            "sessionId": "session-one", "path": exportPath
+        ])
 
         let result = try JSONDecoder().decode(
             AgentHostSessionExportHTMLResult.self,
@@ -64,7 +513,7 @@ final class AgentHostProtocolTests: XCTestCase {
             result,
             AgentHostSessionExportHTMLResult(
                 sessionId: "session-one",
-                path: "/Users/test/Downloads/report.html"
+                path: exportPath
             )
         )
     }
@@ -146,7 +595,7 @@ final class AgentHostProtocolTests: XCTestCase {
     }
 
     func testDecodesNormalizedSessionSnapshot() throws {
-        let data = Data(#"{"session":{"id":"session-one","path":"/tmp/session.jsonl","cwd":"/tmp/project","title":"Session integration"},"messages":[{"id":"message-one","role":"user","content":[{"type":"text","text":"Inspect this"},{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}],"timestamp":"2026-08-09T00:00:00.000Z"},{"id":"message-two","role":"assistant","content":[{"type":"text","text":"Ready"},{"type":"toolCall","id":"tool-one","name":"read","argumentsSummary":"{\"path\":\"README.md\"}"}],"timestamp":"2026-08-09T00:00:01.000Z","provider":"openai","model":"gpt-test","stopReason":"toolUse"}],"history":{"revision":"revision-one","nextCursor":"cursor-one","hasMore":true},"state":"running","sequence":4,"turnId":"turn-one","gitBranch":"feature/session-picker","model":{"provider":"openai","id":"gpt-test","name":"GPT Test","contextWindow":128000,"maxTokens":16384,"reasoning":true,"supportsImages":true,"supportsFastMode":false},"contextUsage":{"tokens":96000,"contextWindow":128000,"percent":75},"thinkingLevel":"high","availableThinkingLevels":["off","low","medium","high","max"],"modelOptions":{"fastMode":{"supported":true,"enabled":false},"oneMillionContext":{"supported":true,"enabled":true}},"accessMode":"ask","pendingApprovals":[{"id":"approval-one","toolCallId":"tool-one","toolName":"bash","summary":"bun test"}]}"#.utf8)
+        let data = Data(#"{"session":{"id":"session-one","path":"/tmp/session.jsonl","cwd":"/tmp/project","title":"Session integration"},"messages":[{"id":"message-one","role":"user","content":[{"type":"text","text":"Inspect this"},{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}],"timestamp":"2026-08-09T00:00:00.000Z"},{"id":"message-two","role":"assistant","content":[{"type":"text","text":"Ready"},{"type":"toolCall","id":"tool-one","name":"read","argumentsSummary":"{\"path\":\"README.md\"}"}],"timestamp":"2026-08-09T00:00:01.000Z","provider":"openai","model":"gpt-test","stopReason":"toolUse"}],"history":{"revision":"revision-one","nextCursor":"cursor-one","hasMore":true},"state":"running","sequence":4,"turnId":"turn-one","gitBranch":"feature/session-picker","model":{"provider":"openai","id":"gpt-test","name":"GPT Test","contextWindow":128000,"maxTokens":16384,"reasoning":true,"supportsImages":true,"supportsFastMode":false},"contextUsage":{"tokens":96000,"contextWindow":128000,"percent":75},"thinkingLevel":"high","availableThinkingLevels":["off","low","medium","high","max"],"modelOptions":{"fastMode":{"supported":true,"enabled":false},"oneMillionContext":{"supported":true,"enabled":true}},"accessMode":"ask","pendingApprovals":[{"id":"approval-one","toolCallId":"tool-one","toolName":"bash","summary":"bun test"}],"extensionStatuses":{"status-demo":"Ready"}}"#.utf8)
 
         let snapshot = try JSONDecoder().decode(AgentHostSessionSnapshotResult.self, from: data)
 
@@ -188,6 +637,7 @@ final class AgentHostProtocolTests: XCTestCase {
             )
         )
         XCTAssertEqual(snapshot.accessMode, .ask)
+        XCTAssertEqual(snapshot.extensionStatuses, ["status-demo": "Ready"])
         XCTAssertEqual(
             snapshot.pendingApprovals,
             [
@@ -303,7 +753,7 @@ final class AgentHostProtocolTests: XCTestCase {
         let params = try XCTUnwrap(object["params"] as? [String: Any])
         let patch = try XCTUnwrap(params["patch"] as? [String: Any])
 
-        XCTAssertEqual(object["method"] as? String, "settings.update")
+        XCTAssertEqual(object["method"] as? String, "_piWork/settings/update")
         XCTAssertEqual(patch["defaultThinkingLevel"] as? String, "max")
         XCTAssertEqual(patch["compactionEnabled"] as? Bool, false)
         XCTAssertNil(patch["defaultModel"])
@@ -337,13 +787,13 @@ final class AgentHostProtocolTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
         )
-        XCTAssertEqual(object["method"] as? String, "session.setModel")
+        XCTAssertEqual(object["method"] as? String, "session/set_config_option")
         XCTAssertEqual(
             object["params"] as? [String: String],
             [
                 "sessionId": "session-one",
-                "provider": "openai",
-                "modelId": "gpt-test"
+                "configId": "model",
+                "value": "openai/gpt-test"
             ]
         )
     }
@@ -361,10 +811,10 @@ final class AgentHostProtocolTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
         )
-        XCTAssertEqual(object["method"] as? String, "session.setThinkingLevel")
+        XCTAssertEqual(object["method"] as? String, "session/set_config_option")
         XCTAssertEqual(
             object["params"] as? [String: String],
-            ["sessionId": "session-one", "thinkingLevel": "max"]
+            ["sessionId": "session-one", "configId": "thought_level", "value": "max"]
         )
     }
 
@@ -383,10 +833,11 @@ final class AgentHostProtocolTests: XCTestCase {
             JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
         )
         let params = try XCTUnwrap(object["params"] as? [String: Any])
-        XCTAssertEqual(object["method"] as? String, "session.setModelOption")
+        XCTAssertEqual(object["method"] as? String, "session/set_config_option")
         XCTAssertEqual(params["sessionId"] as? String, "session-one")
-        XCTAssertEqual(params["option"] as? String, "fastMode")
-        XCTAssertEqual(params["enabled"] as? Bool, true)
+        XCTAssertEqual(params["configId"] as? String, "fast_mode")
+        XCTAssertEqual(params["type"] as? String, "boolean")
+        XCTAssertEqual(params["value"] as? Bool, true)
     }
 
     func testEncodesTypedAccessModeRequest() throws {
@@ -402,35 +853,10 @@ final class AgentHostProtocolTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
         )
-        XCTAssertEqual(object["method"] as? String, "session.setAccessMode")
+        XCTAssertEqual(object["method"] as? String, "session/set_mode")
         XCTAssertEqual(
             object["params"] as? [String: String],
-            ["sessionId": "session-one", "accessMode": "full"]
-        )
-    }
-
-    func testEncodesTypedApprovalDecisionRequest() throws {
-        let request = AgentHostRequest(
-            id: "resolve-approval-one",
-            method: "session.resolveApproval",
-            params: AgentHostSessionResolveApprovalParameters(
-                sessionId: "session-one",
-                requestId: "approval-one",
-                decision: .allowOnce
-            )
-        )
-
-        let object = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
-        )
-        XCTAssertEqual(object["method"] as? String, "session.resolveApproval")
-        XCTAssertEqual(
-            object["params"] as? [String: String],
-            [
-                "sessionId": "session-one",
-                "requestId": "approval-one",
-                "decision": "allowOnce"
-            ]
+            ["sessionId": "session-one", "modeId": "full"]
         )
     }
 
@@ -641,7 +1067,8 @@ final class AgentHostProtocolTests: XCTestCase {
                 AgentHostHelloPayload(
                     hostVersion: "0.1.0",
                     piVersion: "0.83.0",
-                    capabilities: ["sessions.list"]
+                    capabilities: ["sessions.list"],
+                    supportsPiWorkExtensions: true
                 )
             )
         )
@@ -855,11 +1282,79 @@ final class AgentHostProtocolTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any]
         )
-        XCTAssertEqual(object["version"] as? Int, 1)
-        XCTAssertEqual(object["kind"] as? String, "request")
+        XCTAssertEqual(object["jsonrpc"] as? String, "2.0")
         XCTAssertEqual(object["id"] as? String, "list-1")
-        XCTAssertEqual(object["method"] as? String, "sessions.list")
-        XCTAssertEqual((object["params"] as? [String: Any])?["cwd"] as? String, "/tmp/project")
+        XCTAssertEqual(object["method"] as? String, "session/list")
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["cwd"] as? String, "/tmp/project")
+        XCTAssertNil(params["sessionDirectory"])
+        let metadata = try XCTUnwrap(params["_meta"] as? [String: Any])
+        XCTAssertEqual(
+            (metadata["piWork"] as? [String: Any])?["sessionDirectory"] as? String,
+            "/tmp/sessions"
+        )
+    }
+
+    func testSessionNewIncludesRequiredACPV1MCPServers() throws {
+        let request = AgentHostRequest(
+            id: "new-1",
+            method: "session.createDraft",
+            params: AgentHostSessionCreateDraftParameters(
+                cwd: "/tmp/project",
+                sessionDirectory: nil,
+                profile: .work
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(object["method"] as? String, "session/new")
+        XCTAssertEqual(params["cwd"] as? String, "/tmp/project")
+        XCTAssertEqual((params["mcpServers"] as? [Any])?.count, 0)
+        let metadata = try XCTUnwrap(params["_meta"] as? [String: Any])
+        XCTAssertEqual(Set(metadata.keys), ["piWork"])
+        XCTAssertEqual((metadata["piWork"] as? [String: Any])?["profile"] as? String, "work")
+    }
+
+    func testSessionResumeUsesOnlyACPV1Fields() throws {
+        let request = AgentHostRequest(
+            id: "load-1",
+            method: "session.open",
+            params: AgentHostSessionOpenParameters(
+                sessionId: "session-one",
+                cwd: "/tmp/project",
+                sessionDirectory: nil,
+                profile: .work
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(object["method"] as? String, "session/resume")
+        XCTAssertEqual(params["sessionId"] as? String, "session-one")
+        XCTAssertEqual(params["cwd"] as? String, "/tmp/project")
+        XCTAssertEqual((params["mcpServers"] as? [Any])?.count, 0)
+        XCTAssertNil(params["path"])
+    }
+
+    func testSessionCancelEncodesACPNotificationWithoutRequestID() throws {
+        let notification = AgentHostNotification(
+            method: "session.abort",
+            params: AgentHostSessionIdentifierParameters(sessionId: "session-one")
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: notification.encodedLine().dropLast())
+                as? [String: Any]
+        )
+        XCTAssertEqual(object["jsonrpc"] as? String, "2.0")
+        XCTAssertEqual(object["method"] as? String, "session/cancel")
+        XCTAssertEqual((object["params"] as? [String: Any])?["sessionId"] as? String, "session-one")
+        XCTAssertNil(object["id"])
     }
 
     func testEncodesPromptImagesAsBase64() throws {
@@ -881,12 +1376,16 @@ final class AgentHostProtocolTests: XCTestCase {
             JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
         )
         let params = try XCTUnwrap(object["params"] as? [String: Any])
-        let images = try XCTUnwrap(params["images"] as? [[String: String]])
+        let images = try XCTUnwrap(params["prompt"] as? [[String: String]])
 
-        XCTAssertEqual(images, [[
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(images[0]["type"], "text")
+        XCTAssertEqual(images[1], [
+            "type": "image",
             "mimeType": "image/png",
             "data": imageData.base64EncodedString()
-        ]])
+        ])
+        XCTAssertNil(params["_meta"])
     }
 
     func testDecodesAssistantContentAsARecognizedSessionEvent() throws {

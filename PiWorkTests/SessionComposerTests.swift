@@ -7,6 +7,253 @@ import XCTest
 @testable import PiWork
 
 final class SessionComposerTests: XCTestCase {
+    func testACPFormStateBuildsTypedContentAndRejectsInvalidNumbers() {
+        let request = AgentHostACPElicitationRequest(
+            id: "form-one",
+            message: "Configure",
+            schema: AgentHostACPElicitationSchema(
+                properties: [
+                    "count": .init(type: .integer, minimum: 1, maximum: 10),
+                    "enabled": .init(type: .boolean, defaultValue: .boolean(true)),
+                    "mode": .init(
+                        type: .string,
+                        options: [
+                            .init(value: "fast", title: "Fast"),
+                            .init(value: "safe", title: "Safe")
+                        ]
+                    ),
+                    "tags": .init(
+                        type: .array,
+                        defaultValue: .stringArray(["swift"]),
+                        options: [.init(value: "swift", title: "Swift")]
+                    )
+                ],
+                required: ["count", "mode"]
+            )
+        )
+        var state = ACPElicitationFormState(request: request)
+
+        XCTAssertNil(state.content)
+        state.textValues["count"] = "4"
+
+        XCTAssertEqual(
+            state.content,
+            [
+                "count": .integer(4),
+                "enabled": .boolean(true),
+                "mode": .string("fast"),
+                "tags": .stringArray(["swift"])
+            ]
+        )
+    }
+
+    func testACPFormStateEnforcesStandardStringConstraints() {
+        let request = AgentHostACPElicitationRequest(
+            id: "form-string",
+            message: "Name",
+            schema: AgentHostACPElicitationSchema(
+                properties: [
+                    "name": .init(
+                        type: .string,
+                        minLength: 3,
+                        maxLength: 5,
+                        pattern: "^[a-z]+$"
+                    )
+                ],
+                required: ["name"]
+            )
+        )
+        var state = ACPElicitationFormState(request: request)
+
+        XCTAssertNil(state.content)
+        state.textValues["name"] = "AB"
+        XCTAssertNil(state.content)
+        state.textValues["name"] = "swift"
+        XCTAssertEqual(state.content, ["name": .string("swift")])
+    }
+
+    func testChatPresentsStandardACPElicitationWithoutAPrivateWidgetProtocol() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(".sheet(item: elicitationBinding)"))
+        XCTAssertTrue(source.contains("private struct ACPElicitationFormView"))
+        XCTAssertFalse(source.contains("_piWork/ui_update"))
+    }
+
+    func testComposerIncludesGenericACPConfigurationControls() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("genericConfigOptions:"))
+        XCTAssertTrue(source.contains("genericModeState:"))
+        XCTAssertTrue(source.contains("onSelectConfigOption:"))
+        XCTAssertTrue(source.contains("onSelectSessionMode:"))
+        XCTAssertTrue(source.contains("agent-config-menu"))
+    }
+
+    func testComposerDisplaysACPPlanAndCostUpdates() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("plan: activeRecord?.acpState.plan ?? []"))
+        XCTAssertTrue(source.contains("cost: activeRecord?.acpState.cost"))
+        XCTAssertTrue(source.contains("struct SessionActivityPanel"))
+        XCTAssertTrue(source.contains("session-activity-panel"))
+        XCTAssertTrue(source.contains("extensionWidgets: activeRecord?.acpState.extensionWidgets ?? [:]"))
+        XCTAssertTrue(source.contains("isExpanded: $isActivityExpanded\n            )\n            .frame(maxWidth: .infinity)"))
+        XCTAssertTrue(source.contains("chat.session_cost"))
+    }
+
+    @MainActor
+    func testCompactActivityPanelVisualLayouts() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(300), 640] {
+                let view = VStack(spacing: 20) {
+                    SessionActivityPanel(plan: [], statuses: ["generic": "Ready"], widgets: [:], isExpanded: .constant(false))
+                        .frame(maxWidth: .infinity)
+                    SessionActivityPanel(plan: [], statuses: [:], widgets: [
+                        "tasks": AgentHostExtensionWidget(lines: ["● Todos (1/3)", "├─ ✓ Read project", "├─ ◐ Implement status", "└─ ○ Run tests"]),
+                        "workers": AgentHostExtensionWidget(lines: ["● Workers (1/2)", "└─ reviewer · Running"])
+                    ], isExpanded: .constant(true))
+                    .frame(maxWidth: .infinity)
+                    SessionActivityPanel(plan: [], statuses: [:], widgets: [
+                        "tasks": AgentHostExtensionWidget(lines: ["● Todos (1/3)", "└─ ○ Run tests"])
+                    ], isExpanded: .constant(false))
+                    .frame(maxWidth: .infinity)
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, scheme)
+                let bitmap = try TestViewRenderer.render(view, size: CGSize(width: width, height: 400))
+                let attachment = XCTAttachment(data: try XCTUnwrap(bitmap.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
+                attachment.name = "activity-\(scheme)-\(Int(width))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+    }
+
+    @MainActor
+    func testActivityPanelHidesOnlyExplicitVersionUpdateNotices() {
+        func height(_ status: String) -> CGFloat {
+            NSHostingView(rootView: SessionActivityPanel(
+                plan: [], statuses: ["arbitrary-plugin": status], widgets: [:],
+                isExpanded: .constant(false)
+            )).fittingSize.height
+        }
+        XCTAssertEqual(height("bg ⬆ v2.5.0 /bg-update"), 0, accuracy: 1)
+        XCTAssertEqual(height("helper ↑ v1.2.3-beta.1 /helper-update"), 0, accuracy: 1)
+        for status in ["2 running · ↑ v1.2.3 /helper-update", "Building v1.2.3", "Run /update", "Ready", "更新数据库"] {
+            XCTAssertGreaterThan(height(status), 0, status)
+        }
+    }
+
+    @MainActor
+    func testActivityPanelFitsItsContentAndCapsExpandedHeight() {
+        func height(lines: [String], expanded: Bool) -> CGFloat {
+            let view = SessionActivityPanel(
+                plan: [],
+                statuses: [:],
+                widgets: ["any-plugin": AgentHostExtensionWidget(lines: lines)],
+                isExpanded: .constant(expanded)
+            )
+            .frame(width: 640)
+            let hosting = NSHostingView(rootView: view)
+            return hosting.fittingSize.height
+        }
+
+        XCTAssertEqual(height(lines: [], expanded: false), 0, accuracy: 1)
+        XCTAssertEqual(height(lines: ["Ready"], expanded: false), 28, accuracy: 1)
+        XCTAssertEqual(height(lines: ["Ready"], expanded: true), 28, accuracy: 1)
+        XCTAssertLessThan(height(lines: ["Tasks", "One running"], expanded: true), 110)
+        let longContentHeight = height(lines: (1...50).map { "Update \($0)" }, expanded: true)
+        XCTAssertGreaterThan(longContentHeight, 200)
+        XCTAssertLessThanOrEqual(longContentHeight, 258)
+    }
+
+    @MainActor
+    func testActivityPanelCapsItsWidth() {
+        for expanded in [false, true] {
+            let view = SessionActivityPanel(
+                plan: [],
+                statuses: [:],
+                widgets: ["any-plugin": AgentHostExtensionWidget(
+                    lines: [String(repeating: "Long plugin update ", count: 12)]
+                )],
+                isExpanded: .constant(expanded)
+            )
+            let hosting = NSHostingView(rootView: view)
+            let width = hosting.fittingSize.width
+
+            XCTAssertGreaterThan(width, 0)
+            XCTAssertLessThanOrEqual(width, expanded ? 440 : 320)
+            let narrowHosting = NSHostingView(rootView: view.frame(maxWidth: 260))
+            XCTAssertLessThanOrEqual(narrowHosting.fittingSize.width, 260)
+        }
+    }
+
+    func testToolRowsDisplayStructuredACPContent() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("ToolStructuredContentView"))
+        XCTAssertTrue(source.contains("ToolDiffBlock"))
+        XCTAssertTrue(source.contains("tool-structured-image"))
+        XCTAssertTrue(source.contains("chat.tool.terminal_reference"))
+    }
+
+    func testApprovalActionsRenderEveryACPOption() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+        let protocolSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Core/Agent/AgentHostProtocol.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("approval.options"))
+        XCTAssertTrue(protocolSource.contains("allow_always"))
+        XCTAssertTrue(protocolSource.contains("reject_always"))
+    }
+
     func testSkillUsageProjectionIsCompactDeduplicatedAndNotCopyable() {
         let skill = SessionSkillRecord(id: "skill-one", name: "ego-browser")
         let duplicate = SessionSkillRecord(id: "skill-two", name: "ego-browser")
@@ -979,8 +1226,8 @@ final class SessionComposerTests: XCTestCase {
 
         XCTAssertTrue(source.contains("session-access-mode"))
         XCTAssertTrue(source.contains("InlineApprovalActions"))
-        XCTAssertTrue(source.contains("allow-approval-once"))
-        XCTAssertTrue(source.contains("deny-approval"))
+        XCTAssertTrue(source.contains("approval.options"))
+        XCTAssertTrue(source.contains("approval-\\(option.kind.rawValue)"))
     }
 
     func testConversationDoesNotReserveSpaceForFloatingSidebarToggle() throws {

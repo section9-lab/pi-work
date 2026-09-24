@@ -277,6 +277,7 @@ extension AgentHostSlashCommand {
 extension AgentHostSlashCommandSource {
     var composerIcon: String {
         switch self {
+        case .agent: return "command"
         case .skill: return "doc.text"
         case .extensionCommand: return "puzzlepiece.extension"
         }
@@ -284,6 +285,7 @@ extension AgentHostSlashCommandSource {
 
     var composerKindTitle: String {
         switch self {
+        case .agent: return L10n.string("settings.sidebar.agent")
         case .skill: return L10n.string("sidebar.skills")
         case .extensionCommand: return L10n.string("sidebar.extensions")
         }

@@ -27,12 +27,26 @@ import {
 import {
   PROTOCOL_VERSION,
   PromptImagesError,
-  createHostHelloRecord,
-  encodeRecord,
   parsePromptImages,
   type HostRequest,
   type HostResponse,
 } from "./protocol.ts";
+import {
+  ACP_PROTOCOL_VERSION,
+  adaptLegacyResultToACP,
+  clientSupportsFormElicitation,
+  createACPInitializeResult,
+  createACPSessionConfigOptions,
+  createACPSessionModeState,
+  createACPSessionUpdate,
+  decodeACPModelValue,
+  encodeACPMessage,
+  normalizeACPPromptContent,
+  permissionDecisionFromACPResponse,
+  type ACPRequest,
+  type ACPResponse,
+} from "./acp-protocol.ts";
+import { ACPElicitationBroker } from "./acp-extension-ui.ts";
 import { createPiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
 import { listAvailableModels } from "./model-catalog.ts";
 import { modelRuntimeOptions } from "./model-runtime-options.ts";
@@ -51,33 +65,195 @@ import {
 } from "./session-registry.ts";
 import {
   AccessPolicyError,
-  type AccessApprovalDecision,
   type AccessMode,
 } from "./access-policy.ts";
 import { inspectGitBranches } from "./git-branches.ts";
 
+Bun.env.PI_WORK_AGENT_HOST = "1";
 takeOverStdout();
 registerBunOAuthFlows();
 
 function writeHostRecord(record: unknown): void {
-  writeRawStdout(encodeRecord(record));
+  if (!record || typeof record !== "object" || Array.isArray(record)) return;
+  const legacyRecord = record as Record<string, unknown>;
+  if (legacyRecord.kind !== "event" || typeof legacyRecord.event !== "string") return;
+  const payload = legacyRecord.payload;
+  if (legacyRecord.event === "session.assistantContent") {
+    const value = payload as Record<string, unknown>;
+    if (value.contentType === "text" && typeof value.delta === "string") {
+      writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: value.delta },
+      })));
+      return;
+    }
+    if (value.contentType === "thinking" && typeof value.delta === "string") {
+      writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: value.delta },
+      })));
+      return;
+    }
+  }
+  if (legacyRecord.event === "session.toolStarted") {
+    const value = payload as Record<string, unknown>;
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "tool_call",
+      toolCallId: String(value.toolCallId),
+      title: String(value.toolName),
+      kind: "other",
+      status: "in_progress",
+      rawInput: value.rawInput && typeof value.rawInput === "object"
+        ? value.rawInput
+        : { summary: String(value.summary ?? "") },
+    })));
+    return;
+  }
+  if (legacyRecord.event === "session.toolUpdated" || legacyRecord.event === "session.toolCompleted") {
+    const value = payload as Record<string, unknown>;
+    const content = Array.isArray(value.content)
+      ? value.content.flatMap((item): Record<string, unknown>[] => {
+          if (!item || typeof item !== "object" || !("type" in item)) return [];
+          if (item.type === "text" && "text" in item && typeof item.text === "string") {
+            return [{ type: "content", content: { type: "text", text: item.text } }];
+          }
+          if (
+            item.type === "image"
+            && "mimeType" in item
+            && typeof item.mimeType === "string"
+          ) {
+            return [{
+              type: "content",
+              content: {
+                type: "image",
+                mimeType: item.mimeType,
+                ...("data" in item && typeof item.data === "string" ? { data: item.data } : {}),
+              },
+            }];
+          }
+          return [];
+        })
+      : [];
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "tool_call_update",
+      toolCallId: String(value.toolCallId),
+      status: legacyRecord.event === "session.toolCompleted"
+        ? (value.isError === true ? "failed" : "completed")
+        : "in_progress",
+      content: content.length > 0 ? content : [{
+          type: "content",
+          content: { type: "text", text: String(value.output ?? "") },
+        }],
+      ...(value.rawOutput && typeof value.rawOutput === "object"
+        ? { rawOutput: value.rawOutput }
+        : {}),
+      title: String(value.toolName),
+    })));
+    return;
+  }
+  if (legacyRecord.event === "session.planChanged") {
+    const value = payload as Record<string, unknown>;
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "plan",
+      entries: Array.isArray(value.entries) ? value.entries : [],
+    })));
+    return;
+  }
+  if (legacyRecord.event === "session.extensionStatusChanged") {
+    const value = payload as Record<string, unknown>;
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "_piWork/extension_status",
+      key: String(value.key),
+      ...(typeof value.text === "string" ? { text: value.text } : {}),
+    })));
+    return;
+  }
+  if (legacyRecord.event === "session.extensionWidgetChanged") {
+    const value = payload as Record<string, unknown>;
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "_piWork/extension_widget",
+      key: String(value.key),
+      ...(value.widget as Record<string, unknown> | undefined),
+    })));
+    return;
+  }
+  if (legacyRecord.event === "session.approvalRequested") {
+    const value = payload as Record<string, unknown>;
+    const permissionRequestId = `permission-${crypto.randomUUID()}`;
+    pendingPermissionRequests.set(permissionRequestId, {
+      sessionId: String(value.sessionId),
+      requestId: String(value.requestId),
+    });
+    writeRawStdout(encodeACPMessage({
+      jsonrpc: "2.0",
+      id: permissionRequestId,
+      method: "session/request_permission",
+      params: {
+        sessionId: String(value.sessionId),
+        toolCall: {
+          toolCallId: String(value.toolCallId),
+          title: String(value.toolName),
+          kind: "other",
+          status: "pending",
+          rawInput: { summary: String(value.summary ?? "") },
+        },
+        options: [
+          { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
+      },
+    }));
+    return;
+  }
+  if (
+    legacyRecord.event === "session.stateChanged"
+    || legacyRecord.event === "session.messageDelta"
+    || legacyRecord.event === "session.error"
+  ) return;
+  const value = payload as Record<string, unknown> | undefined;
+  writeRawStdout(encodeACPMessage({
+    jsonrpc: "2.0",
+    method: `_piWork/${legacyRecord.event}`,
+    params: value,
+  }));
 }
 
 const hostVersion = Bun.env.PI_WORK_HOST_VERSION ?? packageMetadata.version;
-const piVersion = packageMetadata.dependencies["@earendil-works/pi-coding-agent"];
 const sessionCatalog = new SessionCatalog();
 let modelRuntimePromise: Promise<ModelRuntime> | undefined;
 let providerAuthCoordinatorPromise: Promise<ProviderAuthCoordinator> | undefined;
 let agentSettingsCoordinator: AgentSettingsCoordinator | undefined;
 let extensionPackagesCoordinator: ExtensionPackagesCoordinator | undefined;
 let extensionSettingsCoordinator: ExtensionSettingsCoordinator | undefined;
+let clientSupportsBooleanConfigOptions = false;
+let clientSupportsACPFormElicitation = false;
+const elicitationBroker = new ACPElicitationBroker((request) => {
+  writeRawStdout(encodeACPMessage(request));
+});
 const sessionRegistry = new SessionRegistry((record) => {
   writeHostRecord({
-    version: PROTOCOL_VERSION,
     kind: "event",
     ...record,
   });
 });
+const pendingPermissionRequests = new Map<string, {
+  sessionId: string;
+  requestId: string;
+}>();
+
+async function acpSessionState(sessionId: string): Promise<{
+  modes: Record<string, unknown>;
+  configOptions: Record<string, unknown>[];
+}> {
+  const snapshot = sessionRegistry.snapshot(sessionId);
+  return {
+    modes: createACPSessionModeState(snapshot.accessMode),
+    configOptions: createACPSessionConfigOptions(
+      snapshot,
+      await listAvailableModels(await getModelRuntime()),
+    ).filter((option) => option.type !== "boolean" || clientSupportsBooleanConfigOptions),
+  };
+}
 
 class HostRequestError extends Error {
   constructor(
@@ -87,52 +263,6 @@ class HostRequestError extends Error {
     super(message);
   }
 }
-
-writeHostRecord(
-  createHostHelloRecord({
-    hostVersion,
-    piVersion,
-    capabilities: [
-      "sessions.list",
-      "models.list",
-      "providers.list",
-      "auth.start",
-      "auth.respond",
-      "auth.cancel",
-      "auth.logout",
-      "settings.get",
-      "settings.update",
-      "extensions.listInstalled",
-      "extensions.install",
-      "extensions.setEnabled",
-      "extensions.update",
-      "extensions.remove",
-      "extensions.settings.list",
-      "extensions.settings.update",
-      "git.branches",
-      "session.createDraft",
-      "session.open",
-      "session.exportHtml",
-      "session.snapshot",
-      "session.transcriptPage",
-      "session.toolOutput",
-      "session.commands",
-      "session.rename",
-      "session.setGitBranch",
-      "session.setModel",
-      "session.setThinkingLevel",
-      "session.setModelOption",
-      "session.setAccessMode",
-      "session.resolveApproval",
-      "session.prompt",
-      "session.promptImages",
-      "session.abort",
-      "session.close",
-      "session.delete",
-    ],
-  }),
-);
-await flushRawStdout();
 
 async function handleRequest(request: HostRequest): Promise<HostResponse> {
   if (request.method === "settings.get") {
@@ -276,11 +406,17 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
   if (request.method === "sessions.list") {
     const cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
-    if (typeof cwd !== "string" || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")) {
-      throw new Error("sessions.list requires a string cwd and optional string sessionDirectory");
+    if (
+      (cwd !== undefined && cwd !== null && typeof cwd !== "string")
+      || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
+    ) {
+      throw new Error("sessions.list requires an optional string cwd and sessionDirectory");
     }
 
-    const sessions = await sessionCatalog.list(cwd, sessionDirectory);
+    const sessions = await sessionCatalog.list(
+      typeof cwd === "string" ? cwd : undefined,
+      sessionDirectory as string | undefined,
+    );
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
@@ -412,12 +548,10 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     const cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
     const profile = request.params?.profile ?? "work";
-    const accessMode = request.params?.accessMode;
     if (
       typeof cwd !== "string"
       || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
       || (profile !== "chat" && profile !== "work")
-      || (accessMode !== undefined && !isAccessMode(accessMode))
     ) {
       throw new Error("session.createDraft requires a string cwd and optional string sessionDirectory");
     }
@@ -428,38 +562,50 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       sessionManager: draft.manager,
       profile: profile as SessionProfile,
       modelRuntime: await getModelRuntime(),
-      accessMode: accessMode as AccessMode | undefined,
       agentDir: agentDirectory(Bun.env),
       settingsManager: createAgentSettingsManager(cwd, Bun.env),
+      ...(clientSupportsACPFormElicitation
+        ? { requestElicitation: elicitationBroker.request }
+        : {}),
     });
     sessionRegistry.register(handle);
+    const state = await acpSessionState(handle.sessionId);
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
       id: request.id,
       ok: true,
-      result: { session: draft.summary },
+      result: { session: draft.summary, ...state },
     };
   }
 
   if (request.method === "session.open") {
-    const path = request.params?.path;
+    let path = request.params?.path;
+    const sessionId = request.params?.sessionId;
+    const cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
     const profile = request.params?.profile;
-    const accessMode = request.params?.accessMode;
     if (
-      typeof path !== "string"
+      (typeof path !== "string" && (typeof sessionId !== "string" || typeof cwd !== "string"))
       || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
       || (profile !== "chat" && profile !== "work")
-      || (accessMode !== undefined && !isAccessMode(accessMode))
     ) {
-      throw new Error("session.open requires string path, optional sessionDirectory, and a valid profile");
+      throw new Error(
+        "session.open requires either path or sessionId with cwd, optional sessionDirectory, and a valid profile",
+      );
+    }
+    if (typeof path !== "string") {
+      const summary = (await sessionCatalog.list(cwd as string, sessionDirectory as string | undefined))
+        .find((candidate) => candidate.id === sessionId);
+      if (!summary) throw new HostRequestError("session_not_found", `Session not found: ${sessionId}`);
+      path = summary.path;
     }
 
     await getExtensionPackagesCoordinator().list();
-    const manager = sessionCatalog.open(path, sessionDirectory);
+    const manager = sessionCatalog.open(path as string, sessionDirectory as string | undefined);
     const existing = sessionRegistry.descriptor(manager.getSessionId());
     if (existing) {
+      const state = await acpSessionState(existing.id);
       return {
         version: PROTOCOL_VERSION,
         kind: "response",
@@ -469,6 +615,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
           sessionId: existing.id,
           path: existing.path,
           cwd: existing.cwd,
+          ...state,
         },
       };
     }
@@ -476,11 +623,14 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       sessionManager: manager,
       profile,
       modelRuntime: await getModelRuntime(),
-      accessMode: accessMode as AccessMode | undefined,
       agentDir: agentDirectory(Bun.env),
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
+      ...(clientSupportsACPFormElicitation
+        ? { requestElicitation: elicitationBroker.request }
+        : {}),
     });
     sessionRegistry.register(handle);
+    const state = await acpSessionState(handle.sessionId);
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
@@ -490,6 +640,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
         sessionId: manager.getSessionId(),
         path: manager.getSessionFile(),
         cwd: manager.getCwd(),
+        ...state,
       },
     };
   }
@@ -675,6 +826,38 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     };
   }
 
+  if (request.method === "session.setConfigOption") {
+    const sessionId = request.params?.sessionId;
+    const configId = request.params?.configId;
+    const value = request.params?.value;
+    if (typeof sessionId !== "string" || typeof configId !== "string") {
+      throw new Error("session.setConfigOption requires string sessionId and configId");
+    }
+    if (configId === "model" && typeof value === "string") {
+      const model = decodeACPModelValue(value);
+      if (!model) throw new Error("model config value must contain provider/modelId");
+      await sessionRegistry.setModel(sessionId, model.provider, model.modelId);
+    } else if (configId === "thought_level" && isThinkingLevel(value)) {
+      sessionRegistry.setThinkingLevel(sessionId, value);
+    } else if (configId === "fast_mode" && typeof value === "boolean") {
+      await sessionRegistry.setModelOption(sessionId, "fastMode", value);
+    } else if (configId === "one_million_context" && typeof value === "boolean") {
+      await sessionRegistry.setModelOption(sessionId, "oneMillionContext", value);
+    } else {
+      throw new HostRequestError(
+        "unsupported_config_option",
+        `Unsupported session config option: ${configId}`,
+      );
+    }
+    return {
+      version: PROTOCOL_VERSION,
+      kind: "response",
+      id: request.id,
+      ok: true,
+      result: { configOptions: (await acpSessionState(sessionId)).configOptions },
+    };
+  }
+
   if (request.method === "session.setThinkingLevel") {
     const sessionId = request.params?.sessionId;
     const thinkingLevel = request.params?.thinkingLevel;
@@ -728,29 +911,6 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     };
   }
 
-  if (request.method === "session.resolveApproval") {
-    const sessionId = request.params?.sessionId;
-    const requestId = request.params?.requestId;
-    const decision = request.params?.decision;
-    if (
-      typeof sessionId !== "string"
-      || typeof requestId !== "string"
-      || !isApprovalDecision(decision)
-    ) {
-      throw new Error(
-        "session.resolveApproval requires string sessionId, requestId, and a valid decision",
-      );
-    }
-
-    return {
-      version: PROTOCOL_VERSION,
-      kind: "response",
-      id: request.id,
-      ok: true,
-      result: sessionRegistry.resolveApproval(sessionId, requestId, decision),
-    };
-  }
-
   if (request.method === "session.prompt") {
     const sessionId = request.params?.sessionId;
     const turnId = request.params?.turnId;
@@ -791,7 +951,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       throw new Error("session.close requires a string sessionId");
     }
 
-    sessionRegistry.close(sessionId);
+    await sessionRegistry.closeSession(sessionId);
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
@@ -803,23 +963,31 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
 
   if (request.method === "session.delete") {
     const sessionId = request.params?.sessionId;
-    const cwd = request.params?.cwd;
+    let cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
     if (
       typeof sessionId !== "string"
-      || typeof cwd !== "string"
+      || (cwd !== undefined && typeof cwd !== "string")
       || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
     ) {
       throw new Error(
-        "session.delete requires string sessionId, cwd, and optional sessionDirectory",
+        "session.delete requires string sessionId and optional cwd/sessionDirectory",
       );
     }
 
     const openSession = sessionRegistry.descriptor(sessionId);
+    if (cwd === undefined) {
+      cwd = openSession?.cwd
+        ?? (await sessionCatalog.list(undefined, sessionDirectory as string | undefined))
+          .find((candidate) => candidate.id === sessionId)?.cwd;
+    }
+    if (typeof cwd !== "string") {
+      throw new HostRequestError("session_not_found", `Session not found: ${sessionId}`);
+    }
     if (openSession && openSession.cwd !== cwd) {
       throw new Error(`Session does not belong to cwd: ${cwd}`);
     }
-    if (openSession) sessionRegistry.close(sessionId);
+    if (openSession) await sessionRegistry.closeSession(sessionId);
     await sessionCatalog.delete(sessionId, cwd, sessionDirectory, openSession);
     return {
       version: PROTOCOL_VERSION,
@@ -1005,40 +1173,223 @@ function isModelOption(value: unknown): value is SessionModelOption {
   return value === "fastMode" || value === "oneMillionContext";
 }
 
-function isApprovalDecision(value: unknown): value is AccessApprovalDecision {
-  return value === "allowOnce" || value === "deny";
-}
-
 async function handleLine(line: string): Promise<void> {
   if (line.length === 0) return;
 
-  let request: HostRequest | undefined;
+  let request: ACPRequest | undefined;
   try {
-    request = JSON.parse(line) as HostRequest;
-    if (request.version !== PROTOCOL_VERSION || request.kind !== "request" || typeof request.id !== "string") {
-      throw new Error("Invalid protocol request");
+    const message = JSON.parse(line) as Partial<ACPRequest & ACPResponse>;
+    if (message.jsonrpc !== "2.0") {
+      throw new Error("Invalid JSON-RPC request");
+    }
+    if (typeof message.method !== "string") {
+      if (message.id !== undefined) {
+        if (elicitationBroker.resolve(message as ACPResponse)) return;
+        const permissionRequestId = String(message.id);
+        const pending = pendingPermissionRequests.get(permissionRequestId);
+        if (pending) {
+          const decision = permissionDecisionFromACPResponse(message as ACPResponse);
+          if (decision) {
+            pendingPermissionRequests.delete(permissionRequestId);
+            sessionRegistry.resolveApproval(pending.sessionId, pending.requestId, decision);
+          }
+        }
+        return;
+      }
+      throw new Error("Invalid JSON-RPC request");
+    }
+    if (message.id === undefined) {
+      if (message.method === "session/cancel") {
+        try {
+          await handleRequest(normalizeACPRequest({
+            ...message,
+            id: "__notification__",
+          } as ACPRequest));
+        } catch {
+          // JSON-RPC notifications never receive success or error responses.
+        }
+      }
+      return;
+    }
+    request = message as ACPRequest;
+
+    if (request.method === "initialize") {
+      clientSupportsACPFormElicitation = clientSupportsFormElicitation(request.params);
+      const capabilities = request.params && typeof request.params === "object"
+        ? (request.params as Record<string, unknown>).clientCapabilities
+        : undefined;
+      const session = capabilities && typeof capabilities === "object"
+        ? (capabilities as Record<string, unknown>).session
+        : undefined;
+      const configOptions = session && typeof session === "object"
+        ? (session as Record<string, unknown>).configOptions
+        : undefined;
+      clientSupportsBooleanConfigOptions = Boolean(
+        configOptions
+        && typeof configOptions === "object"
+        && (configOptions as Record<string, unknown>).boolean,
+      );
+      writeRawStdout(encodeACPMessage({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: createACPInitializeResult({
+          hostVersion,
+        }),
+      }));
+      return;
     }
 
-    writeHostRecord(await handleRequest(request));
+    const internalRequest = normalizeACPRequest(request);
+    const response = await handleRequest(internalRequest);
+    let result = adaptLegacyResultToACP(request.method, unwrapLegacyResult(response));
+    if (request.method === "session/prompt") {
+      const sessionId = internalRequest.params?.sessionId;
+      const turnId = internalRequest.params?.turnId;
+      if (typeof sessionId !== "string" || typeof turnId !== "string") {
+        throw new Error("session/prompt requires sessionId and turnId");
+      }
+      result = {
+        stopReason: await sessionRegistry.promptCompletion(sessionId, turnId),
+      };
+    }
+    writeRawStdout(encodeACPMessage({
+      jsonrpc: "2.0",
+      id: request.id,
+      result,
+    }));
   } catch (error) {
-    const response: HostResponse = {
-      version: PROTOCOL_VERSION,
-      kind: "response",
-      id: request?.id ?? "",
-      ok: false,
+    const response: ACPResponse = {
+      jsonrpc: "2.0",
+      id: request?.id ?? null,
       error: {
-        code: error instanceof HostRequestError
-          || error instanceof PromptImagesError
-          || error instanceof SessionRegistryError
-          || error instanceof AccessPolicyError
-          || error instanceof ProviderAuthCoordinatorError
-          ? error.code
-          : "invalid_request",
+        code: -32000,
         message: error instanceof Error ? error.message : String(error),
+        data: {
+          code: error instanceof HostRequestError
+            || error instanceof PromptImagesError
+            || error instanceof SessionRegistryError
+            || error instanceof AccessPolicyError
+            || error instanceof ProviderAuthCoordinatorError
+            ? error.code
+            : "invalid_request",
+        },
       },
     };
-    writeHostRecord(response);
+    writeRawStdout(encodeACPMessage(response));
   }
+}
+
+function unwrapLegacyResult(response: HostResponse): unknown {
+  if (!response.ok) {
+    throw new HostRequestError(
+      response.error?.code ?? "request_failed",
+      response.error?.message ?? "Agent Host request failed",
+    );
+  }
+  return response.result;
+}
+
+function normalizeACPRequest(request: ACPRequest): HostRequest {
+  const methodMap: Record<string, string> = {
+    "session/list": "sessions.list",
+    "session/new": "session.createDraft",
+    "session/load": "session.open",
+    "session/resume": "session.open",
+    "session/prompt": "session.prompt",
+    "session/cancel": "session.abort",
+    "session/close": "session.close",
+    "session/delete": "session.delete",
+    "session/set_mode": "session.setAccessMode",
+    "session/set_config_option": "session.setConfigOption",
+    "_piWork/models/list": "models.list",
+    "_piWork/providers/list": "providers.list",
+    "_piWork/auth/start": "auth.start",
+    "_piWork/auth/respond": "auth.respond",
+    "_piWork/auth/cancel": "auth.cancel",
+    "_piWork/auth/logout": "auth.logout",
+    "_piWork/settings/get": "settings.get",
+    "_piWork/settings/update": "settings.update",
+    "_piWork/extensions/listInstalled": "extensions.listInstalled",
+    "_piWork/extensions/install": "extensions.install",
+    "_piWork/extensions/setEnabled": "extensions.setEnabled",
+    "_piWork/extensions/update": "extensions.update",
+    "_piWork/extensions/remove": "extensions.remove",
+    "_piWork/extensions/settings/list": "extensions.settings.list",
+    "_piWork/extensions/settings/update": "extensions.settings.update",
+    "_piWork/git/branches": "git.branches",
+    "_piWork/session/exportHtml": "session.exportHtml",
+    "_piWork/session/snapshot": "session.snapshot",
+    "_piWork/session/transcriptPage": "session.transcriptPage",
+    "_piWork/session/toolOutput": "session.toolOutput",
+    "_piWork/session/commands": "session.commands",
+    "_piWork/session/rename": "session.rename",
+    "_piWork/session/setGitBranch": "session.setGitBranch",
+  };
+  const method = methodMap[request.method] ?? request.method;
+  const params = normalizeACPParams(request.method, request.params);
+  return {
+    version: PROTOCOL_VERSION,
+    kind: "request",
+    id: String(request.id),
+    method,
+    params: params as Record<string, unknown> | undefined,
+  };
+}
+
+function normalizeACPParams(method: string, params: unknown): unknown {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return params;
+  const value = params as Record<string, unknown>;
+  const metadata = value._meta && typeof value._meta === "object"
+    ? value._meta as Record<string, unknown>
+    : {};
+  const piWorkMetadata = metadata.piWork && typeof metadata.piWork === "object"
+    ? metadata.piWork as Record<string, unknown>
+    : metadata;
+  if (method === "session/list") {
+    return {
+      cwd: value.cwd,
+      sessionDirectory: piWorkMetadata.sessionDirectory,
+    };
+  }
+  if (method === "session/new") {
+    return {
+      cwd: value.cwd,
+      sessionDirectory: piWorkMetadata.sessionDirectory,
+      profile: piWorkMetadata.profile ?? "work",
+    };
+  }
+  if (method === "session/load" || method === "session/resume") {
+    return {
+      sessionId: value.sessionId,
+      cwd: value.cwd,
+      sessionDirectory: piWorkMetadata.sessionDirectory,
+      profile: piWorkMetadata.profile ?? "work",
+    };
+  }
+  if (method === "session/prompt") {
+    const prompt = Array.isArray(value.prompt) ? value.prompt : [];
+    const content = normalizeACPPromptContent(prompt);
+    const meta = value._meta && typeof value._meta === "object"
+      ? value._meta as Record<string, unknown>
+      : {};
+    return {
+      sessionId: value.sessionId,
+      turnId: typeof meta.turnId === "string" ? meta.turnId : crypto.randomUUID(),
+      text: content.text,
+      images: content.images,
+    };
+  }
+  if (method === "session/cancel") return { sessionId: value.sessionId };
+  if (method === "session/close") return { sessionId: value.sessionId };
+  if (method === "session/delete") return {
+    sessionId: value.sessionId,
+    sessionDirectory: piWorkMetadata.sessionDirectory,
+  };
+  if (method === "session/set_mode") return {
+    sessionId: value.sessionId,
+    accessMode: value.modeId,
+  };
+  return params;
 }
 
 const decoder = new TextDecoder();
