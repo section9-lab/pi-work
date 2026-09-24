@@ -106,7 +106,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         XCTAssertTrue(themeSource.contains("if tracksHover"))
     }
 
-    func testMainContentUsesAReadableDefaultSidebarWidth() throws {
+    func testMainContentAllowsResizingTheSidebarFromItsDefaultWidth() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -117,7 +117,7 @@ final class SidebarHoverActionsTests: XCTestCase {
 
         XCTAssertTrue(source.contains("NavigationSplitView {"))
         XCTAssertFalse(source.contains("sidebarVisibility"))
-        XCTAssertTrue(source.contains(".navigationSplitViewColumnWidth(260)"))
+        XCTAssertTrue(source.contains(".navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)"))
         XCTAssertFalse(source.contains(".navigationSplitViewStyle(.prominentDetail)"))
         XCTAssertFalse(source.contains(".navigationSplitViewStyle(.balanced)"))
         XCTAssertFalse(source.contains("TrafficLightPositioner"))
@@ -179,7 +179,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         XCTAssertTrue(mainScene.contains(".defaultSize(width: 900, height: 680)"))
     }
 
-    func testMainWindowExtendsContentUnderTheNativeTrafficLights() throws {
+    func testMainWindowUsesUnifiedToolbarCornersWithHiddenTitle() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -195,7 +195,7 @@ final class SidebarHoverActionsTests: XCTestCase {
 
         XCTAssertTrue(source.contains("SidebarCommands()"))
         XCTAssertTrue(mainScene.contains(".windowStyle(.hiddenTitleBar)"))
-        XCTAssertFalse(source.contains(".windowToolbarStyle(.unified(showsTitle: false))"))
+        XCTAssertTrue(mainScene.contains(".windowToolbarStyle(.unified(showsTitle: false))"))
     }
 
     func testSettingsWindowExtendsContentUnderTheNativeTrafficLights() throws {

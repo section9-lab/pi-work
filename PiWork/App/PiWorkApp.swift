@@ -20,6 +20,7 @@ struct PiWorkApp: App {
                 .environment(\.locale, languageStore.language.locale)
         }
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 900, height: 680)
         .commands {
             SidebarCommands()

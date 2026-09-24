@@ -397,8 +397,11 @@ private struct ScheduleCard: View {
             .padding(18)
         }
         .frame(minHeight: 206)
+        .containerShape(
+            RoundedRectangle(cornerRadius: AppCornerRadius.card, style: .continuous)
+        )
         .background(
-            adaptiveRoundedShape(cornerRadius: 17)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface)
                 .shadow(
                     color: AppPalette.subtleShadow.opacity(isHovering ? 0.82 : 0.42),
@@ -407,13 +410,13 @@ private struct ScheduleCard: View {
                 )
         )
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 17)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .stroke(
                     Color.primary.opacity(isHovering ? 0.14 : 0.075),
                     lineWidth: 1
                 )
         )
-        .contentShape(adaptiveRoundedShape(cornerRadius: 17))
+        .contentShape(adaptiveRoundedShape(cornerRadius: AppCornerRadius.card))
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.16), value: isHovering)
     }
@@ -630,11 +633,11 @@ private struct ScheduleEmptyState: View {
         }
         .frame(maxWidth: .infinity, minHeight: 286)
         .background(
-            adaptiveRoundedShape(cornerRadius: 17)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface.opacity(0.62))
         )
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 17)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .stroke(Color.primary.opacity(0.065), lineWidth: 1)
         )
     }

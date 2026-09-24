@@ -210,12 +210,13 @@ struct SkillsCatalogView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 50)
+        .containerShape(Capsule())
         .background(
-            adaptiveRoundedShape(cornerRadius: 14)
+            Capsule()
                 .fill(AppPalette.translucentSurface)
         )
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 14)
+            Capsule()
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
     }
@@ -828,12 +829,15 @@ private struct SkillsCatalogCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 156, alignment: .topLeading)
+        .containerShape(
+            RoundedRectangle(cornerRadius: AppCornerRadius.card, style: .continuous)
+        )
         .background(
-            adaptiveRoundedShape(cornerRadius: 18)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface)
         )
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 18)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .stroke(Color.primary.opacity(isHovering ? 0.17 : 0.10), lineWidth: 1)
         )
         .shadow(
@@ -939,11 +943,11 @@ private struct SkillsCatalogSkeletonCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
         .background(
-            adaptiveRoundedShape(cornerRadius: 18)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface)
         )
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 18)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .accessibilityHidden(true)

@@ -67,7 +67,7 @@ struct ContentView: View {
                     selectedCustomDestination = $0
                 }
             )
-            .navigationSplitViewColumnWidth(260)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
             Group {
                 if selectedTab == .work, selectedCustomDestination == .schedule {

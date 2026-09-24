@@ -450,7 +450,7 @@ struct ChatView: View {
                         } label: {
                             SessionSuggestionCard(suggestion: suggestion)
                         }
-                        .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 20))
+                        .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: AppCornerRadius.card))
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -574,7 +574,7 @@ struct ChatView: View {
             .foregroundStyle(Color.primary.opacity(0.58))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppPalette.raisedSurface)
-            .adaptiveCornerRadius(28)
+            .adaptiveCornerRadius(AppCornerRadius.panel)
             .accessibilityElement(children: .combine)
         }
     }
@@ -1240,8 +1240,7 @@ private struct SessionComposer: View {
     let onSend: () -> Void
     let onStop: () -> Void
 
-    private let outerRadius: CGFloat = 28
-    private let innerRadius: CGFloat = 27
+    private let cornerRadius = AppCornerRadius.panel
 
     @State private var editorHeight = SessionComposerState.minimumEditorHeight
     @State private var isComposerHovering = false
@@ -1322,21 +1321,27 @@ private struct SessionComposer: View {
                     projectBar
                     editor
                         .background(AppPalette.raisedSurface)
-                        .adaptiveCornerRadius(innerRadius)
+                        .adaptiveCornerRadius(cornerRadius)
                 }
+                .containerShape(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
                 .background(Color.primary.opacity(0.045))
-                .adaptiveCornerRadius(outerRadius)
+                .adaptiveCornerRadius(cornerRadius)
                 .overlay(
-                    adaptiveRoundedShape(cornerRadius: outerRadius)
+                    adaptiveRoundedShape(cornerRadius: cornerRadius)
                         .stroke(composerBorderColor, lineWidth: composerBorderWidth)
                 )
                 .shadow(color: AppPalette.raisedShadow, radius: 16, y: 5)
             } else {
                 editor
+                    .containerShape(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    )
                     .background(AppPalette.raisedSurface)
-                    .adaptiveCornerRadius(outerRadius)
+                    .adaptiveCornerRadius(cornerRadius)
                     .overlay(
-                        adaptiveRoundedShape(cornerRadius: outerRadius)
+                        adaptiveRoundedShape(cornerRadius: cornerRadius)
                             .stroke(composerBorderColor, lineWidth: composerBorderWidth)
                     )
                     .shadow(color: AppPalette.raisedShadow, radius: 16, y: 5)
@@ -1390,10 +1395,13 @@ private struct SessionComposer: View {
             }
         }
         .frame(height: slashCommandPanelHeight)
+        .containerShape(
+            RoundedRectangle(cornerRadius: AppCornerRadius.panel, style: .continuous)
+        )
         .background(AppPalette.raisedSurface)
-        .adaptiveCornerRadius(18)
+        .adaptiveCornerRadius(AppCornerRadius.panel)
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 18)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.panel)
                 .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
         .shadow(color: AppPalette.raisedShadow, radius: 14, y: 5)
@@ -1968,7 +1976,7 @@ private struct SessionComposer: View {
                 isSelected: isModelPickerPresented
             )
         )
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
         .disabled(availableModels.isEmpty)
         .accessibilityLabel(L10n.string("chat.select_model"))
         .popover(isPresented: $isModelPickerPresented, arrowEdge: .top) {
@@ -3061,13 +3069,16 @@ private struct SessionSuggestionCard: View {
         .padding(16)
         .frame(height: 104)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .containerShape(
+            RoundedRectangle(cornerRadius: AppCornerRadius.card, style: .continuous)
+        )
         .background(AppPalette.translucentSurface)
-        .adaptiveCornerRadius(20)
+        .adaptiveCornerRadius(AppCornerRadius.card)
         .overlay(
-            adaptiveRoundedShape(cornerRadius: 20)
+            adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .stroke(Color.primary.opacity(0.11), lineWidth: 0.5)
         )
-        .contentShape(adaptiveRoundedShape(cornerRadius: 20))
+        .contentShape(adaptiveRoundedShape(cornerRadius: AppCornerRadius.card))
     }
 }
 

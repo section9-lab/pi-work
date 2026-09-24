@@ -1,8 +1,48 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PiWork
 
 @MainActor
 final class SessionStoreTests: XCTestCase {
+    func testWorkConversationFitsBesideTheWidestSidebarWithALongModelName() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(accessMode: .full))
+        let store = SessionStore(service: host)
+        let project = PiProject(name: "Project", path: "/tmp/project")
+        let record = try await store.createDraft(
+            cwd: project.path,
+            sessionDirectory: nil,
+            profile: .work
+        )
+        try await store.selectModel(
+            AgentHostModel(
+                provider: "anthropic",
+                id: "claude-haiku-4-5",
+                name: "Claude Haiku 4.5 (latest)",
+                contextWindow: 200_000,
+                maxTokens: 16_384,
+                reasoning: true,
+                supportsImages: true
+            ),
+            sessionId: record.id
+        )
+        let controller = NSHostingController(rootView: ChatView(
+            mode: .work,
+            projects: [project],
+            selectedProject: .constant(project),
+            sessionStore: store,
+            onAddFolder: {}
+        ))
+
+        // A 900-point window leaves 472 points beside the 420-point sidebar and its inset.
+        for width: CGFloat in [472, 632, 472] {
+            let size = controller.sizeThatFits(in: CGSize(width: width, height: 600))
+            XCTAssertLessThanOrEqual(size.width, width, "The composer must not push the split view outside the window")
+        }
+        await store.stop()
+    }
+
     func testOpenSessionEmitsEveryStorePerformanceStage() async throws {
         var events: [SessionOpenPerformanceEvent] = []
         let tracer = SessionOpenPerformanceTracer(

@@ -131,10 +131,13 @@ struct InWindowFloatingPanel<Panel: View>: View {
                             height: placement.size.height,
                             alignment: .top
                         )
+                        .containerShape(
+                            RoundedRectangle(cornerRadius: AppCornerRadius.panel, style: .continuous)
+                        )
                         .background(AppPalette.raisedSurface)
-                        .adaptiveCornerRadius(18)
+                        .adaptiveCornerRadius(AppCornerRadius.panel)
                         .overlay(
-                            adaptiveRoundedShape(cornerRadius: 18)
+                            adaptiveRoundedShape(cornerRadius: AppCornerRadius.panel)
                                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
                         )
                         .shadow(color: AppPalette.raisedShadow, radius: 18, y: 8)

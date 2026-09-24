@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum AppCornerRadius {
+    static let card: CGFloat = 16
+    static let panel: CGFloat = 20
+}
+
 /// Returns the system-concentric rounded rectangle on macOS 26, using the
 /// supplied radius as a visual fallback when the view is away from a window
 /// corner. Earlier systems keep the continuous rounded rectangle used by the
