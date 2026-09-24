@@ -71,6 +71,12 @@
 "update.alert.up_to_date.message" = "当前使用的是最新版本（%@）。";
 "update.alert.failed.title" = "无法检查更新";
 "update.alert.failed.message" = "PiWork 无法连接 GitHub Release。请检查网络连接后重试。";
+"update.agent.checking" = "正在检查 pi-coding-agent 更新…";
+"update.agent.status.up_to_date" = "pi-coding-agent %@ 已是最新版本。";
+"update.agent.status.available" = "新版本 %@ 已发布，内置版本随 pi-work 更新。";
+"update.agent.status.failed" = "无法检查 pi-coding-agent 更新，请重试。";
+"update.agent.version_unavailable" = "无法读取内置 pi-coding-agent 版本。";
+"update.agent.changelog" = "更新说明";
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "设置 pi-coding-agent 的会话默认值与运行行为";
 "settings.agent.loading" = "正在读取 Agent 设置…";

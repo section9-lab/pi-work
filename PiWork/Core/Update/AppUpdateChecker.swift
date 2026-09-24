@@ -172,6 +172,50 @@ private struct GitHubReleaseAsset: Decodable {
     }
 }
 
+struct PiCodingAgentUpdateChecker {
+    static let latestVersionURL = URL(string: "https://pi.dev/api/latest-version")!
+    static let changelogURL = URL(string: "https://pi.dev/changelog")!
+
+    let currentVersion: String
+    var session: URLSession = .shared
+
+    func check() async throws -> AppUpdateCheckResult {
+        guard let installedVersion = ReleaseVersion(currentVersion) else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+
+        var request = URLRequest(
+            url: Self.latestVersionURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 15
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("pi/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+        guard response.statusCode == 200 else {
+            throw AppUpdateCheckError.server(statusCode: response.statusCode)
+        }
+        guard let release = try? JSONDecoder().decode(PiCodingAgentRelease.self, from: data),
+              let latestVersion = ReleaseVersion(release.version) else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+
+        let version = release.version.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard installedVersion < latestVersion else {
+            return .upToDate(latestVersion: version)
+        }
+        return .updateAvailable(AppUpdate(version: version, downloadURL: Self.changelogURL))
+    }
+}
+
+private struct PiCodingAgentRelease: Decodable {
+    let version: String
+}
+
 enum AppUpdateState: Equatable {
     case idle
     case checking
@@ -214,6 +258,19 @@ final class AppUpdateController: ObservableObject {
             session: session
         )
         self.init(
+            currentVersion: version,
+            check: { try await checker.check() },
+            openURL: { NSWorkspace.shared.open($0) }
+        )
+    }
+
+    static func piCodingAgent(
+        in appBundleURL: URL = Bundle.main.bundleURL,
+        session: URLSession = .shared
+    ) -> AppUpdateController {
+        let version = AgentHostExecutable.piCodingAgentVersion(in: appBundleURL) ?? ""
+        let checker = PiCodingAgentUpdateChecker(currentVersion: version, session: session)
+        return AppUpdateController(
             currentVersion: version,
             check: { try await checker.check() },
             openURL: { NSWorkspace.shared.open($0) }

@@ -71,6 +71,12 @@
 "update.alert.up_to_date.message" = "최신 버전(%@)을 사용하고 있습니다.";
 "update.alert.failed.title" = "업데이트를 확인할 수 없습니다";
 "update.alert.failed.message" = "PiWork에서 GitHub Release에 연결할 수 없습니다. 인터넷 연결을 확인하고 다시 시도하세요.";
+"update.agent.checking" = "pi-coding-agent 업데이트 확인 중…";
+"update.agent.status.up_to_date" = "pi-coding-agent %@이(가) 최신 버전입니다.";
+"update.agent.status.available" = "버전 %@을(를) 사용할 수 있습니다. 내장 버전은 pi-work와 함께 업데이트됩니다.";
+"update.agent.status.failed" = "pi-coding-agent 업데이트를 확인할 수 없습니다. 다시 시도하세요.";
+"update.agent.version_unavailable" = "내장 pi-coding-agent 버전을 확인할 수 없습니다.";
+"update.agent.changelog" = "릴리스 노트";
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "pi-coding-agent의 세션 기본값과 실행 동작을 설정합니다";
 "settings.agent.loading" = "Agent 설정을 불러오는 중…";

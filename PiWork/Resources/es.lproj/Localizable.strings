@@ -71,6 +71,12 @@
 "update.alert.up_to_date.message" = "Estás usando la versión más reciente (%@).";
 "update.alert.failed.title" = "No se pudieron buscar actualizaciones";
 "update.alert.failed.message" = "PiWork no pudo acceder a GitHub Releases. Comprueba tu conexión a internet e inténtalo de nuevo.";
+"update.agent.checking" = "Buscando actualizaciones de pi-coding-agent…";
+"update.agent.status.up_to_date" = "pi-coding-agent %@ está actualizado.";
+"update.agent.status.available" = "La versión %@ está disponible. La versión integrada se actualiza con pi-work.";
+"update.agent.status.failed" = "No se pudieron buscar actualizaciones de pi-coding-agent. Inténtalo de nuevo.";
+"update.agent.version_unavailable" = "No se pudo obtener la versión integrada de pi-coding-agent.";
+"update.agent.changelog" = "Notas de la versión";
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "Configura los valores predeterminados de sesión y el comportamiento de pi-coding-agent";
 "settings.agent.loading" = "Cargando los ajustes de Agent…";

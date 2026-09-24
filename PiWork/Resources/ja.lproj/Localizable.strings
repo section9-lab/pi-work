@@ -71,6 +71,12 @@
 "update.alert.up_to_date.message" = "最新バージョン（%@）を使用しています。";
 "update.alert.failed.title" = "アップデートを確認できません";
 "update.alert.failed.message" = "PiWork から GitHub Release に接続できませんでした。インターネット接続を確認して、もう一度お試しください。";
+"update.agent.checking" = "pi-coding-agent の更新を確認中…";
+"update.agent.status.up_to_date" = "pi-coding-agent %@ は最新です。";
+"update.agent.status.available" = "バージョン %@ を利用できます。同梱版は pi-work と一緒に更新されます。";
+"update.agent.status.failed" = "pi-coding-agent の更新を確認できません。もう一度お試しください。";
+"update.agent.version_unavailable" = "同梱の pi-coding-agent のバージョンを取得できません。";
+"update.agent.changelog" = "リリースノート";
 "settings.agent.title" = "Agent";
 "settings.agent.subtitle" = "pi-coding-agent のセッション初期値と実行動作を設定します";
 "settings.agent.loading" = "Agent 設定を読み込み中…";

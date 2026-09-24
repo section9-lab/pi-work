@@ -8,6 +8,7 @@ struct AppSettingsView: View {
     @ObservedObject var installedExtensionsStore: InstalledExtensionsStore
     @ObservedObject var languageStore: LanguageStore
     @ObservedObject var updateController: AppUpdateController
+    @StateObject private var piCodingAgentUpdateController = AppUpdateController.piCodingAgent()
     @StateObject private var globalInstructionsStore = GlobalAgentInstructionsStore.applicationDefault()
     @State private var selection = SettingsDestination.general
 
@@ -25,6 +26,7 @@ struct AppSettingsView: View {
                     case .general:
                         GeneralSettingsView(
                             languageStore: languageStore,
+                            piCodingAgentUpdateController: piCodingAgentUpdateController,
                             updateController: updateController
                         )
                     case .agent:
@@ -489,6 +491,7 @@ private struct ExperimentsSettingsView: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var languageStore: LanguageStore
+    @ObservedObject var piCodingAgentUpdateController: AppUpdateController
     @ObservedObject var updateController: AppUpdateController
 
     var body: some View {
@@ -521,9 +524,12 @@ private struct GeneralSettingsView: View {
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
-                        .frame(width: 170)
+                        .frame(width: 170, alignment: .trailing)
                     }
                     .settingsCard()
+
+                    PiCodingAgentUpdateSettingsRow(controller: piCodingAgentUpdateController)
+                        .settingsCard()
 
                     AppUpdateSettingsRow(controller: updateController)
                         .settingsCard()
@@ -532,6 +538,57 @@ private struct GeneralSettingsView: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+private struct PiCodingAgentUpdateSettingsRow: View {
+    @ObservedObject var controller: AppUpdateController
+
+    var body: some View {
+        AgentSettingsRow(
+            title: "pi-coding-agent",
+            description: statusDescription
+        ) {
+            if controller.isChecking {
+                ProgressView()
+                    .controlSize(.small)
+                    .help(L10n.string("update.agent.checking"))
+            } else {
+                Button(buttonTitle) {
+                    if case .updateAvailable = controller.state {
+                        controller.openAvailableUpdate()
+                    } else {
+                        Task { await controller.checkForUpdates() }
+                    }
+                }
+                .disabled(controller.currentVersion.isEmpty)
+            }
+        }
+    }
+
+    private var statusDescription: String {
+        guard !controller.currentVersion.isEmpty else {
+            return L10n.string("update.agent.version_unavailable")
+        }
+        switch controller.state {
+        case .idle:
+            return L10n.format("update.installed_version", controller.currentVersion)
+        case .checking:
+            return L10n.string("update.agent.checking")
+        case .upToDate:
+            return L10n.format("update.agent.status.up_to_date", controller.currentVersion)
+        case let .updateAvailable(update):
+            return L10n.format("update.agent.status.available", update.version)
+        case .failed:
+            return L10n.string("update.agent.status.failed")
+        }
+    }
+
+    private var buttonTitle: String {
+        if case .updateAvailable = controller.state {
+            return L10n.string("update.agent.changelog")
+        }
+        return L10n.string("update.check")
     }
 }
 

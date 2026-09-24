@@ -138,6 +138,103 @@ final class AppUpdateCheckerTests: XCTestCase {
         XCTAssertEqual(receivedRequest?.value(forHTTPHeaderField: "X-GitHub-Api-Version"), "2022-11-28")
     }
 
+    func testPiCodingAgentCheckerReportsANewerVersionWithItsChangelog() async throws {
+        let checker = makePiCodingAgentChecker(
+            body: #"{"version":"0.85.1","packageName":"@earendil-works/pi-coding-agent"}"#,
+            currentVersion: "0.84.1"
+        )
+
+        let result = try await checker.check()
+
+        XCTAssertEqual(result, .updateAvailable(AppUpdate(
+            version: "0.85.1",
+            downloadURL: try XCTUnwrap(URL(string: "https://pi.dev/changelog"))
+        )))
+    }
+
+    func testPiCodingAgentCheckerDoesNotOfferTheSameOrAnOlderVersion() async throws {
+        for latestVersion in ["0.84.1", "0.83.0"] {
+            let checker = makePiCodingAgentChecker(
+                body: "{\"version\":\"\(latestVersion)\"}",
+                currentVersion: "0.84.1"
+            )
+
+            let result = try await checker.check()
+
+            XCTAssertEqual(result, .upToDate(latestVersion: latestVersion))
+        }
+    }
+
+    func testPiCodingAgentCheckerComparesVersionsNumerically() async throws {
+        let checker = makePiCodingAgentChecker(
+            body: #"{"version":"0.100.0"}"#,
+            currentVersion: "0.99.0"
+        )
+
+        guard case let .updateAvailable(update) = try await checker.check() else {
+            return XCTFail("Expected the numerically newer version")
+        }
+        XCTAssertEqual(update.version, "0.100.0")
+    }
+
+    func testPiCodingAgentCheckerRejectsMalformedResponses() async {
+        for body in ["not JSON", "{}", #"{"version":1}"#, #"{"version":""}"#, #"{"version":"invalid"}"#] {
+            let checker = makePiCodingAgentChecker(body: body, currentVersion: "0.84.1")
+
+            do {
+                _ = try await checker.check()
+                XCTFail("Expected an invalid-response error for \(body)")
+            } catch {
+                XCTAssertEqual(error as? AppUpdateCheckError, .invalidResponse)
+            }
+        }
+    }
+
+    func testPiCodingAgentCheckerRejectsAnUnknownInstalledVersion() async {
+        let checker = makePiCodingAgentChecker(
+            body: #"{"version":"0.85.1"}"#,
+            currentVersion: ""
+        )
+
+        do {
+            _ = try await checker.check()
+            XCTFail("Expected an invalid-response error")
+        } catch {
+            XCTAssertEqual(error as? AppUpdateCheckError, .invalidResponse)
+        }
+    }
+
+    func testPiCodingAgentCheckerRejectsServerErrors() async {
+        let checker = makePiCodingAgentChecker(
+            statusCode: 503,
+            body: "{}",
+            currentVersion: "0.84.1"
+        )
+
+        do {
+            _ = try await checker.check()
+            XCTFail("Expected an HTTP response error")
+        } catch {
+            XCTAssertEqual(error as? AppUpdateCheckError, .server(statusCode: 503))
+        }
+    }
+
+    func testPiCodingAgentCheckerUsesTheOfficialVersionEndpoint() async throws {
+        var receivedRequest: URLRequest?
+        let checker = makePiCodingAgentChecker(
+            body: #"{"version":"0.84.1"}"#,
+            currentVersion: "0.84.1",
+            inspectRequest: { receivedRequest = $0 }
+        )
+
+        _ = try await checker.check()
+
+        XCTAssertEqual(receivedRequest?.url?.absoluteString, "https://pi.dev/api/latest-version")
+        XCTAssertEqual(receivedRequest?.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(receivedRequest?.value(forHTTPHeaderField: "User-Agent"), "pi/0.84.1")
+        XCTAssertEqual(receivedRequest?.cachePolicy, .reloadIgnoringLocalCacheData)
+    }
+
     @MainActor
     func testControllerPublishesAnAvailableUpdateAndOpensItsDownload() async throws {
         let downloadURL = try XCTUnwrap(URL(string: "https://example.com/PiWork.dmg"))
@@ -235,6 +332,28 @@ final class AppUpdateCheckerTests: XCTestCase {
             architecture: architecture,
             session: session
         )
+    }
+
+    private func makePiCodingAgentChecker(
+        statusCode: Int = 200,
+        body: String,
+        currentVersion: String,
+        inspectRequest: ((URLRequest) -> Void)? = nil
+    ) -> PiCodingAgentUpdateChecker {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UpdateURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        UpdateURLProtocolStub.requestHandler = { request in
+            inspectRequest?(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(body.utf8))
+        }
+        return PiCodingAgentUpdateChecker(currentVersion: currentVersion, session: session)
     }
 
     private func releaseJSON(tag: String) -> String {
