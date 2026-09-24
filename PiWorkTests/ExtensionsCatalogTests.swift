@@ -216,7 +216,6 @@ final class ExtensionsCatalogTests: XCTestCase {
 
         XCTAssertTrue(settingsSource.contains("case extensions"))
         XCTAssertTrue(settingsSource.contains("ExtensionSettingsView(store: installedExtensionsStore)"))
-        XCTAssertTrue(settingsSource.contains(".extensions,"))
         XCTAssertTrue(appSource.contains("installedExtensionsStore: installedExtensionsStore"))
     }
 

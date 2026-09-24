@@ -10,109 +10,42 @@ struct AppSettingsView: View {
     @ObservedObject var updateController: AppUpdateController
     @StateObject private var piCodingAgentUpdateController = AppUpdateController.piCodingAgent()
     @StateObject private var globalInstructionsStore = GlobalAgentInstructionsStore.applicationDefault()
-    @State private var selection = SettingsDestination.general
+    @State private var selection: SettingsDestination? = .general
 
     var body: some View {
-        ZStack {
-            AppBackgroundGradient()
-                .ignoresSafeArea(.container, edges: .top)
-
-            HStack(spacing: 8) {
-                SettingsSidebar(selection: $selection, language: languageStore.language)
-                    .padding(10)
-
-                Group {
-                    switch selection {
-                    case .general:
-                        GeneralSettingsView(
-                            languageStore: languageStore,
-                            piCodingAgentUpdateController: piCodingAgentUpdateController,
-                            updateController: updateController
-                        )
-                    case .agent:
-                        AgentGeneralSettingsView(store: agentSettingsStore)
-                    case .extensions:
-                        ExtensionSettingsView(store: installedExtensionsStore)
-                    case .personalPreferences:
-                        GlobalAgentInstructionsSettingsView()
-                    case .modelsAndAuthentication:
-                        ModelProviderSettingsView(store: providerAuthStore)
-                    case .experiments:
-                        ExperimentsSettingsView()
-                    }
+        NavigationSplitView {
+            SettingsSidebar(selection: $selection, language: languageStore.language)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+        } detail: {
+            Group {
+                switch selection ?? .general {
+                case .general:
+                    GeneralSettingsView(
+                        languageStore: languageStore,
+                        piCodingAgentUpdateController: piCodingAgentUpdateController,
+                        updateController: updateController
+                    )
+                case .agent:
+                    AgentGeneralSettingsView(store: agentSettingsStore)
+                case .extensions:
+                    ExtensionSettingsView(store: installedExtensionsStore)
+                case .personalPreferences:
+                    GlobalAgentInstructionsSettingsView()
+                case .modelsAndAuthentication:
+                    ModelProviderSettingsView(store: providerAuthStore)
+                case .experiments:
+                    ExperimentsSettingsView()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .environmentObject(globalInstructionsStore)
             }
+            .navigationTitle((selection ?? .general).title(language: languageStore.language))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environmentObject(globalInstructionsStore)
         }
         .frame(minWidth: 656, idealWidth: 720, minHeight: 560, idealHeight: 620)
-        .background(SettingsWindowChrome())
         .task {
             await agentSettingsStore.start()
             globalInstructionsStore.load()
         }
-    }
-}
-
-private struct SettingsWindowChrome: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        SettingsWindowChromeView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? SettingsWindowChromeView)?.configureWindow()
-    }
-}
-
-private final class SettingsWindowChromeView: NSView {
-    private var observers: [NSObjectProtocol] = []
-    private var didApplyInitialWidth = false
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers.removeAll()
-
-        guard let window else { return }
-        observers = [
-            NSWindow.didBecomeKeyNotification,
-            NSWindow.didUpdateNotification,
-        ].map { name in
-            NotificationCenter.default.addObserver(
-                forName: name,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.configureWindow()
-            }
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.configureWindow()
-            self?.applyInitialWidth()
-        }
-    }
-
-    deinit {
-        observers.forEach(NotificationCenter.default.removeObserver)
-    }
-
-    func configureWindow() {
-        guard let window else { return }
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.titlebarSeparatorStyle = .none
-    }
-
-    private func applyInitialWidth() {
-        guard !didApplyInitialWidth, let window else { return }
-        didApplyInitialWidth = true
-
-        var frame = window.frame
-        frame.origin.x += (frame.width - 720) / 2
-        frame.size.width = 720
-        window.setFrame(frame, display: true)
     }
 }
 
@@ -156,72 +89,29 @@ private enum SettingsDestination: String, CaseIterable, Identifiable {
 }
 
 private struct SettingsSidebar: View {
-    @Binding var selection: SettingsDestination
+    @Binding var selection: SettingsDestination?
     let language: AppLanguage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(L10n.string("settings.title", language: language))
-                .font(.system(size: 20, weight: .semibold))
-                .padding(.horizontal, 14)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+        List(selection: $selection) {
+            Label(SettingsDestination.general.title(language: language), systemImage: "gearshape")
+                .tag(SettingsDestination.general)
 
-            settingsButton(.general)
-                .padding(.bottom, 14)
-
-            Text(L10n.string("settings.sidebar.section"))
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.5)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 7)
-
-            ForEach([
-                SettingsDestination.agent,
-                .extensions,
-                .personalPreferences,
-                .modelsAndAuthentication,
-                .experiments,
-            ]) { destination in
-                settingsButton(destination)
+            Section(L10n.string("settings.sidebar.section", language: language)) {
+                ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
+                    Label(destination.title(language: language), systemImage: destination.icon)
+                        .tag(destination)
+                }
             }
-
-            Spacer()
-
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
             Text(L10n.string("settings.sidebar.isolated", language: language))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(14)
+                .padding()
         }
-        .frame(width: 190)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 18)
-                .fill(AppPalette.sidebarSurface)
-                .shadow(color: AppPalette.subtleShadow, radius: 6, y: 2)
-        )
-        .overlay(
-            adaptiveRoundedShape(cornerRadius: 18)
-                .stroke(AppPalette.panelBorder, lineWidth: 1)
-        )
-    }
-
-    private func settingsButton(_ destination: SettingsDestination) -> some View {
-        Button {
-            selection = destination
-        } label: {
-            Label(destination.title(language: language), systemImage: destination.icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-        }
-        .buttonStyle(RoundedInteractionButtonStyle(
-            cornerRadius: 10,
-            isSelected: selection == destination
-        ))
     }
 }
 
@@ -229,126 +119,60 @@ private struct GlobalAgentInstructionsSettingsView: View {
     @EnvironmentObject private var store: GlobalAgentInstructionsStore
 
     var body: some View {
-        VStack(spacing: 0) {
-            pageHeader
-
+        Form {
             if let errorMessage = store.errorMessage {
-                errorBanner(errorMessage)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 12)
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .textSelection(.enabled)
+                    Button(L10n.string("common.retry")) { store.load() }
+                }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                editor
-                Label(
-                    L10n.string("settings.personal_preferences.changes_apply"),
-                    systemImage: "info.circle"
+            Section {
+                LabeledContent("AGENTS.md") {
+                    Text(store.fileURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(store.fileURL.path)
+                }
+
+                AlignedPlaceholderTextEditor(
+                    text: $store.draft,
+                    placeholder: L10n.string("settings.personal_preferences.placeholder")
                 )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .frame(minHeight: 280)
+                .accessibilityLabel(L10n.string("settings.personal_preferences.title"))
+
+                HStack {
+                    if store.didSave {
+                        Label(L10n.string("settings.personal_preferences.saved"), systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(L10n.string("settings.personal_preferences.revert")) { store.revert() }
+                        .disabled(!store.hasUnsavedChanges || store.isSaving)
+                    Button(L10n.string("settings.personal_preferences.save")) { store.save() }
+                        .keyboardShortcut("s", modifiers: .command)
+                        .disabled(!store.hasUnsavedChanges || store.isSaving)
+                }
+            } header: {
+                Text(L10n.string("settings.personal_preferences.subtitle"))
+            } footer: {
+                Text(L10n.string("settings.personal_preferences.changes_apply"))
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
-    }
-
-    private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(L10n.string("settings.personal_preferences.title"))
-                .font(.system(size: 20, weight: .semibold))
-            Text(L10n.string("settings.personal_preferences.subtitle"))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
-    }
-
-    private var editor: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("AGENTS.md")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(store.fileURL.path.replacingOccurrences(
-                        of: NSHomeDirectory(),
-                        with: "~"
-                    ))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                }
-
-                if store.didSave {
-                    Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.green)
-                    .help(L10n.string("settings.personal_preferences.saved"))
-                }
-
-                Spacer(minLength: 6)
-
-                Button {
-                    store.load()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help(L10n.string("settings.personal_preferences.reload"))
-                .accessibilityLabel(L10n.string("settings.personal_preferences.reload"))
-                .disabled(store.isLoading || store.isSaving || store.hasUnsavedChanges)
-
-                Button(L10n.string("settings.personal_preferences.revert")) {
-                    store.revert()
-                }
-                .disabled(!store.hasUnsavedChanges || store.isSaving)
-
-                Button(L10n.string("settings.personal_preferences.save")) {
-                    store.save()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!store.hasUnsavedChanges || store.isSaving)
+        .formStyle(.grouped)
+        .toolbar {
+            Button {
+                store.load()
+            } label: {
+                Label(L10n.string("settings.personal_preferences.reload"), systemImage: "arrow.clockwise")
             }
-            .controlSize(.small)
-            .padding(.horizontal, 14)
-            .frame(height: 52)
-
-            Divider()
-                .padding(.leading, 14)
-
-            AlignedPlaceholderTextEditor(
-                text: $store.draft,
-                placeholder: L10n.string("settings.personal_preferences.placeholder")
-            )
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.42))
+            .help(L10n.string("settings.personal_preferences.reload"))
+            .disabled(store.isLoading || store.isSaving || store.hasUnsavedChanges)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .settingsCard()
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text(message)
-                .font(.system(size: 12))
-                .lineLimit(2)
-                .textSelection(.enabled)
-            Spacer()
-            Button(L10n.string("common.retry")) { store.load() }
-        }
-        .padding(12)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 11)
-                .fill(Color.orange.opacity(0.10))
-        )
     }
 }
 
@@ -362,8 +186,8 @@ private struct AlignedPlaceholderTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = true
+        scrollView.borderType = .bezelBorder
         scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .overlay
 
@@ -374,14 +198,15 @@ private struct AlignedPlaceholderTextEditor: NSViewRepresentable {
         textView.font = .systemFont(ofSize: 13)
         textView.textColor = .labelColor
         textView.insertionPointColor = .controlAccentColor
-        textView.drawsBackground = false
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
         textView.isRichText = false
         textView.allowsUndo = true
         textView.usesFindPanel = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.textContainerInset = NSSize(width: 16, height: 14)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.isHorizontallyResizable = false
@@ -451,41 +276,26 @@ private final class PlaceholderTextView: NSTextView {
 
 private struct ExperimentsSettingsView: View {
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.string("settings.experiments.title"))
-                    .font(.system(size: 20, weight: .semibold))
-                Text(L10n.string("settings.experiments.subtitle"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            .padding(.bottom, 18)
-
-            VStack(spacing: 16) {
-                AgentSettingsRow(
-                    title: L10n.string("settings.experiments.computer_use.title"),
-                    description: L10n.string("settings.experiments.computer_use.description")
-                ) {
-                    HStack(spacing: 10) {
-                        Text(L10n.string("settings.experiments.coming_soon"))
-                            .font(.system(size: 10, weight: .medium))
+        Form {
+            Section {
+                Toggle(isOn: .constant(false)) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.string("settings.experiments.computer_use.title"))
+                        Text(L10n.string("settings.experiments.computer_use.description"))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                        Toggle("", isOn: .constant(false))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .disabled(true)
                     }
                 }
-                .settingsCard()
-
-                Spacer()
+                .toggleStyle(.switch)
+                .accessibilityLabel(L10n.string("settings.experiments.computer_use.title"))
+                .disabled(true)
+            } header: {
+                Text(L10n.string("settings.experiments.subtitle"))
+            } footer: {
+                Text(L10n.string("settings.experiments.coming_soon"))
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
+        .formStyle(.grouped)
     }
 }
 
@@ -495,49 +305,32 @@ private struct GeneralSettingsView: View {
     @ObservedObject var updateController: AppUpdateController
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.string("settings.general.title"))
-                    .font(.system(size: 20, weight: .semibold))
-                Text(L10n.string("settings.general.subtitle"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            .padding(.bottom, 18)
-
-            ScrollView {
-                VStack(spacing: 16) {
-                    AgentSettingsRow(
-                        title: L10n.string("settings.general.language.title"),
-                        description: L10n.string("settings.general.language.description")
-                    ) {
-                        Picker(
-                            L10n.string("settings.general.language.title"),
-                            selection: $languageStore.language
-                        ) {
-                            ForEach(AppLanguage.allCases) { language in
-                                Text(language.displayName).tag(language)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 170, alignment: .trailing)
+        Form {
+            Section {
+                Picker(selection: $languageStore.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
                     }
-                    .settingsCard()
-
-                    PiCodingAgentUpdateSettingsRow(controller: piCodingAgentUpdateController)
-                        .settingsCard()
-
-                    AppUpdateSettingsRow(controller: updateController)
-                        .settingsCard()
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.string("settings.general.language.title"))
+                        Text(L10n.string("settings.general.language.description"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .pickerStyle(.menu)
+                .accessibilityLabel(L10n.string("settings.general.language.title"))
+            } header: {
+                Text(L10n.string("settings.general.subtitle"))
+            }
+
+            Section {
+                AppUpdateSettingsRow(controller: updateController)
+                PiCodingAgentUpdateSettingsRow(controller: piCodingAgentUpdateController)
             }
         }
+        .formStyle(.grouped)
     }
 }
 
@@ -639,204 +432,136 @@ private struct AppUpdateSettingsRow: View {
     }
 }
 
-private extension View {
-    func settingsCard() -> some View {
-        background(
-            adaptiveRoundedShape(cornerRadius: 15)
-                .fill(AppPalette.translucentSurface)
-                .shadow(color: AppPalette.subtleShadow, radius: 4, y: 1)
-        )
-        .overlay(
-            adaptiveRoundedShape(cornerRadius: 15)
-                .stroke(AppPalette.panelBorder, lineWidth: 1)
-        )
-    }
-}
-
 private struct AgentGeneralSettingsView: View {
     @ObservedObject var store: AgentSettingsStore
 
     var body: some View {
-        VStack(spacing: 0) {
-            pageHeader
-
+        Form {
             if let errorMessage = store.errorMessage {
-                errorBanner(errorMessage)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 4)
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .textSelection(.enabled)
+                    Button(L10n.string("common.retry")) { Task { await store.reload() } }
+                }
             }
 
             if store.isLoading && store.settings == nil {
                 ProgressView(L10n.string("settings.agent.loading"))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if store.settings != nil {
                 settingsContent
+                    .disabled(store.isSaving)
             } else {
-                unavailableState
+                Section {
+                    Label(L10n.string("settings.agent.unavailable"), systemImage: "slider.horizontal.3")
+                    Button(L10n.string("common.retry")) { Task { await store.reload() } }
+                }
             }
         }
-    }
-
-    private var pageHeader: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.string("settings.agent.title"))
-                    .font(.system(size: 20, weight: .semibold))
-                Text(L10n.string("settings.agent.subtitle"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
+        .formStyle(.grouped)
+        .toolbar {
             if store.isSaving {
                 ProgressView()
                     .controlSize(.small)
                     .help(L10n.string("settings.agent.saving"))
             }
-
             Button {
                 Task { await store.reload() }
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .frame(width: 28, height: 28)
+                Label(L10n.string("settings.agent.reload"), systemImage: "arrow.clockwise")
             }
-            .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 9))
             .disabled(store.isLoading || store.isSaving)
             .help(L10n.string("settings.agent.reload"))
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
     }
 
+    @ViewBuilder
     private var settingsContent: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                AgentSettingsSection(
-                    title: L10n.string("settings.agent.session_defaults.title"),
-                    subtitle: L10n.string("settings.agent.session_defaults.subtitle")
-                ) {
-                    AgentSettingsRow(
-                        title: L10n.string("settings.agent.default_model.title"),
-                        description: L10n.string("settings.agent.default_model.description")
-                    ) {
-                        Picker(L10n.string("settings.agent.default_model.title"), selection: modelSelection) {
-                            Text(L10n.string("settings.agent.default_model.select")).tag("")
-                            ForEach(sortedModels) { model in
-                                Text("\(model.name) · \(model.provider)")
-                                    .tag(modelKey(model))
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 250)
-                    }
-
-                    Divider().padding(.leading, 16)
-
-                    AgentSettingsRow(
-                        title: L10n.string("settings.agent.thinking.title"),
-                        description: L10n.string("settings.agent.thinking.description")
-                    ) {
-                        Picker(L10n.string("settings.agent.thinking.title"), selection: thinkingSelection) {
-                            ForEach(AgentHostThinkingLevel.allCases) { level in
-                                Text(level.settingsTitle).tag(level)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 150)
-                    }
+        Section {
+            Picker(selection: modelSelection) {
+                Text(L10n.string("settings.agent.default_model.select")).tag("")
+                ForEach(sortedModels) { model in
+                    Text("\(model.name) · \(model.provider)").tag(modelKey(model))
                 }
-
-                AgentSettingsSection(
-                    title: L10n.string("settings.agent.runtime.title"),
-                    subtitle: L10n.string("settings.agent.runtime.subtitle")
-                ) {
-                    AgentSettingsRow(
-                        title: L10n.string("settings.agent.compaction.title"),
-                        description: L10n.string("settings.agent.compaction.description")
-                    ) {
-                        Toggle("", isOn: compactionSelection)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                    }
-
-                    Divider().padding(.leading, 16)
-
-                    AgentSettingsRow(
-                        title: L10n.string("settings.agent.retry.title"),
-                        description: L10n.string("settings.agent.retry.description")
-                    ) {
-                        Toggle("", isOn: retrySelection)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                    }
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("settings.agent.default_model.title"))
+                    Text(L10n.string("settings.agent.default_model.description"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-
-                AgentSettingsSection(
-                    title: L10n.string("settings.agent.connection.title"),
-                    subtitle: L10n.string("settings.agent.connection.subtitle")
-                ) {
-                    AgentSettingsRow(
-                        title: L10n.string("settings.agent.transport.title"),
-                        description: L10n.string("settings.agent.transport.description")
-                    ) {
-                        Picker(L10n.string("settings.agent.transport.title"), selection: transportSelection) {
-                            ForEach(AgentHostTransport.allCases) { transport in
-                                Text(transport.settingsTitle).tag(transport)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 180)
-                    }
-                }
-
-                Label(
-                    L10n.string("settings.agent.changes_apply"),
-                    systemImage: "info.circle"
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 2)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
-        }
-        .disabled(store.isSaving)
-    }
+            .pickerStyle(.menu)
+            .accessibilityLabel(L10n.string("settings.agent.default_model.title"))
 
-    private var unavailableState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 26))
-                .foregroundStyle(.secondary)
-            Text(L10n.string("settings.agent.unavailable"))
-                .font(.headline)
-            Button(L10n.string("common.retry")) { Task { await store.reload() } }
+            Picker(selection: thinkingSelection) {
+                ForEach(AgentHostThinkingLevel.allCases) { level in
+                    Text(level.settingsTitle).tag(level)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("settings.agent.thinking.title"))
+                    Text(L10n.string("settings.agent.thinking.description"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityLabel(L10n.string("settings.agent.thinking.title"))
+        } header: {
+            Text(L10n.string("settings.agent.session_defaults.title"))
+        } footer: {
+            Text(L10n.string("settings.agent.session_defaults.subtitle"))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text(message)
-                .font(.system(size: 12))
-                .lineLimit(2)
-                .textSelection(.enabled)
-            Spacer()
-            Button(L10n.string("common.retry")) { Task { await store.reload() } }
+        Section {
+            Toggle(isOn: compactionSelection) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("settings.agent.compaction.title"))
+                    Text(L10n.string("settings.agent.compaction.description"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .accessibilityLabel(L10n.string("settings.agent.compaction.title"))
+
+            Toggle(isOn: retrySelection) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("settings.agent.retry.title"))
+                    Text(L10n.string("settings.agent.retry.description"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .accessibilityLabel(L10n.string("settings.agent.retry.title"))
+        } header: {
+            Text(L10n.string("settings.agent.runtime.title"))
+        } footer: {
+            Text(L10n.string("settings.agent.runtime.subtitle"))
         }
-        .padding(12)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 11)
-                .fill(Color.orange.opacity(0.10))
-        )
+
+        Section {
+            Picker(selection: transportSelection) {
+                ForEach(AgentHostTransport.allCases) { transport in
+                    Text(transport.settingsTitle).tag(transport)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.string("settings.agent.transport.title"))
+                    Text(L10n.string("settings.agent.transport.description"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityLabel(L10n.string("settings.agent.transport.title"))
+        } header: {
+            Text(L10n.string("settings.agent.connection.title"))
+        } footer: {
+            Text(L10n.string("settings.agent.connection.subtitle"))
+            Text(L10n.string("settings.agent.changes_apply"))
+        }
     }
 
     private var sortedModels: [AgentHostModel] {
@@ -908,77 +633,29 @@ private struct AgentGeneralSettingsView: View {
     }
 }
 
-private struct AgentSettingsSection<Content: View>: View {
-    let title: String
-    let subtitle: String
-    @ViewBuilder let content: Content
-
-    init(
-        title: String,
-        subtitle: String,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 7)
-
-            content
-        }
-        .background(
-            adaptiveRoundedShape(cornerRadius: 15)
-                .fill(AppPalette.translucentSurface)
-                .shadow(color: AppPalette.subtleShadow, radius: 4, y: 1)
-        )
-        .overlay(
-            adaptiveRoundedShape(cornerRadius: 15)
-                .stroke(AppPalette.panelBorder, lineWidth: 1)
-        )
-    }
-}
-
 private struct AgentSettingsRow<Control: View>: View {
     let title: String
     let description: String
     @ViewBuilder let control: Control
 
-    init(
-        title: String,
-        description: String,
-        @ViewBuilder control: () -> Control
-    ) {
+    init(title: String, description: String, @ViewBuilder control: () -> Control) {
         self.title = title
         self.description = description
         self.control = control()
     }
 
     var body: some View {
-        HStack(spacing: 20) {
+        LabeledContent {
+            control
+                .accessibilityLabel(title)
+        } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
                 Text(description)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 20)
-            control
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
     }
 }
 
@@ -1028,56 +705,66 @@ struct ModelProviderSettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            settingsHeader
-
+        Form {
             if let errorMessage = store.errorMessage {
-                errorBanner(errorMessage)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-            }
-
-            if store.isLoading && store.providers.isEmpty && store.agentAuthMethods.isEmpty {
-                ProgressView(L10n.string("providers.loading"))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visibleProviders.isEmpty && store.agentAuthMethods.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        if !store.agentAuthMethods.isEmpty {
-                            AgentAuthenticationSection(
-                                methods: store.agentAuthMethods,
-                                activeMethodID: store.activeAgentAuthMethodID,
-                                isLoggingOut: store.isLoggingOutAgent,
-                                onAuthenticate: { method in
-                                    Task { await store.authenticateAgent(method: method) }
-                                },
-                                onLogout: {
-                                    Task { await store.logoutAgent() }
-                                }
-                            )
-                        }
-                        ForEach(visibleProviders) { provider in
-                            ProviderSettingsRow(
-                                provider: provider,
-                                onAuthenticate: { method in
-                                    Task {
-                                        await store.beginAuthentication(
-                                            provider: provider,
-                                            method: method
-                                        )
-                                    }
-                                },
-                                onDisconnect: {
-                                    disconnectCandidate = provider
-                                }
-                            )
-                        }
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .textSelection(.enabled)
+                    Button(L10n.string("common.retry")) {
+                        Task { await store.reloadProviders() }
                     }
-                    .padding(24)
                 }
             }
+
+            if !store.agentAuthMethods.isEmpty {
+                AgentAuthenticationSection(
+                    methods: store.agentAuthMethods,
+                    activeMethodID: store.activeAgentAuthMethodID,
+                    isLoggingOut: store.isLoggingOutAgent,
+                    onAuthenticate: { method in
+                        Task { await store.authenticateAgent(method: method) }
+                    },
+                    onLogout: { Task { await store.logoutAgent() } }
+                )
+            }
+
+            Section {
+                if store.isLoading && store.providers.isEmpty && store.agentAuthMethods.isEmpty {
+                    ProgressView(L10n.string("providers.loading"))
+                } else if visibleProviders.isEmpty && store.agentAuthMethods.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(L10n.string("providers.no_match"), systemImage: "magnifyingglass")
+                        Text(L10n.string("providers.no_match_hint"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(visibleProviders) { provider in
+                        ProviderSettingsRow(
+                            provider: provider,
+                            onAuthenticate: { method in
+                                Task {
+                                    await store.beginAuthentication(provider: provider, method: method)
+                                }
+                            },
+                            onDisconnect: { disconnectCandidate = provider }
+                        )
+                    }
+                }
+            } footer: {
+                Text(L10n.string("providers.subtitle"))
+            }
+        }
+        .formStyle(.grouped)
+        .searchable(text: $searchText, prompt: L10n.string("providers.search"))
+        .toolbar {
+            Button {
+                Task { await store.reloadProviders() }
+            } label: {
+                Label(L10n.string("providers.refresh_help"), systemImage: "arrow.clockwise")
+            }
+            .disabled(store.isLoading)
+            .help(L10n.string("providers.refresh_help"))
         }
         .task { await store.start() }
         .sheet(isPresented: flowIsPresented) {
@@ -1093,71 +780,6 @@ struct ModelProviderSettingsView: View {
                 secondaryButton: .cancel(Text(L10n.string("common.cancel")))
             )
         }
-    }
-
-    private var settingsHeader: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.string("providers.title"))
-                    .font(.system(size: 20, weight: .semibold))
-                Text(L10n.string("providers.subtitle"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
-
-            TextField(L10n.string("providers.search"), text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 210)
-
-            Button {
-                Task { await store.reloadProviders() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .disabled(store.isLoading)
-            .help(L10n.string("providers.refresh_help"))
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
-            Text(L10n.string("providers.no_match"))
-                .font(.headline)
-            Text(L10n.string("providers.no_match_hint"))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            Text(message)
-                .font(.system(size: 12))
-                .lineLimit(2)
-                .textSelection(.enabled)
-            Spacer()
-            Button(L10n.string("common.retry")) {
-                Task { await store.reloadProviders() }
-            }
-        }
-        .padding(12)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 10)
-                .fill(Color.orange.opacity(0.09))
-        )
     }
 
     private var flowIsPresented: Binding<Bool> {
@@ -1178,40 +800,28 @@ private struct AgentAuthenticationSection: View {
     let onLogout: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.string("providers.agent_auth.title"))
-                        .font(.system(size: 14, weight: .semibold))
-                    Text(L10n.string("providers.agent_auth.subtitle"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.secondary)
-                }
-                Spacer(minLength: 12)
-                Button(L10n.string("providers.agent_auth.logout"), action: onLogout)
-                    .disabled(activeMethodID != nil || isLoggingOut)
-            }
-
+        Section {
             ForEach(methods) { method in
-                HStack {
-                    Text(method.name)
-                        .font(.system(size: 13))
-                    Spacer(minLength: 12)
-                    Button(L10n.string("providers.agent_auth.sign_in")) {
-                        onAuthenticate(method)
-                    }
-                    .disabled(activeMethodID != nil || isLoggingOut)
-                    .overlay {
+                LabeledContent(method.name) {
+                    HStack {
                         if activeMethodID == method.id {
                             ProgressView().controlSize(.small)
                         }
+                        Button(L10n.string("providers.agent_auth.sign_in")) { onAuthenticate(method) }
+                            .disabled(activeMethodID != nil || isLoggingOut)
                     }
                 }
             }
+            HStack {
+                Spacer()
+                Button(L10n.string("providers.agent_auth.logout"), action: onLogout)
+                    .disabled(activeMethodID != nil || isLoggingOut)
+            }
+        } header: {
+            Text(L10n.string("providers.agent_auth.title"))
+        } footer: {
+            Text(L10n.string("providers.agent_auth.subtitle"))
         }
-        .padding(16)
-        .background(Color.primary.opacity(0.035))
-        .adaptiveCornerRadius(12)
     }
 }
 
@@ -1221,86 +831,79 @@ private struct ProviderSettingsRow: View {
     let onDisconnect: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            providerIcon
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(provider.name)
-                        .font(.system(size: 14, weight: .medium))
-                    Text(provider.id)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                }
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 6, height: 6)
-                    Text(statusText)
-                    if provider.authenticationState == .credentialsSaved {
-                        Text("·")
-                        Text(L10n.string("providers.status.not_verified"))
-                    }
-                    Text("·")
-                    Text(L10n.format(
-                        "providers.models_supported",
-                        provider.models.total
-                    ))
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                providerDetails
+                Spacer(minLength: 12)
+                providerAction
+                    .fixedSize()
             }
+            VStack(alignment: .leading, spacing: 12) {
+                providerDetails
+                HStack {
+                    Spacer()
+                    providerAction
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
 
-            Spacer(minLength: 16)
-
-            if !provider.methods.isEmpty {
-                authenticationControl
-            } else if provider.status.canDisconnect {
-                Button(L10n.string("common.disconnect"), role: .destructive, action: onDisconnect)
-                    .buttonStyle(.bordered)
-            } else if provider.status.configured {
-                Text(L10n.string("providers.external_configuration"))
-                    .font(.system(size: 11))
+    private var providerDetails: some View {
+        HStack(alignment: .top, spacing: 12) {
+            providerIcon
+            VStack(alignment: .leading, spacing: 4) {
+                Text(provider.name)
+                    .font(.headline)
+                Text(provider.id)
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
-                    .help(L10n.string("providers.external_help"))
-            } else {
-                Text(L10n.string("providers.requires_environment"))
-                    .font(.system(size: 11))
+                    .textSelection(.enabled)
+                Label(statusText, systemImage: provider.status.configured ? "checkmark.circle.fill" : "circle")
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+                if provider.authenticationState == .credentialsSaved {
+                    Text(L10n.string("providers.status.not_verified"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(L10n.format("providers.models_supported", provider.models.total))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 12)
-                .fill(AppPalette.translucentSurface)
-                .shadow(color: AppPalette.subtleShadow, radius: 4, y: 1)
-        )
-        .overlay(
-            adaptiveRoundedShape(cornerRadius: 12)
-                .stroke(AppPalette.panelBorder, lineWidth: 1)
-        )
+    }
+
+    @ViewBuilder
+    private var providerAction: some View {
+        if !provider.methods.isEmpty {
+            authenticationControl
+        } else if provider.status.canDisconnect {
+            Button(L10n.string("common.disconnect"), role: .destructive, action: onDisconnect)
+        } else {
+            Text(L10n.string(provider.status.configured
+                ? "providers.external_configuration"
+                : "providers.requires_environment"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help(L10n.string("providers.external_help"))
+        }
     }
 
     private var providerIcon: some View {
-        ZStack {
-            adaptiveRoundedShape(cornerRadius: 10)
-                .fill(Color.accentColor.opacity(0.10))
-
+        Group {
             if let assetName = ProviderIconCatalog.assetName(for: provider.id) {
                 Image(assetName)
                     .renderingMode(.original)
                     .resizable()
                     .scaledToFit()
-                    .padding(7)
             } else {
                 Text(String(provider.name.prefix(1)).uppercased())
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 38, height: 38)
+        .frame(width: 28, height: 28)
         .accessibilityHidden(true)
     }
 
@@ -1316,8 +919,7 @@ private struct ProviderSettingsRow: View {
             } label: {
                 Text(L10n.string("providers.manage"))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+
         } else if provider.methods.count == 1, let method = provider.methods.first {
             Button(method.loginLabel ?? method.name) {
                 onAuthenticate(method.type)
@@ -1329,8 +931,7 @@ private struct ProviderSettingsRow: View {
             } label: {
                 Text(L10n.string("auth.method.choose"))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+
         }
     }
 
@@ -1398,11 +999,11 @@ private struct ProviderAuthenticationView: View {
                     .foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(flow?.providerName ?? L10n.string("auth.title"))
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.title2)
                     Text(flow?.method == .oauth
                         ? L10n.string("auth.oauth")
                         : L10n.string("auth.api_key"))
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -1411,22 +1012,19 @@ private struct ProviderAuthenticationView: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let flow {
-                        authenticationContent(flow)
-                    }
+            Form {
+                if let flow {
+                    authenticationContent(flow)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
             }
+            .formStyle(.grouped)
 
             Divider()
             footer
                 .padding(16)
         }
         .frame(width: 520, height: 500)
-        .background(AppPalette.windowGradient)
+        .background(Color(nsColor: .windowBackgroundColor))
         .interactiveDismissDisabled(flow?.phase.isTerminal == false)
         .onAppear {
             openAuthorizationURLIfNeeded()
@@ -1450,15 +1048,15 @@ private struct ProviderAuthenticationView: View {
         if !flow.phase.isTerminal, let url = flow.authorizationURL {
             instructionCard(icon: "safari", title: L10n.string("auth.browser.title")) {
                 Text(L10n.string("auth.browser.help"))
-                    .font(.system(size: 12))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                 if flow.authorizationInstructions != nil {
                     Text(L10n.string("auth.browser.manual_help"))
-                        .font(.system(size: 12))
+                        .font(.body)
                         .foregroundStyle(.secondary)
                 }
                 Text(url)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.caption.monospaced())
                     .foregroundStyle(Color.accentColor)
                     .lineLimit(2)
                     .textSelection(.enabled)
@@ -1470,13 +1068,13 @@ private struct ProviderAuthenticationView: View {
         if !flow.phase.isTerminal, let code = flow.deviceCode {
             instructionCard(icon: "number.square", title: L10n.string("auth.device.title")) {
                 Text(L10n.string("auth.device.help"))
-                    .font(.system(size: 12))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                 Text(code.userCode)
                     .font(.system(size: 23, weight: .semibold, design: .monospaced))
                     .textSelection(.enabled)
                 Text(code.verificationURI)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.caption.monospaced())
                     .foregroundStyle(Color.accentColor)
                     .lineLimit(2)
                     .textSelection(.enabled)
@@ -1504,7 +1102,7 @@ private struct ProviderAuthenticationView: View {
         if flow.method == .apiKey, !flow.phase.isTerminal {
             instructionCard(icon: "key", title: L10n.string("auth.credentials.title")) {
                 Text(L10n.string("auth.credentials.help"))
-                    .font(.system(size: 12))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                 if let helpURL = ProviderAuthenticationGuide.credentialHelpURL(for: flow.providerId) {
                     Button(L10n.string("auth.credentials.open_help")) {
@@ -1513,7 +1111,7 @@ private struct ProviderAuthenticationView: View {
                     .buttonStyle(.bordered)
                 }
                 Label(L10n.string("auth.credentials.storage"), systemImage: "lock.shield")
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -1530,7 +1128,7 @@ private struct ProviderAuthenticationView: View {
                 ),
                 systemImage: "info.circle"
             )
-                .font(.system(size: 12))
+                .font(.body)
                 .foregroundStyle(.secondary)
         }
 
@@ -1546,7 +1144,7 @@ private struct ProviderAuthenticationView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(ProviderAuthenticationPresentation.progressText(progress))
-                    .font(.system(size: 12))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
         } else if !flow.phase.isTerminal {
@@ -1556,7 +1154,7 @@ private struct ProviderAuthenticationView: View {
                 Text(flow.phase == .cancelling
                     ? L10n.string("auth.cancelling")
                     : L10n.string("auth.waiting"))
-                    .font(.system(size: 12))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
         }
@@ -1575,7 +1173,7 @@ private struct ProviderAuthenticationView: View {
                 githubCopilotHostPrompt(prompt)
             } else {
                 Text(promptTitle)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.body)
 
                 if prompt.type == .select {
                     ForEach(prompt.options ?? []) { option in
@@ -1590,7 +1188,7 @@ private struct ProviderAuthenticationView: View {
                                     ))
                                     if let description = option.description {
                                         Text(description)
-                                            .font(.system(size: 11))
+                                            .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -1601,10 +1199,7 @@ private struct ProviderAuthenticationView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
                         }
-                        .buttonStyle(RoundedInteractionButtonStyle(
-                            cornerRadius: 9,
-                            baseFill: Color.primary.opacity(0.045)
-                        ))
+                        .buttonStyle(.bordered)
                         .disabled(flow?.isSubmitting == true)
                     }
                 } else {
@@ -1656,24 +1251,20 @@ private struct ProviderAuthenticationView: View {
 
             if let responseError = flow?.responseErrorMessage {
                 Label(responseError, systemImage: "exclamationmark.circle.fill")
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(responseError)
             }
         }
-        .padding(14)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 11)
-                .fill(AppPalette.translucentSurface)
-        )
+
     }
 
     @ViewBuilder
     private func githubCopilotHostPrompt(_ prompt: AgentHostAuthPromptPayload) -> some View {
         Text(L10n.string("auth.github.host.title"))
-            .font(.system(size: 13, weight: .semibold))
+            .font(.headline)
         Text(L10n.string("auth.github.host.help"))
-            .font(.system(size: 12))
+            .font(.body)
             .foregroundStyle(.secondary)
 
         Button {
@@ -1692,10 +1283,10 @@ private struct ProviderAuthenticationView: View {
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string("auth.github.host.enterprise_help"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(L10n.string("auth.github.host.enterprise_label"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.body)
                 HStack(spacing: 8) {
                     TextField(
                         L10n.string("auth.github.host.enterprise_placeholder"),
@@ -1718,7 +1309,7 @@ private struct ProviderAuthenticationView: View {
             }
             .padding(.top, 8)
         }
-        .font(.system(size: 12, weight: .medium))
+        .font(.body)
     }
 
     @ViewBuilder
@@ -1775,40 +1366,21 @@ private struct ProviderAuthenticationView: View {
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 9) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                content()
-            }
+        Section {
+            content()
+        } header: {
+            Label(title, systemImage: icon)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            adaptiveRoundedShape(cornerRadius: 11)
-                .fill(AppPalette.translucentSurface)
-        )
     }
 
     private func statusCard(icon: String, color: Color, text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Label {
+            Text(text)
+                .textSelection(.enabled)
+        } icon: {
             Image(systemName: icon)
                 .foregroundStyle(color)
-            Text(text)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
         }
-            .font(.system(size: 13, weight: .medium))
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                adaptiveRoundedShape(cornerRadius: 11)
-                    .fill(color.opacity(0.09))
-            )
     }
 
     private func submitInput(prompt: AgentHostAuthPromptPayload) {
@@ -1865,7 +1437,7 @@ private struct ProviderAuthenticationView: View {
                 Text(remaining == 0
                     ? L10n.string("auth.device.expired")
                     : L10n.format("auth.device.expires_seconds", remaining))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }

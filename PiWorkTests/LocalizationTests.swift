@@ -123,7 +123,7 @@ final class LocalizationTests: XCTestCase {
 
         XCTAssertTrue(experimentsView.contains("settings.experiments.computer_use.title"))
         XCTAssertTrue(experimentsView.contains("settings.experiments.coming_soon"))
-        XCTAssertTrue(experimentsView.contains("Toggle(\"\", isOn: .constant(false))"))
+        XCTAssertTrue(experimentsView.contains("Toggle(isOn: .constant(false))"))
         XCTAssertTrue(experimentsView.contains(".disabled(true)"))
     }
 

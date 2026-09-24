@@ -198,61 +198,6 @@ final class SidebarHoverActionsTests: XCTestCase {
         XCTAssertTrue(mainScene.contains(".windowToolbarStyle(.unified(showsTitle: false))"))
     }
 
-    func testSettingsWindowExtendsContentUnderTheNativeTrafficLights() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("PiWork/App/PiWorkApp.swift"),
-            encoding: .utf8
-        )
-        let settingsScene = try XCTUnwrap(
-            source.components(separatedBy: "Settings {").last?
-                .components(separatedBy: "/// Gates the app").first
-        )
-
-        XCTAssertTrue(settingsScene.contains(".windowStyle(.hiddenTitleBar)"))
-        XCTAssertFalse(settingsScene.contains(".windowToolbarStyle(.unified"))
-    }
-
-    func testSettingsWindowRemovesTheOpaqueNativeTitlebarSurface() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift"
-            ),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains(".background(SettingsWindowChrome())"))
-        XCTAssertTrue(source.contains("window.titlebarAppearsTransparent = true"))
-        XCTAssertTrue(source.contains("window.titleVisibility = .hidden"))
-        XCTAssertTrue(source.contains("window.titlebarSeparatorStyle = .none"))
-        XCTAssertTrue(source.contains("NSWindow.didBecomeKeyNotification"))
-        XCTAssertTrue(source.contains("NSWindow.didUpdateNotification"))
-        XCTAssertTrue(source.contains("DispatchQueue.main.async"))
-    }
-
-    func testSettingsWindowIsOneFifthNarrower() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift"
-            ),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("minWidth: 656, idealWidth: 720"))
-        XCTAssertFalse(source.contains("minWidth: 820, idealWidth: 900"))
-        XCTAssertTrue(source.contains("guard !didApplyInitialWidth"))
-        XCTAssertTrue(source.contains("frame.size.width = 720"))
-        XCTAssertTrue(source.contains("window.setFrame(frame, display: true)"))
-    }
-
     func testPersonalPreferencesUsesACompactDocumentEditorWithAlignedPlaceholder() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -269,10 +214,8 @@ final class SidebarHoverActionsTests: XCTestCase {
         )
 
         XCTAssertTrue(preferences.contains("AlignedPlaceholderTextEditor("))
-        XCTAssertTrue(preferences.contains(".controlSize(.small)"))
         XCTAssertFalse(preferences.contains("ZStack(alignment: .topLeading)"))
         XCTAssertFalse(preferences.contains(".padding(.horizontal, 15)"))
-        XCTAssertEqual(preferences.components(separatedBy: ".settingsCard()").count - 1, 1)
 
         XCTAssertTrue(source.contains("textContainer?.lineFragmentPadding = 0"))
         XCTAssertTrue(source.contains("let origin = textContainerOrigin"))

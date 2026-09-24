@@ -58,7 +58,8 @@ struct PiWorkApp: App {
                 .environment(\.locale, languageStore.language.locale)
             }
         }
-        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 720, height: 620)
+        .windowResizability(.contentMinSize)
     }
 
     private var applicationName: String {

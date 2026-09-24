@@ -1,7 +1,35 @@
 import XCTest
+import SwiftUI
 @testable import PiWork
 
 final class ProviderAuthStoreTests: XCTestCase {
+    @MainActor
+    func testProviderSettingsFitsNarrowDetailWithLongAuthenticationLabels() async {
+        let provider = AgentHostProvider(
+            id: "amazon-bedrock",
+            name: "Amazon Bedrock",
+            methods: [AgentHostProviderAuthMethod(
+                type: .apiKey,
+                name: "AWS credentials or bearer token",
+                loginLabel: "AWS credentials or bearer token"
+            )],
+            status: AgentHostProviderAuthStatus(
+                configured: false, source: nil, credentialType: nil,
+                canDisconnect: false, label: nil
+            ),
+            models: AgentHostProviderModelCounts(total: 114, available: 0)
+        )
+        let store = ProviderAuthStore(service: FakeProviderAuthHost(providers: [provider]))
+        await store.start()
+        defer { store.stop() }
+
+        let controller = NSHostingController(rootView: ModelProviderSettingsView(store: store))
+        for width: CGFloat in [436, 520, 700, 436] {
+            let size = controller.sizeThatFits(in: CGSize(width: width, height: 560))
+            XCTAssertLessThanOrEqual(size.width, width, "Provider controls must fit beside the settings sidebar")
+        }
+    }
+
     func testBedrockCredentialHelpExplainsTheStandardCredentialChain() {
         XCTAssertEqual(
             ProviderAuthenticationGuide.credentialHelpURL(for: "amazon-bedrock")?.absoluteString,
