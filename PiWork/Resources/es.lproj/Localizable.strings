@@ -15,7 +15,7 @@
 "settings.sidebar.general" = "General";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "Preferencias personales";
-"settings.sidebar.models_auth" = "Modelos y autenticación";
+"settings.sidebar.models_auth" = "Proveedores";
 "settings.sidebar.experiments" = "Experimentos";
 "settings.sidebar.extensions" = "Complementos";
 "settings.sidebar.isolated" = "pi-work usa una configuración aislada y nunca modifica pi en la terminal.";
@@ -114,7 +114,7 @@
 "settings.transport.websocket_cached" = "WebSocket (en caché)";
 
 /* Proveedores y autenticación */
-"providers.title" = "Modelos y autenticación";
+"providers.title" = "Proveedores";
 "providers.subtitle" = "El inicio de sesión se abre en tu navegador predeterminado. Las demás credenciales se introducen aquí de forma segura.";
 "providers.agent_auth.title" = "Autenticación del Agent";
 "providers.agent_auth.subtitle" = "Autenticación gestionada por el Agent ACP conectado.";

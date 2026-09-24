@@ -15,7 +15,7 @@
 "settings.sidebar.general" = "一般";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人偏好";
-"settings.sidebar.models_auth" = "模型與認證";
+"settings.sidebar.models_auth" = "供應商";
 "settings.sidebar.experiments" = "實驗";
 "settings.sidebar.extensions" = "外掛程式";
 "settings.sidebar.isolated" = "pi-work 使用獨立設定，不會修改終端機中的 pi。";
@@ -114,7 +114,7 @@
 "settings.transport.websocket_cached" = "WebSocket（快取）";
 
 /* 模型服務商與認證 */
-"providers.title" = "模型與認證";
+"providers.title" = "供應商";
 "providers.subtitle" = "瀏覽器登入會在預設瀏覽器中開啟；其他憑據可在此安全輸入";
 "providers.agent_auth.title" = "Agent 認證";
 "providers.agent_auth.subtitle" = "由目前連接的 ACP Agent 管理認證。";

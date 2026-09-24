@@ -15,7 +15,7 @@
 "settings.sidebar.general" = "일반";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "개인 환경설정";
-"settings.sidebar.models_auth" = "모델 및 인증";
+"settings.sidebar.models_auth" = "공급업체";
 "settings.sidebar.experiments" = "실험";
 "settings.sidebar.extensions" = "플러그인";
 "settings.sidebar.isolated" = "pi-work는 독립된 설정을 사용하며 터미널의 pi를 변경하지 않습니다.";
@@ -114,7 +114,7 @@
 "settings.transport.websocket_cached" = "WebSocket(캐시)";
 
 /* 모델 제공자 및 인증 */
-"providers.title" = "모델 및 인증";
+"providers.title" = "공급업체";
 "providers.subtitle" = "브라우저 로그인은 기본 브라우저에서 열립니다. 다른 인증 정보는 여기에서 안전하게 입력할 수 있습니다";
 "providers.agent_auth.title" = "Agent 인증";
 "providers.agent_auth.subtitle" = "연결된 ACP Agent가 관리하는 인증입니다.";

@@ -15,7 +15,7 @@
 "settings.sidebar.general" = "一般";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人設定";
-"settings.sidebar.models_auth" = "モデルと認証";
+"settings.sidebar.models_auth" = "プロバイダー";
 "settings.sidebar.experiments" = "実験";
 "settings.sidebar.extensions" = "プラグイン";
 "settings.sidebar.isolated" = "pi-work は独立した設定を使用し、ターミナルの pi を変更しません。";
@@ -114,7 +114,7 @@
 "settings.transport.websocket_cached" = "WebSocket（キャッシュ）";
 
 /* モデルプロバイダーと認証 */
-"providers.title" = "モデルと認証";
+"providers.title" = "プロバイダー";
 "providers.subtitle" = "ブラウザでのサインインはデフォルトのブラウザで開きます。その他の認証情報はここで安全に入力できます";
 "providers.agent_auth.title" = "Agent 認証";
 "providers.agent_auth.subtitle" = "接続中の ACP Agent が管理する認証です。";
