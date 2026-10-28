@@ -142,6 +142,9 @@ struct SessionRecord: Equatable, Identifiable {
     var accessMode: AgentHostAccessMode
     var pendingApprovals: [AgentHostApprovalRequest]
     var pendingElicitations: [AgentHostACPElicitationRequest] = []
+    // Prompt responses and streamed events are consumed by different tasks.
+    // Preserve terminal decisions while already-queued content is drained.
+    var settledTurnIds: Set<String> = []
     var errorMessage: String?
     var acpState: AgentHostACPSessionState
 }
@@ -408,6 +411,7 @@ struct SessionStoreReducer {
 
     mutating func promptCompleted(sessionId: String, turnId: String) {
         guard var record = records[sessionId], record.activeTurnId == turnId else { return }
+        record.settledTurnIds.insert(turnId)
         finishUnfinishedTools(in: &record, state: .cancelled)
         finishUnfinishedThinking(in: &record)
         record.runState = .idle
@@ -418,6 +422,7 @@ struct SessionStoreReducer {
 
     mutating func promptFailed(sessionId: String, turnId: String, message: String) {
         guard var record = records[sessionId], record.activeTurnId == turnId else { return }
+        record.settledTurnIds.insert(turnId)
         record.runState = .failed
         record.activeTurnId = nil
         record.errorMessage = message
@@ -595,7 +600,9 @@ struct SessionStoreReducer {
             if let contextUsage = payload.contextUsage {
                 record.contextUsage = contextUsage
             }
-            if payload.state == .running {
+            if record.settledTurnIds.contains(payload.turnId) {
+                break
+            } else if payload.state == .running {
                 record.runState = .running
                 record.activeTurnId = payload.turnId
             } else {
@@ -606,14 +613,18 @@ struct SessionStoreReducer {
                 record.pendingApprovals = []
             }
         case .sessionMessageDelta(let payload):
-            record.runState = .running
-            record.activeTurnId = payload.turnId
+            if !record.settledTurnIds.contains(payload.turnId) {
+                record.runState = .running
+                record.activeTurnId = payload.turnId
+            }
             append(delta: payload.delta, turnId: payload.turnId, timestamp: timestamp, to: &record)
         case .sessionUserContent(let payload):
             appendUserContent(payload, timestamp: timestamp, to: &record)
         case .sessionAssistantContent(let payload):
-            record.runState = .running
-            record.activeTurnId = payload.turnId
+            if !record.settledTurnIds.contains(payload.turnId) {
+                record.runState = .running
+                record.activeTurnId = payload.turnId
+            }
             applyAssistantContent(payload, timestamp: timestamp, to: &record)
         case .sessionToolStarted(let payload):
             let existing = record.tools.first { $0.id == payload.toolCallId }

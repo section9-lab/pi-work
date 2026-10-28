@@ -144,6 +144,73 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertNil(reducer.records["session-one"]?.activeTurnId)
     }
 
+    func testCompletedPromptPreservesQueuedContentWithoutRestartingTheTurn() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        _ = reducer.submitPrompt(sessionId: "session-one", turnId: "turn-one", text: "Hello", timestamp: "now")
+        reducer.promptCompleted(sessionId: "session-one", turnId: "turn-one")
+
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )), timestamp: "now")
+        _ = reducer.receive(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one", delta: "late legacy text"
+        )), timestamp: "now")
+        _ = reducer.receive(assistantContent(sequence: 3, generationIndex: 1, phase: .delta,
+            contentType: .text, contentIndex: 0, delta: "late ACP text"), timestamp: "now")
+
+        let record = try XCTUnwrap(reducer.records["session-one"])
+        XCTAssertEqual(record.runState, .idle)
+        XCTAssertNil(record.activeTurnId)
+        XCTAssertEqual(record.lastSequence, 3)
+        let text = record.transcript.flatMap(\.parts).compactMap { part -> String? in
+            guard case let .text(_, text) = part else { return nil }
+            return text
+        }.joined()
+        XCTAssertTrue(text.contains("late legacy text"))
+        XCTAssertTrue(text.contains("late ACP text"))
+    }
+
+    func testFailedPromptCannotBeRestartedByAQueuedRunningEvent() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        _ = reducer.submitPrompt(sessionId: "session-one", turnId: "turn-one", text: "Hello", timestamp: "now")
+        reducer.promptFailed(sessionId: "session-one", turnId: "turn-one", message: "Request failed")
+
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )), timestamp: "now")
+
+        XCTAssertEqual(reducer.records["session-one"]?.runState, .failed)
+        XCTAssertNil(reducer.records["session-one"]?.activeTurnId)
+        XCTAssertEqual(reducer.records["session-one"]?.errorMessage, "Request failed")
+    }
+
+    func testSettledTurnEventsCannotReplaceASubsequentTurn() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        _ = reducer.submitPrompt(sessionId: "session-one", turnId: "turn-one", text: "First", timestamp: "now")
+        reducer.promptCompleted(sessionId: "session-one", turnId: "turn-one")
+        _ = reducer.submitPrompt(sessionId: "session-one", turnId: "turn-two", text: "Second", timestamp: "now")
+
+        for (index, state) in [AgentHostSessionRunState.running, .idle].enumerated() {
+            _ = reducer.receive(.sessionStateChanged(.init(
+                sessionId: "session-one", sequence: index + 1, turnId: "turn-one", state: state
+            )), timestamp: "now")
+        }
+        _ = reducer.receive(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 3, turnId: "turn-one", delta: "late text"
+        )), timestamp: "now")
+        XCTAssertEqual(reducer.records["session-one"]?.runState, .submitting)
+        XCTAssertEqual(reducer.records["session-one"]?.activeTurnId, "turn-two")
+
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 4, turnId: "turn-two", state: .running
+        )), timestamp: "now")
+        XCTAssertEqual(reducer.records["session-one"]?.runState, .running)
+        XCTAssertEqual(reducer.records["session-one"]?.activeTurnId, "turn-two")
+    }
+
     func testMessageDeltaIgnoresDuplicatesAndRequestsSnapshotForSequenceGap() {
         var reducer = SessionStoreReducer()
         reducer.apply(
