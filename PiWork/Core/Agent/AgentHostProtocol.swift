@@ -78,6 +78,12 @@ struct AgentHostACPAuthenticateParameters: Encodable, Equatable {
     let methodId: String
 }
 
+struct AgentHostRuntimeInfo: Codable, Equatable {
+    let version: String
+    let apiVersion: Int
+    let piVersion: String
+}
+
 struct AgentHostHelloPayload: Decodable, Equatable {
     let hostVersion: String
     let piVersion: String
@@ -85,6 +91,7 @@ struct AgentHostHelloPayload: Decodable, Equatable {
     let acpCapabilities: AgentHostACPCapabilities
     let authMethods: [AgentHostACPAuthMethod]
     let piWorkCapabilities: Set<AgentHostPiWorkCapability>
+    let runtime: AgentHostRuntimeInfo?
 
     var supportsPiWorkExtensions: Bool { !piWorkCapabilities.isEmpty }
 
@@ -96,6 +103,7 @@ struct AgentHostHelloPayload: Decodable, Equatable {
         case hostVersion
         case piVersion
         case capabilities
+        case runtime
     }
 
     init(
@@ -105,13 +113,15 @@ struct AgentHostHelloPayload: Decodable, Equatable {
         acpCapabilities: AgentHostACPCapabilities = .baseline,
         authMethods: [AgentHostACPAuthMethod] = [],
         piWorkCapabilities: Set<AgentHostPiWorkCapability>? = nil,
-        supportsPiWorkExtensions: Bool = false
+        supportsPiWorkExtensions: Bool = false,
+        runtime: AgentHostRuntimeInfo? = nil
     ) {
         self.hostVersion = hostVersion
         self.piVersion = piVersion
         self.capabilities = capabilities
         self.acpCapabilities = acpCapabilities
         self.authMethods = authMethods
+        self.runtime = runtime
         self.piWorkCapabilities = piWorkCapabilities
             ?? (supportsPiWorkExtensions ? AgentHostPiWorkCapability.all : [])
     }
@@ -122,7 +132,8 @@ struct AgentHostHelloPayload: Decodable, Equatable {
             hostVersion: try container.decode(String.self, forKey: .hostVersion),
             piVersion: try container.decode(String.self, forKey: .piVersion),
             capabilities: try container.decode([String].self, forKey: .capabilities),
-            supportsPiWorkExtensions: true
+            supportsPiWorkExtensions: true,
+            runtime: try container.decodeIfPresent(AgentHostRuntimeInfo.self, forKey: .runtime)
         )
     }
 }
@@ -180,6 +191,7 @@ struct AgentHostACPInitializeResult: Decodable, Equatable {
         struct PiWork: Decodable, Equatable {
             let extensions: Bool?
             let capabilities: [String]?
+            let runtime: AgentHostRuntimeInfo?
         }
 
         let piVersion: String?
@@ -239,7 +251,8 @@ struct AgentHostACPInitializeResult: Decodable, Equatable {
             piWorkCapabilities: metadata?.piWork?.capabilities.map {
                 Set($0.compactMap(AgentHostPiWorkCapability.init(rawValue:)))
             },
-            supportsPiWorkExtensions: metadata?.piWork?.extensions == true
+            supportsPiWorkExtensions: metadata?.piWork?.extensions == true,
+            runtime: metadata?.piWork?.runtime
         )
     }
 }

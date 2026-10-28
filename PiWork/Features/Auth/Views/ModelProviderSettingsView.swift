@@ -8,7 +8,7 @@ struct AppSettingsView: View {
     @ObservedObject var installedExtensionsStore: InstalledExtensionsStore
     @ObservedObject var languageStore: LanguageStore
     @ObservedObject var updateController: AppUpdateController
-    @StateObject private var piCodingAgentUpdateController = AppUpdateController.piCodingAgent()
+    @ObservedObject var runtimeUpdateController: AgentRuntimeUpdateController
     @StateObject private var globalInstructionsStore = GlobalAgentInstructionsStore.applicationDefault()
     @State private var selection: SettingsDestination? = .general
 
@@ -22,7 +22,7 @@ struct AppSettingsView: View {
                 case .general:
                     GeneralSettingsView(
                         languageStore: languageStore,
-                        piCodingAgentUpdateController: piCodingAgentUpdateController,
+                        runtimeUpdateController: runtimeUpdateController,
                         updateController: updateController
                     )
                 case .agent:
@@ -44,6 +44,7 @@ struct AppSettingsView: View {
         .frame(minWidth: 656, idealWidth: 720, minHeight: 560, idealHeight: 620)
         .task {
             await agentSettingsStore.start()
+            await runtimeUpdateController.start()
             globalInstructionsStore.load()
         }
     }
@@ -292,7 +293,7 @@ private struct ExperimentsSettingsView: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var languageStore: LanguageStore
-    @ObservedObject var piCodingAgentUpdateController: AppUpdateController
+    @ObservedObject var runtimeUpdateController: AgentRuntimeUpdateController
     @ObservedObject var updateController: AppUpdateController
 
     var body: some View {
@@ -318,7 +319,7 @@ private struct GeneralSettingsView: View {
 
             Section {
                 AppUpdateSettingsRow(controller: updateController)
-                PiCodingAgentUpdateSettingsRow(controller: piCodingAgentUpdateController)
+                PiCodingAgentUpdateSettingsRow(controller: runtimeUpdateController)
             }
         }
         .formStyle(.grouped)
@@ -326,53 +327,75 @@ private struct GeneralSettingsView: View {
 }
 
 private struct PiCodingAgentUpdateSettingsRow: View {
-    @ObservedObject var controller: AppUpdateController
+    @ObservedObject var controller: AgentRuntimeUpdateController
 
     var body: some View {
         AgentSettingsRow(
             title: "pi-coding-agent",
             description: statusDescription
         ) {
-            if controller.isChecking {
+            if controller.isBusy {
                 ProgressView()
                     .controlSize(.small)
-                    .help(L10n.string("update.agent.checking"))
+                    .accessibilityLabel(statusDescription)
             } else {
-                Button(buttonTitle) {
-                    if case .updateAvailable = controller.state {
-                        controller.openAvailableUpdate()
-                    } else {
+                HStack {
+                    if controller.pendingPiVersion != nil {
+                        Button(L10n.string("runtime.cancel_pending")) {
+                            Task { await controller.cancelPending() }
+                        }
+                    } else if controller.availableUpdate != nil {
+                        Button(L10n.string("runtime.install")) {
+                            Task { await controller.installUpdate() }
+                        }
+                    }
+                    Button(L10n.string("update.check")) {
                         Task { await controller.checkForUpdates() }
                     }
                 }
-                .disabled(controller.currentVersion.isEmpty)
+            }
+        }
+        if controller.canRollback && controller.pendingPiVersion == nil {
+            AgentSettingsRow(
+                title: L10n.string("runtime.rollback.title"),
+                description: L10n.string("runtime.rollback.description")
+            ) {
+                Button(L10n.string("runtime.rollback.action")) {
+                    Task { await controller.rollback() }
+                }
+                .disabled(controller.isBusy)
             }
         }
     }
 
     private var statusDescription: String {
-        guard !controller.currentVersion.isEmpty else {
+        guard !controller.currentPiVersion.isEmpty else {
             return L10n.string("update.agent.version_unavailable")
         }
-        switch controller.state {
-        case .idle:
-            return L10n.format("update.installed_version", controller.currentVersion)
-        case .checking:
-            return L10n.string("update.agent.checking")
-        case .upToDate:
-            return L10n.format("update.agent.status.up_to_date", controller.currentVersion)
-        case let .updateAvailable(update):
-            return L10n.format("update.agent.status.available", update.version)
-        case .failed:
-            return L10n.string("update.agent.status.failed")
+        let installed = L10n.format("runtime.current", controller.currentPiVersion, controller.currentRuntimeVersion)
+        let detail: String
+        if let phase = controller.phase {
+            switch phase {
+            case .downloading: detail = L10n.string("runtime.downloading")
+            case .verifying: detail = L10n.string("runtime.verifying")
+            case .testing: detail = L10n.string("runtime.testing")
+            }
+        } else if controller.isChecking {
+            detail = L10n.string("update.agent.checking")
+        } else if let error = controller.errorMessage {
+            detail = error
+        } else if let pending = controller.pendingPiVersion {
+            detail = L10n.format("runtime.pending", pending)
+        } else if let update = controller.availableUpdate {
+            detail = L10n.format("runtime.available", update.piVersion, update.version)
+        } else if let reason = controller.rollbackMessage {
+            detail = L10n.format("runtime.recovered", reason)
+        } else if controller.didCheck {
+            detail = L10n.string("runtime.up_to_date")
+        } else {
+            detail = L10n.string("runtime.description")
         }
-    }
-
-    private var buttonTitle: String {
-        if case .updateAvailable = controller.state {
-            return L10n.string("update.agent.changelog")
-        }
-        return L10n.string("update.check")
+        return installed + "\n" + detail
     }
 }
 

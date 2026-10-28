@@ -34,6 +34,13 @@ enum AgentHostExecutable {
         return version.isEmpty ? nil : version
     }
 
+    static func runtimeVersion(in appBundleURL: URL = Bundle.main.bundleURL) -> String? {
+        let file = appBundleURL.appendingPathComponent("Contents/Helpers/AgentHost/runtime-version")
+        let version = (try? String(contentsOf: file, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return version?.isEmpty == false ? version : nil
+    }
+
     static func authenticationFileURL(
         applicationSupportDirectory: URL
     ) -> URL {

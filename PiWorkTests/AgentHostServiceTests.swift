@@ -9,7 +9,7 @@ final class AgentHostServiceTests: XCTestCase {
     func testBundledServiceStartsStagedAgentHost() async throws {
         let service = try AgentHostService.bundled()
         let hello = try await service.start()
-        XCTAssertEqual(hello.hostVersion, "0.1.9")
+        XCTAssertEqual(hello.hostVersion, "0.1.10")
         XCTAssertTrue(Set(hello.capabilities).isSuperset(of: AgentHostService.coreCapabilities))
         XCTAssertTrue(hello.supportsPiWorkExtensions)
         await service.stop()

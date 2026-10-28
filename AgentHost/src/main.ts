@@ -1234,6 +1234,11 @@ async function handleLine(line: string): Promise<void> {
         id: request.id,
         result: createACPInitializeResult({
           hostVersion,
+          runtime: {
+            version: packageMetadata.piWorkRuntime.version,
+            apiVersion: packageMetadata.piWorkRuntime.apiVersion,
+            piVersion: packageMetadata.dependencies["@earendil-works/pi-coding-agent"],
+          },
         }),
       }));
       return;

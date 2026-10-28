@@ -109,6 +109,7 @@ export function createACPSessionUpdate(
 
 export function createACPInitializeResult(options: {
   hostVersion: string;
+  runtime?: { version: string; apiVersion: number; piVersion: string };
 }): Record<string, unknown> {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
@@ -135,9 +136,11 @@ export function createACPInitializeResult(options: {
     },
     authMethods: [],
     _meta: {
+      ...(options.runtime ? { piVersion: options.runtime.piVersion } : {}),
       piWork: {
         extensions: true,
         capabilities: PI_WORK_CAPABILITIES,
+        ...(options.runtime ? { runtime: options.runtime } : {}),
       },
     },
   };

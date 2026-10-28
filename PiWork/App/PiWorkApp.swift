@@ -40,13 +40,15 @@ struct PiWorkApp: App {
         Settings {
             if let agentSettingsStore = agentRuntime.agentSettingsStore,
                let providerAuthStore = agentRuntime.providerAuthStore,
-               let installedExtensionsStore = agentRuntime.installedExtensionsStore {
+               let installedExtensionsStore = agentRuntime.installedExtensionsStore,
+               let runtimeUpdateController = agentRuntime.runtimeUpdateController {
                 AppSettingsView(
                     agentSettingsStore: agentSettingsStore,
                     providerAuthStore: providerAuthStore,
                     installedExtensionsStore: installedExtensionsStore,
                     languageStore: languageStore,
-                    updateController: updateController
+                    updateController: updateController,
+                    runtimeUpdateController: runtimeUpdateController
                 )
                     .preferredColorScheme(themeStore.theme.colorScheme)
                     .environment(\.locale, languageStore.language.locale)
@@ -68,7 +70,8 @@ struct PiWorkApp: App {
 
     private func showAboutPanel() {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
-        if let version = AgentHostExecutable.piCodingAgentVersion() {
+        if let version = agentRuntime.runtimeUpdateController?.currentPiVersion,
+           !version.isEmpty {
             options[.credits] = NSAttributedString(
                 string: "pi-coding-agent \(version)"
             )
@@ -134,6 +137,7 @@ private struct RootView: View {
         }
         .task(id: authSession.isSignedIn) {
             if authSession.isSignedIn {
+                await agentRuntime.runtimeUpdateController?.start()
                 agentRuntime.scheduleRunner?.start()
             } else {
                 agentRuntime.scheduleRunner?.stop()
@@ -149,6 +153,7 @@ final class AppAgentRuntime: ObservableObject {
     let agentSettingsStore: AgentSettingsStore?
     let providerAuthStore: ProviderAuthStore?
     let installedExtensionsStore: InstalledExtensionsStore?
+    let runtimeUpdateController: AgentRuntimeUpdateController?
     let scheduleStore: ScheduleStore
     let scheduleRunner: ScheduleRunner?
     let errorMessage: String?
@@ -157,7 +162,9 @@ final class AppAgentRuntime: ObservableObject {
         let scheduleStore = ScheduleStore()
         self.scheduleStore = scheduleStore
         do {
-            let service = try AgentHostService.bundled()
+            let runtimeStore = AgentRuntimeStore.applicationDefault()
+            let service = try AgentHostService.bundled(runtimeStore: runtimeStore)
+            runtimeUpdateController = AgentRuntimeUpdateController(store: runtimeStore, service: service)
             let sessionStore = SessionStore(service: service)
             self.service = service
             self.sessionStore = sessionStore
@@ -175,6 +182,7 @@ final class AppAgentRuntime: ObservableObject {
             agentSettingsStore = nil
             providerAuthStore = nil
             installedExtensionsStore = nil
+            runtimeUpdateController = nil
             scheduleRunner = nil
             errorMessage = String(describing: error)
         }

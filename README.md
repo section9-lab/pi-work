@@ -78,6 +78,13 @@ Yes. pi-work provides a graphical desktop interface for Pi on macOS. Install the
 
 No. The app bundles its agent host and runtime. A separate command-line installation is not required to use the downloaded app.
 
+### Can the agent update independently of the app?
+
+Yes. In Settings → General, check for a compatible pi-coding-agent runtime and
+install it without replacing PiWork. It activates on the next launch. Packages
+are verified and tested before activation, with automatic fallback if startup
+fails. See [runtime updates](docs/agent-runtime-updates.md) for the release process.
+
 ### Does pi-work share my terminal Pi settings?
 
 pi-work uses its own agent environment for settings, provider connections, skills, and extensions. Configure your providers inside the app, even if you already use Pi in the terminal.

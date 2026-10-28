@@ -88,6 +88,13 @@ describe("ACP v1 JSON-RPC protocol", () => {
     });
   });
 
+  test("reports the adapter contract and actual pinned Pi version for runtime validation", () => {
+    const runtime = { version: "1.2.0", apiVersion: 1, piVersion: "0.84.1" };
+    expect(createACPInitializeResult({ hostVersion: "0.1.9", runtime })).toMatchObject({
+      _meta: { piVersion: "0.84.1", piWork: { runtime } },
+    });
+  });
+
   test("advertises ACP v1 session capabilities and granular PiWork extensions", () => {
     expect(createACPInitializeResult({
       hostVersion: "0.1.0",

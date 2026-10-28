@@ -20,6 +20,7 @@ enum AgentHostServiceLifecycleEvent: Equatable {
 private struct StartedAgentHost {
     let client: AgentHostClient
     let hello: AgentHostHelloPayload
+    let runtime: AgentRuntimeInstallation?
 }
 
 protocol AgentHostServicing: Actor {
@@ -385,7 +386,7 @@ actor AgentHostService: AgentHostServicing,
     InstalledExtensionsServicing {
     static let coreCapabilities: Set<String> = []
 
-    static func bundled() throws -> AgentHostService {
+    static func bundled(runtimeStore: AgentRuntimeStore? = nil) throws -> AgentHostService {
         guard
             let executableURL = AgentHostExecutable.bundledURL(),
             let bunExecutableURL = AgentHostExecutable.bundledBunURL()
@@ -410,7 +411,8 @@ actor AgentHostService: AgentHostServicing,
                 "PI_CODING_AGENT_DIR": agentDirectory.path,
                 "PI_WORK_BUN_PATH": bunExecutableURL.path
             ],
-            handshakeTimeout: 15
+            handshakeTimeout: 15,
+            runtimeStore: runtimeStore
         )
     }
 
@@ -419,6 +421,8 @@ actor AgentHostService: AgentHostServicing,
     private let environment: [String: String]
     private let requiredCapabilities: Set<String>
     private let handshakeTimeout: TimeInterval
+    private let runtimeStore: AgentRuntimeStore?
+    private var selectedRuntime: AgentRuntimeInstallation?
 
     private var client: AgentHostClient?
     private var hello: AgentHostHelloPayload?
@@ -445,13 +449,15 @@ actor AgentHostService: AgentHostServicing,
         arguments: [String] = [],
         environment: [String: String] = [:],
         requiredCapabilities: Set<String> = AgentHostService.coreCapabilities,
-        handshakeTimeout: TimeInterval = 5
+        handshakeTimeout: TimeInterval = 5,
+        runtimeStore: AgentRuntimeStore? = nil
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
         self.requiredCapabilities = requiredCapabilities
         self.handshakeTimeout = handshakeTimeout
+        self.runtimeStore = runtimeStore
     }
 
     func events() -> AsyncStream<AgentHostServerEvent> {
@@ -503,25 +509,49 @@ actor AgentHostService: AgentHostServicing,
             let environment = self.environment
             let requiredCapabilities = self.requiredCapabilities
             let handshakeTimeout = self.handshakeTimeout
+            let runtimeStore = self.runtimeStore
             let newTask = Task {
-                let candidate = AgentHostClient(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    handshakeTimeout: handshakeTimeout
-                )
-                return try await withTaskCancellationHandler(operation: {
-                    let payload = try await candidate.start()
-                    try Task.checkCancellation()
-                    let missing = requiredCapabilities.subtracting(payload.capabilities).sorted()
-                    guard missing.isEmpty else {
+                var runtime: AgentRuntimeInstallation?
+                do { runtime = try await runtimeStore?.beginLaunch() } catch { runtime = nil }
+                while true {
+                    var candidateEnvironment = environment
+                    if let runtime { candidateEnvironment["PI_WORK_BUN_PATH"] = runtime.bunURL.path }
+                    let candidate = AgentHostClient(
+                        executableURL: runtime?.executableURL ?? executableURL,
+                        arguments: arguments,
+                        environment: candidateEnvironment,
+                        handshakeTimeout: handshakeTimeout
+                    )
+                    do {
+                        return try await withTaskCancellationHandler(operation: {
+                            if let runtime {
+                                try await Task.detached { try AgentRuntimeArchive.verify(runtime) }.value
+                            }
+                            try Task.checkCancellation()
+                            _ = await candidate.events()
+                            let payload = try await candidate.start()
+                            try Task.checkCancellation()
+                            let missing = requiredCapabilities.subtracting(payload.capabilities).sorted()
+                            guard missing.isEmpty else {
+                                throw AgentHostServiceError.missingCapabilities(missing)
+                            }
+                            if let runtime {
+                                try AgentRuntimeHealth.validate(payload, manifest: runtime.manifest)
+                                let _: AgentHostSettings = try await candidate.request(
+                                    method: "settings.get", params: AgentHostEmptyParameters(), timeout: 15,
+                                    as: AgentHostSettings.self
+                                )
+                                try await runtimeStore?.confirm(runtime.manifest.id)
+                            }
+                            return StartedAgentHost(client: candidate, hello: payload, runtime: runtime)
+                        }, onCancel: { Task { await candidate.stop() } })
+                    } catch {
                         await candidate.stop()
-                        throw AgentHostServiceError.missingCapabilities(missing)
+                        try Task.checkCancellation()
+                        guard let failed = runtime, let runtimeStore else { throw error }
+                        runtime = try? await runtimeStore.reject(failed.manifest.id, reason: error.localizedDescription)
                     }
-                    return StartedAgentHost(client: candidate, hello: payload)
-                }, onCancel: {
-                    Task { await candidate.stop() }
-                })
+                }
             }
             startupTask = newTask
             task = newTask
@@ -548,6 +578,7 @@ actor AgentHostService: AgentHostServicing,
     private func install(_ started: StartedAgentHost) async {
         client = started.client
         hello = started.hello
+        selectedRuntime = started.runtime
         clientGeneration += 1
         let generation = clientGeneration
         let lifecycleEvent: AgentHostServiceLifecycleEvent = generation == 1
@@ -1640,7 +1671,14 @@ actor AgentHostService: AgentHostServicing,
         for continuation in lifecycleContinuations.values {
             continuation.yield(event)
         }
-        guard !automaticRecoveryAttempted else { return }
+        let failedRuntime = selectedRuntime
+        selectedRuntime = nil
+        if let failedRuntime, let runtimeStore {
+            _ = try? await runtimeStore.reject(
+                failedRuntime.manifest.id, reason: AgentRuntimeError.healthCheck.localizedDescription
+            )
+        }
+        guard failedRuntime != nil || !automaticRecoveryAttempted else { return }
         automaticRecoveryAttempted = true
         _ = try? await start()
     }

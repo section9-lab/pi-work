@@ -1,8 +1,14 @@
 {
   "name": "pi-work-agent-host",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
+  "piWorkRuntime": {
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "minimumAppVersion": "0.1.10",
+    "minimumMacOSVersion": "13.0"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",

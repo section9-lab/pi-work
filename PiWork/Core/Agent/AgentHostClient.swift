@@ -23,6 +23,8 @@ actor AgentHostClient {
     private let arguments: [String]
     private let environment: [String: String]
     private let handshakeTimeout: TimeInterval
+    private let workingDirectory: URL?
+    private let inheritEnvironment: Bool
 
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -44,12 +46,16 @@ actor AgentHostClient {
         executableURL: URL,
         arguments: [String] = [],
         environment: [String: String] = [:],
-        handshakeTimeout: TimeInterval = 5
+        handshakeTimeout: TimeInterval = 5,
+        workingDirectory: URL? = nil,
+        inheritEnvironment: Bool = true
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
         self.handshakeTimeout = handshakeTimeout
+        self.workingDirectory = workingDirectory
+        self.inheritEnvironment = inheritEnvironment
     }
 
     func events() -> AsyncStream<AgentHostServerEvent> {
@@ -70,8 +76,9 @@ actor AgentHostClient {
         let task = Process()
         task.executableURL = executableURL
         task.arguments = arguments
-        if !environment.isEmpty {
-            var childEnvironment = ProcessInfo.processInfo.environment
+        task.currentDirectoryURL = workingDirectory
+        if !environment.isEmpty || !inheritEnvironment {
+            var childEnvironment = inheritEnvironment ? ProcessInfo.processInfo.environment : [:]
             childEnvironment.removeValue(forKey: "XCTestConfigurationFilePath")
             task.environment = childEnvironment.merging(environment) {
                 _, override in override
@@ -364,7 +371,6 @@ actor AgentHostClient {
         }
         if process.isRunning {
             Darwin.kill(process.processIdentifier, SIGKILL)
-            process.waitUntilExit()
         }
     }
 
