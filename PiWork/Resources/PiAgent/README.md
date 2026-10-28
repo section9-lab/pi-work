@@ -13,6 +13,6 @@ included in the app and are not required for a normal build. Fetch them with:
 ```
 
 Production builds compile `AgentHost/src/main.ts` with Bun and embed the
-matching self-contained Agent Host under `Contents/Helpers/AgentHost`. The
+matching self-contained Agent Host under `Contents/Resources/AgentHost`. The
 Host contains the Pi SDK, so end users do not need Bun, Node, npm, or a
 separate `pi` installation.

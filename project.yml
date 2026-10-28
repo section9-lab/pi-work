@@ -99,7 +99,9 @@ targets:
             echo "error: pi-coding-agent version is missing."
             exit 1
           fi
-          HOST_VERSION_DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/AgentHost/pi-coding-agent-version"
+          # Pi requires themes/export assets beside the compiled host. Keep this
+          # mixed payload in Resources: Helpers treats every nested file as code.
+          HOST_VERSION_DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/AgentHost/pi-coding-agent-version"
           mkdir -p "$(dirname "$HOST_VERSION_DESTINATION")"
           printf '%s\n' "$PI_CODING_AGENT_VERSION" > "$HOST_VERSION_DESTINATION"
           (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" -e 'console.log(require("./package.json").piWorkRuntime.version)') > "$(dirname "$HOST_VERSION_DESTINATION")/runtime-version"
@@ -127,7 +129,7 @@ targets:
             (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" build --compile --no-compile-autoload-bunfig --target="$HOST_TARGET" src/main.ts --outfile "$HOST_OUTPUT")
             chmod +x "$HOST_OUTPUT"
 
-            HOST_DESTINATION_DIR="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/AgentHost/$HOST_FOLDER"
+            HOST_DESTINATION_DIR="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/AgentHost/$HOST_FOLDER"
             HOST_DESTINATION="$HOST_DESTINATION_DIR/pi-work-agent-host"
             mkdir -p "$HOST_DESTINATION_DIR"
             cp "$HOST_OUTPUT" "$HOST_DESTINATION"
@@ -165,7 +167,7 @@ targets:
               /usr/bin/codesign --force --sign - "$HOST_DESTINATION"
             fi
 
-            echo "Staged self-contained Agent Host ($HOST_FOLDER) into Contents/Helpers."
+            echo "Staged self-contained Agent Host ($HOST_FOLDER) into Contents/Resources/AgentHost."
           done
 
       - name: "Stage bundled Bun package manager"

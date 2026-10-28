@@ -157,7 +157,7 @@ final class AgentHostExecutableTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let appURL = root.appendingPathComponent("PiWork.app", isDirectory: true)
         let versionURL = appURL.appendingPathComponent(
-            "Contents/Helpers/AgentHost/pi-coding-agent-version",
+            "Contents/Resources/AgentHost/pi-coding-agent-version",
             isDirectory: false
         )
         try FileManager.default.createDirectory(
@@ -178,12 +178,12 @@ final class AgentHostExecutableTests: XCTestCase {
         XCTAssertNil(AgentHostExecutable.piCodingAgentVersion(in: appURL))
     }
 
-    func testResolveFindsOnlyAnExecutableInContentsHelpers() throws {
+    func testResolveFindsOnlyAnExecutableInBundledAgentResources() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let appURL = root.appendingPathComponent("PiWork.app", isDirectory: true)
         let helperURL = appURL.appendingPathComponent(
-            "Contents/Helpers/AgentHost/arm64/pi-work-agent-host",
+            "Contents/Resources/AgentHost/arm64/pi-work-agent-host",
             isDirectory: false
         )
         try FileManager.default.createDirectory(
@@ -240,7 +240,7 @@ final class AgentHostExecutableTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let appURL = root.appendingPathComponent("PiWork.app", isDirectory: true)
         let movedAppURL = root.appendingPathComponent("移动后的 App.app", isDirectory: true)
-        let hostPath = "Contents/Helpers/AgentHost/arm64/pi-work-agent-host"
+        let hostPath = "Contents/Resources/AgentHost/arm64/pi-work-agent-host"
         let bunPath = "Contents/Helpers/Bun/arm64/bun"
         for path in [hostPath, bunPath] {
             let helperURL = appURL.appendingPathComponent(path)

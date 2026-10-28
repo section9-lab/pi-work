@@ -24,7 +24,7 @@ enum AgentHostExecutable {
         in appBundleURL: URL = Bundle.main.bundleURL
     ) -> String? {
         let fileURL = appBundleURL.appendingPathComponent(
-            "Contents/Helpers/AgentHost/\(piCodingAgentVersionFilename)",
+            "Contents/Resources/AgentHost/\(piCodingAgentVersionFilename)",
             isDirectory: false
         )
         guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
@@ -35,7 +35,7 @@ enum AgentHostExecutable {
     }
 
     static func runtimeVersion(in appBundleURL: URL = Bundle.main.bundleURL) -> String? {
-        let file = appBundleURL.appendingPathComponent("Contents/Helpers/AgentHost/runtime-version")
+        let file = appBundleURL.appendingPathComponent("Contents/Resources/AgentHost/runtime-version")
         let version = (try? String(contentsOf: file, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return version?.isEmpty == false ? version : nil
@@ -69,7 +69,7 @@ enum AgentHostExecutable {
         fileManager: FileManager = .default
     ) -> URL? {
         let candidate = appBundleURL.appendingPathComponent(
-            "Contents/Helpers/AgentHost/\(architecture)/\(filename)",
+            "Contents/Resources/AgentHost/\(architecture)/\(filename)",
             isDirectory: false
         )
         return fileManager.isExecutableFile(atPath: candidate.path) ? candidate : nil
