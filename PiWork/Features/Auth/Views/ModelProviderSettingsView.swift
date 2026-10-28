@@ -353,6 +353,7 @@ private struct PiCodingAgentUpdateSettingsRow: View {
                         Task { await controller.checkForUpdates() }
                     }
                 }
+                .accessibilityElement(children: .contain)
             }
         }
         if controller.canRollback && controller.pendingPiVersion == nil {
