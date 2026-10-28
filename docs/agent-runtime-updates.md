@@ -63,6 +63,11 @@ not a Developer ID attestation. No application-bundle files are rewritten.
 The channel must be published once before online runtime checks can succeed. No
 upstream latest-version endpoint or terminal installation is used as a substitute.
 
+Both release workflows support a manual `workflow_dispatch` build without
+publishing. App releases run the adapter checks, installer/recovery checks, and
+the complete Xcode application test suite on both architectures before packaging.
+Only matching version tags enable the publication jobs.
+
 Local verification (requires macOS Command Line Tools and the existing pinned Bun):
 
 ```sh
@@ -71,6 +76,12 @@ bash scripts/test-agent-runtime.sh
 python3 scripts/package-agent-runtime.py --architecture arm64 --output build/AgentRuntime
 bash scripts/test-agent-runtime.sh build/AgentRuntime/runtime-arm64.json
 ```
+
+After the channel is published, add `PI_WORK_TEST_LIVE_CHANNEL=1` to the last
+command to download through the production HTTPS channel, install into an
+isolated store, activate the real service, read settings/models/sessions, and
+stage and apply rollback. This does not send model prompts or use production
+session storage.
 
 Use `--architecture x86_64` on Intel. The runtime checks use production Swift
 sources and do not require an XCTest host app. The normal Xcode application/test

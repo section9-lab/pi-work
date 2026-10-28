@@ -85,7 +85,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--bun", default="bun")
     args = parser.parse_args()
-    bun_executable = shutil.which(args.bun) or str(Path(args.bun).resolve())
+    bun_executable = str(Path(shutil.which(args.bun) or args.bun).resolve())
     host_root = REPOSITORY / "AgentHost"
     metadata = json.loads((host_root / "package.json").read_text())
     sdk = host_root / "node_modules/@earendil-works/pi-coding-agent"

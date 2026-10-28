@@ -281,6 +281,50 @@ struct AgentRuntimeChecks {
             try AgentRuntimeArchive.verify(candidate)
             try await AgentRuntimeHealth.probe(candidate)
             checks += 1
+
+            // Use the packaged SDK through the same service and launch journal
+            // as the App, with all agent/session writes confined to this test.
+            let realStoreRoot = root.appendingPathComponent("actual-store")
+            let realStore = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            _ = try await realStore.beginLaunch()
+            if ProcessInfo.processInfo.environment["PI_WORK_TEST_LIVE_CHANNEL"] == "1" {
+                let onlineInstaller = AgentRuntimeInstaller(store: realStore)
+                try expect(try await onlineInstaller.check() == actual, "live channel differs from release artifact")
+                try await onlineInstaller.install(actual) { _ in }
+            } else {
+                let cached = realStoreRoot.appendingPathComponent(actual.id)
+                try FileManager.default.copyItem(at: actualDirectory, to: cached)
+                try JSONEncoder().encode(actual).write(to: cached.appendingPathComponent("installed.json"))
+                try await realStore.stage(AgentRuntimeInstallation(directory: cached, manifest: actual))
+            }
+            try expect(try await realStore.beginLaunch() == nil, "installation switched the current process")
+            let realLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            let agentDirectory = root.appendingPathComponent("actual-agent")
+            try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+            let realService = AgentHostService(executableURL: candidate.executableURL, environment: [
+                "PI_WORK_AGENT_DIR": agentDirectory.path,
+                "PI_CODING_AGENT_DIR": agentDirectory.path,
+                "PI_WORK_AUTH_PATH": agentDirectory.appendingPathComponent("auth.json").path,
+                "PI_WORK_BUN_PATH": candidate.bunURL.path,
+                "PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL": "1"
+            ], handshakeTimeout: 15, runtimeStore: realLaunch)
+            do {
+                try AgentRuntimeHealth.validate(try await realService.start(), manifest: actual)
+                _ = try await realService.getAgentSettings()
+                _ = try await realService.listModels()
+                let sessions = try await realService.listSessions(cwd: agentDirectory.path, sessionDirectory: nil)
+                try expect(sessions.isEmpty, "isolated runtime returned unrelated sessions")
+                let selection = try await realLaunch.selection()
+                try expect(selection.active == actual.id && selection.trial == nil, "runtime activation was not confirmed")
+                try await realLaunch.stageRollback()
+                try expect(try await realLaunch.selection().active == actual.id, "rollback interrupted a running service")
+                await realService.stop()
+            } catch {
+                await realService.stop()
+                throw error
+            }
+            let rollbackLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            try expect(try await rollbackLaunch.beginLaunch() == nil, "packaged runtime did not roll back to bundled")
         }
         print("Agent runtime: \(checks) checks passed")
     }
