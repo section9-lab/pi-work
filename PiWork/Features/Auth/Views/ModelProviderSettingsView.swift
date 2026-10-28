@@ -321,6 +321,7 @@ private struct GeneralSettingsView: View {
                 AppUpdateSettingsRow(controller: updateController)
                 PiCodingAgentUpdateSettingsRow(controller: runtimeUpdateController)
             }
+            .id(languageStore.language)
         }
         .formStyle(.grouped)
     }
