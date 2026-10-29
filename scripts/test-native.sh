@@ -26,9 +26,10 @@ for folder, destination in [('PiWork', 'Sources/PiWork'), ('PiWorkTests', 'Tests
 (target / 'Package.swift').write_text('''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "PiWorkNativeChecks", platforms: [.macOS(.v13)], dependencies: [
- .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", exact: "2.4.1")
+ .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", exact: "2.4.1"),
+ .package(url: "https://github.com/mixpanel/mixpanel-swift", revision: "3ad0fb82216978c124b04accac6c9f9eaf848187")
 ], targets: [
- .executableTarget(name: "PiWork", dependencies: [.product(name: "MarkdownUI", package: "swift-markdown-ui")]),
+ .executableTarget(name: "PiWork", dependencies: [.product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Mixpanel", package: "mixpanel-swift")]),
  .testTarget(name: "PiWorkTests", dependencies: ["PiWork"])
 ])
 ''')

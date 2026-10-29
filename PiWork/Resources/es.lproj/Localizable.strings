@@ -793,3 +793,7 @@
 "rtk.learn_more" = "Acerca de RTK";
 "rtk.date" = "Fecha";
 "rtk.tokens" = "Tokens";
+
+/* Anonymous product analytics */
+"analytics.title" = "Compartir uso anónimo";
+"analytics.description" = "Registra la actividad diaria y las versiones. No envía conversaciones, archivos, comandos ni datos de la cuenta.";

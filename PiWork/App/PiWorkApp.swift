@@ -17,6 +17,7 @@ struct PiWorkApp: App {
                 agentRuntime: agentRuntime,
                 languageStore: languageStore
             )
+                .onAppear { ForegroundUsageTracker.shared.start() }
                 .environment(\.locale, languageStore.language.locale)
         }
         .windowStyle(.hiddenTitleBar)

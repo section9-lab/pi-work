@@ -793,3 +793,7 @@
 "rtk.learn_more" = "RTK 알아보기";
 "rtk.date" = "날짜";
 "rtk.tokens" = "토큰";
+
+/* Anonymous product analytics */
+"analytics.title" = "익명 사용 통계 공유";
+"analytics.description" = "일일 활동과 앱 버전만 집계합니다. 대화, 파일, 명령 또는 계정 정보는 전송하지 않습니다.";

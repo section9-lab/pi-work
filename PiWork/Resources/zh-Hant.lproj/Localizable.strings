@@ -793,3 +793,7 @@
 "rtk.learn_more" = "瞭解 RTK";
 "rtk.date" = "日期";
 "rtk.tokens" = "Token";
+
+/* Anonymous product analytics */
+"analytics.title" = "匿名使用統計";
+"analytics.description" = "僅統計每日活躍與版本，不上傳對話、檔案、指令或帳號資訊。";

@@ -262,6 +262,7 @@ private struct ExperimentsSettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    @ObservedObject private var usageAnalytics = AppAnalytics.shared
     @ObservedObject var languageStore: LanguageStore
     @ObservedObject var runtimeUpdateController: AgentRuntimeUpdateController
     @ObservedObject var updateController: AppUpdateController
@@ -285,6 +286,19 @@ private struct GeneralSettingsView: View {
                 .accessibilityLabel(L10n.string("settings.general.language.title"))
             } header: {
                 Text(L10n.string("settings.general.subtitle"))
+            }
+
+            Section {
+                Toggle(isOn: Binding(
+                    get: { usageAnalytics.isEnabled }, set: { usageAnalytics.setEnabled($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.string("analytics.title"))
+                        Text(L10n.string("analytics.description"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityLabel(L10n.string("analytics.title"))
             }
 
             Section {

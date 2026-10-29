@@ -793,3 +793,7 @@
 "rtk.learn_more" = "了解 RTK";
 "rtk.date" = "日期";
 "rtk.tokens" = "Token";
+
+/* Anonymous product analytics */
+"analytics.title" = "匿名使用统计";
+"analytics.description" = "仅统计日活与版本，不上传对话、文件、命令或账号信息。";

@@ -24,6 +24,9 @@ settings:
       ENABLE_HARDENED_RUNTIME: YES
 
 packages:
+  Mixpanel:
+    url: https://github.com/mixpanel/mixpanel-swift
+    revision: 3ad0fb82216978c124b04accac6c9f9eaf848187
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     exactVersion: 2.4.1
@@ -34,6 +37,8 @@ targets:
     platform: macOS
     deploymentTarget: "13.0"
     dependencies:
+      - package: Mixpanel
+        product: Mixpanel
       - package: MarkdownUI
     sources:
       - path: PiWork
@@ -58,6 +63,7 @@ targets:
         # runtime via the PI_WORK_OPENAUTH_ISSUER_URL env var or the
         # auth.openauth.issuerURL user default.
         OpenAuthIssuerURL: https://auth.vibevibe.cc
+        MixpanelProjectToken: faed71b6d9a819c812dd44244e836143
         CFBundleURLTypes:
           - CFBundleURLName: cc.vibevibe.pi-work.auth
             CFBundleURLSchemes:

@@ -97,3 +97,7 @@ pi-work is a separate desktop client built on the Pi Coding Agent SDK. For the u
 ### Does pi-work run on Windows or Linux?
 
 pi-work currently targets macOS. Apple Silicon and Intel builds are available from [GitHub Releases](https://github.com/section9-lab/pi-work/releases/latest).
+
+## Anonymous usage statistics
+
+The app sends anonymous app-launch and daily-activity events to Mixpanel. Use **Share anonymous usage** in Settings to turn this off. Application content is not included. See the [analytics and privacy details](docs/analytics.md).

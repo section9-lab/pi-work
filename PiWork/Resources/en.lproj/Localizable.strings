@@ -793,3 +793,7 @@
 "rtk.learn_more" = "About RTK";
 "rtk.date" = "Date";
 "rtk.tokens" = "Tokens";
+
+/* Anonymous product analytics */
+"analytics.title" = "Share anonymous usage";
+"analytics.description" = "Counts daily activity and app versions. No conversations, files, commands or account details are sent.";
