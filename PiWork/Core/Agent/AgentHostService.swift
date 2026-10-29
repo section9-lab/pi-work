@@ -410,7 +410,10 @@ actor AgentHostService: AgentHostServicing,
                 "PI_WORK_AUTH_PATH": authenticationFile.path,
                 "PI_WORK_AGENT_DIR": agentDirectory.path,
                 "PI_CODING_AGENT_DIR": agentDirectory.path,
-                "PI_WORK_BUN_PATH": bunExecutableURL.path
+                "PI_WORK_BUN_PATH": bunExecutableURL.path,
+                "PI_WORK_COMPUTER_USE_BUNDLE_PATH": Bundle.main.bundleURL
+                    .appendingPathComponent("Contents/Resources/ComputerUse/pi-computer-use.app").path,
+                "PI_WORK_APP_PID": String(ProcessInfo.processInfo.processIdentifier)
             ],
             handshakeTimeout: 15,
             runtimeStore: runtimeStore

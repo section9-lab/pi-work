@@ -47,6 +47,8 @@ import {
 } from "./pi-work-context-extension.ts";
 import type { McpCoordinator } from "./mcp-coordinator.ts";
 import { isMcpToolName } from "./mcp-native-adapter.ts";
+import { computerUseToolNames, type ComputerUseCoordinator } from "./computer-use.ts";
+import type { RTKCoordinator } from "./rtk.ts";
 
 type PiAgentSession = Pick<
   AgentSession,
@@ -162,11 +164,14 @@ type ExtensionToolSelection = "none" | "all" | "pi-web-access";
 function extensionToolNames(
   session: PiAgentSession,
   selection: ExtensionToolSelection,
+  computerUse?: ComputerUseCoordinator,
+  accessMode: AccessMode = "none",
 ): string[] {
   if (selection === "none") return [];
   return session.getAllTools()
     .filter(({ name, sourceInfo, exposure }) => {
       if (name === "tool_search") return true;
+      if (computerUseToolNames.has(name)) return computerUse?.available(name, accessMode) ?? false;
       if (isMcpToolName(name)) return exposure === "direct" || session.getActiveToolNames().includes(name);
       return sourceInfo.source !== "builtin" && sourceInfo.source !== "sdk"
         && (selection === "all" || sourceInfo.source === "npm:pi-web-access");
@@ -187,6 +192,8 @@ export async function createPiSessionHandle(
     requestElicitation?: ACPElicitationRequester;
     mcp?: McpCoordinator;
     mcpServers?: McpServerEntry[];
+    computerUse?: ComputerUseCoordinator;
+    rtk?: RTKCoordinator;
   },
   createSession: CreateSession = createAgentSession,
 ): Promise<PiSessionHandle> {
@@ -212,10 +219,10 @@ export async function createPiSessionHandle(
     now: options.now,
     timeZone: options.timeZone,
     selectedGitBranch: () => selectedGitBranch(options.sessionManager),
-    extensions: options.mcp?.extensions({
+    extensions: [...(options.mcp?.extensions({
       profile: options.profile, controller: accessController, servers: options.mcpServers,
       sessionId: options.sessionManager.getSessionId(),
-    }),
+    }) ?? []), ...(options.computerUse ? [options.computerUse.extension(accessController, options.profile)] : [])],
   });
   if (options.profile === "chat") {
     createOptions.excludeTools = builtInPiToolNames;
@@ -224,6 +231,7 @@ export async function createPiSessionHandle(
       ...createPolicyControlledTools(
         options.sessionManager.getCwd(),
         accessController,
+        options.rtk?.bashOptions(),
       ),
     ];
   }
@@ -266,7 +274,7 @@ export async function createPiSessionHandle(
   const extensionSelection: ExtensionToolSelection = options.profile === "chat"
     ? "pi-web-access"
     : "all";
-  const alwaysActiveToolNames = extensionToolNames(session, extensionSelection);
+  const alwaysActiveToolNames = extensionToolNames(session, extensionSelection, options.computerUse, accessMode);
   session.setActiveToolsByName([
     ...activeToolsForMode(accessMode),
     ...alwaysActiveToolNames,
@@ -278,6 +286,7 @@ export async function createPiSessionHandle(
     [],
     extensionSelection,
     extensionUI,
+    options.computerUse,
   );
   for (const [key, text] of pendingStatuses) handle.setExtensionStatus(key, text);
   for (const [key, widget] of pendingWidgets) handle.setExtensionWidget(key, widget);
@@ -290,6 +299,7 @@ export class PiSessionHandle implements SessionHandle {
   private readonly extensionListeners = new Set<(event: SessionHandleEvent) => void>();
   private readonly extensionWidgets = new Map<string, SessionExtensionWidget>();
   private readonly extensionStatuses = new Map<string, string>();
+  private readonly unsubscribeComputerUse?: () => void;
 
   constructor(
     private readonly session: PiAgentSession,
@@ -301,7 +311,9 @@ export class PiSessionHandle implements SessionHandle {
     private readonly alwaysActiveToolNames: readonly string[] = [],
     private readonly extensionToolSelection: ExtensionToolSelection = "none",
     private readonly extensionUI?: ACPExtensionUIContext,
+    private readonly computerUse?: ComputerUseCoordinator,
   ) {
+    this.unsubscribeComputerUse = computerUse?.subscribe(() => this.refreshActiveTools());
     const streamFunction = session.agent.streamFunction;
     session.agent.streamFunction = (model, context, streamOptions) => {
       if (!supportsFastMode(model)) {
@@ -642,6 +654,7 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   dispose(): void {
+    this.unsubscribeComputerUse?.();
     this.accessController.cancelAll();
     this.extensionUI?.clearWidgets();
     this.session.dispose();
@@ -689,6 +702,8 @@ export class PiSessionHandle implements SessionHandle {
     const refreshedExtensionToolNames = extensionToolNames(
       this.session,
       this.extensionToolSelection,
+      this.computerUse,
+      this.accessController.mode,
     );
     this.session.setActiveToolsByName([
       ...activeToolsForMode(this.accessController.mode),

@@ -39,6 +39,8 @@ struct MCPChecks {
             "PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL": "1"
         ])
         do {
+            try await ComputerUseChecks.run(service: service, repository: repository)
+            try await RTKChecks.run(service: service, repository: repository)
             let store = MCPStore(service: service)
             await store.load()
             try expect(store.isSupported && store.servers.isEmpty, "MCP handshake or initial list failed")

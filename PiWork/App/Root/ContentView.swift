@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject private var installedExtensionsStore: InstalledExtensionsStore
     @ObservedObject private var scheduleStore: ScheduleStore
     private let scheduleRunner: ScheduleRunner
+    private let computerUseStore: ComputerUseStore?
     @StateObject private var projectStore = ProjectStore()
     @State private var workSession = WorkSessionSelection()
     @State private var selectedTab: SidebarTab = .work
@@ -21,6 +22,7 @@ struct ContentView: View {
 
     init(
         sessionStore: SessionStore,
+        computerUseStore: ComputerUseStore? = nil,
         installedExtensionsStore: InstalledExtensionsStore,
         scheduleStore: ScheduleStore,
         scheduleRunner: ScheduleRunner
@@ -29,6 +31,7 @@ struct ContentView: View {
         _installedExtensionsStore = ObservedObject(wrappedValue: installedExtensionsStore)
         _scheduleStore = ObservedObject(wrappedValue: scheduleStore)
         self.scheduleRunner = scheduleRunner
+        self.computerUseStore = computerUseStore
     }
 
     var body: some View {
@@ -90,6 +93,7 @@ struct ContentView: View {
                         projects: projectStore.projects,
                         selectedProject: $workSession.selectedProject,
                         sessionStore: sessionStore,
+                        computerUseStore: computerUseStore,
                         hostError: agentError,
                         isLoadingSession: isOpeningSelectedSession,
                         onSelectProject: startNewSession(for:),

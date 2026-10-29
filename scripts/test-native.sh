@@ -4,8 +4,13 @@
 # Xcode-only development previews are omitted; production sources stay intact.
 set -euo pipefail
 NATIVE_SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NATIVE_CHECK_ROOT="$(mktemp -d)"
-trap 'rm -rf "$NATIVE_CHECK_ROOT"' EXIT
+if [ -n "${PI_WORK_NATIVE_CHECK_ROOT:-}" ]; then
+  NATIVE_CHECK_ROOT="$PI_WORK_NATIVE_CHECK_ROOT"
+  mkdir -p "$NATIVE_CHECK_ROOT"
+else
+  NATIVE_CHECK_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$NATIVE_CHECK_ROOT"' EXIT
+fi
 python3 - "$NATIVE_SOURCE_ROOT" "$NATIVE_CHECK_ROOT" <<'PY'
 import json, pathlib, shutil, sys
 source, target = map(pathlib.Path, sys.argv[1:])
@@ -32,14 +37,16 @@ swift build --package-path "$NATIVE_CHECK_ROOT" -j 4
 if ! xcrun --find xctest >/dev/null 2>&1; then
   cd "$NATIVE_SOURCE_ROOT"
   swiftc -swift-version 5 -parse-as-library \
-    PiWork/Core/UI/AppLanguage.swift PiWork/Core/Update/*.swift \
+    PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppSettingsNavigation.swift PiWork/Core/Update/*.swift \
     PiWork/Core/Agent/AgentHostExecutable.swift PiWork/Core/Agent/AgentHostProtocol.swift \
     PiWork/Core/Agent/AgentHostLineFramer.swift PiWork/Core/Agent/AgentHostClient.swift \
-    PiWork/Core/Agent/AgentHostService.swift PiWork/Core/Agent/MCPService.swift \
+    PiWork/Core/Agent/AgentHostService.swift PiWork/Core/Agent/MCPService.swift PiWork/Core/Agent/ComputerUseService.swift PiWork/Core/Agent/RTKService.swift \
     PiWork/Core/Agent/SessionStore.swift PiWork/Core/Agent/SessionOpenPerformanceTracer.swift \
     PiWork/Features/Chat/ChatPresentation.swift \
     PiWork/Features/MCP/*.swift PiWork/Features/MCP/Views/*.swift \
-    scripts/MCPChecks.swift -o "$NATIVE_CHECK_ROOT/mcp-checks"
+    PiWork/Features/ComputerUse/*.swift PiWork/Features/ComputerUse/Views/*.swift \
+    PiWork/Features/RTK/*.swift PiWork/Features/RTK/Views/*.swift \
+    scripts/ComputerUseChecks.swift scripts/RTKChecks.swift scripts/MCPChecks.swift -o "$NATIVE_CHECK_ROOT/mcp-checks"
   # Bundle native resources so icon, localization and layout checks match the app.
   NATIVE_CHECK_APP="$NATIVE_CHECK_ROOT/MCPChecks.app"
   mkdir -p "$NATIVE_CHECK_APP/Contents/MacOS" "$NATIVE_CHECK_APP/Contents/Resources"

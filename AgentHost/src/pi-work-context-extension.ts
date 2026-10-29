@@ -77,6 +77,11 @@ export async function createPiWorkResourceLoader(options: PiWorkContextOptions &
     agentDir: options.agentDir ?? getAgentDir(),
     settingsManager: options.settingsManager,
     extensionFactories: [piWorkContextExtension(options), ...(options.extensions ?? [])],
+    // This package is a managed desktop capability. A second user-installed
+    // copy must not register unwrapped tools or eagerly prompt on macOS 13.
+    extensionsOverride: (base) => ({ ...base, extensions: base.extensions.filter((extension) =>
+      !extension.sourceInfo.source.startsWith("npm:@injaneity/pi-computer-use")
+      && !extension.resolvedPath.includes("/@injaneity/pi-computer-use/")) }),
   });
   await loader.reload();
   return loader;

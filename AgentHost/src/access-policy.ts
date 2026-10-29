@@ -10,6 +10,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   type ToolDefinition,
+  type BashToolOptions,
 } from "@earendil-works/pi-coding-agent";
 
 export type AccessMode = "none" | "readOnly" | "ask" | "full";
@@ -64,10 +65,11 @@ export function activeToolsForMode(mode: AccessMode): string[] {
 export function createPolicyControlledTools(
   cwd: string,
   controller: AccessController,
+  bashOptions?: BashToolOptions,
 ): ToolDefinition[] {
   const definitions: ToolDefinition<any, any, any>[] = [
     createReadToolDefinition(cwd),
-    createBashToolDefinition(cwd),
+    createBashToolDefinition(cwd, bashOptions),
     createEditToolDefinition(cwd),
     createWriteToolDefinition(cwd),
     createGrepToolDefinition(cwd),
@@ -147,6 +149,23 @@ export class AccessController {
     if (this.mode === "none" && !request.chatAllowed) {
       throw new AccessPolicyError("access_denied", "This MCP tool is unavailable in Chat");
     }
+    await this.requestApproval(request);
+  }
+
+  async authorizeComputerUse(request: ToolAuthorizationRequest & {
+    readOnly: boolean;
+    chatAllowed: boolean;
+  }): Promise<void> {
+    request.signal?.throwIfAborted();
+    if (this.mode === "full") return;
+    if (this.mode === "readOnly") {
+      if (request.readOnly) return;
+      throw new AccessPolicyError("access_denied", "Desktop actions are unavailable in read-only mode");
+    }
+    if (this.mode === "none" && !request.chatAllowed) {
+      throw new AccessPolicyError("access_denied", "Computer use is unavailable in this session");
+    }
+    // Chat keeps its file/shell restrictions and uses the same approval broker.
     await this.requestApproval(request);
   }
 

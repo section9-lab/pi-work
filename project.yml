@@ -86,9 +86,9 @@ targets:
             exit 1
           fi
 
-          if [ ! -d "$HOST_SOURCE_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
+          if [ ! -d "$HOST_SOURCE_ROOT/node_modules/@earendil-works/pi-coding-agent" ] || [ ! -d "$HOST_SOURCE_ROOT/node_modules/@injaneity/pi-computer-use" ]; then
             echo "Installing Agent Host build dependencies..."
-            (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" install --frozen-lockfile)
+            (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" install --frozen-lockfile --ignore-scripts)
           fi
 
           PI_CODING_AGENT_VERSION="$(
@@ -169,6 +169,18 @@ targets:
 
             echo "Staged self-contained Agent Host ($HOST_FOLDER) into Contents/Resources/AgentHost."
           done
+
+      - name: "Stage computer use helper"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          COMPUTER_USE_SOURCE="$SRCROOT/AgentHost/node_modules/@injaneity/pi-computer-use"
+          COMPUTER_USE_DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/ComputerUse"
+          COMPUTER_USE_SIGN_IDENTITY="-"
+          if [ "$CODE_SIGNING_ALLOWED" != "NO" ]; then
+            COMPUTER_USE_SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          fi
+          bash "$SRCROOT/scripts/stage-computer-use-helper.sh" "$COMPUTER_USE_SOURCE" "$COMPUTER_USE_DESTINATION" "$COMPUTER_USE_SIGN_IDENTITY" "$PRODUCT_BUNDLE_IDENTIFIER.computer-use"
 
       - name: "Stage bundled Bun package manager"
         basedOnDependencyAnalysis: false

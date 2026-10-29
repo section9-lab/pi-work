@@ -16,6 +16,7 @@ struct ChatView: View {
     let isLoadingSession: Bool
     let onSelectProject: (PiProject) -> Void
     let onAddFolder: () -> Void
+    private let computerUseStore: ComputerUseStore?
 
     @State private var draft = ""
     @State private var selectedSlashCommand: AgentHostSlashCommand?
@@ -42,12 +43,14 @@ struct ChatView: View {
         projects: [PiProject],
         selectedProject: Binding<PiProject?>,
         sessionStore: SessionStore,
+        computerUseStore: ComputerUseStore? = nil,
         hostError: String? = nil,
         isLoadingSession: Bool = false,
         onSelectProject: @escaping (PiProject) -> Void = { _ in },
         onAddFolder: @escaping () -> Void
     ) {
         self.mode = mode
+        self.computerUseStore = computerUseStore
         self.projects = projects
         self._selectedProject = selectedProject
         self._sessionStore = ObservedObject(wrappedValue: sessionStore)
@@ -143,7 +146,8 @@ struct ChatView: View {
                 onPasteboard: handlePasteboard,
                 onRemoveImage: removeImageAttachment,
                 onSend: send,
-                onStop: stopGeneration
+                onStop: stopGeneration,
+                computerUseStore: computerUseStore
             )
             .frame(maxWidth: 900)
             .disabled(isSessionTransitioning)
@@ -1239,6 +1243,7 @@ private struct SessionComposer: View {
     let onRemoveImage: (UUID) -> Void
     let onSend: () -> Void
     let onStop: () -> Void
+    var computerUseStore: ComputerUseStore? = nil
 
     private let cornerRadius = AppCornerRadius.panel
 
@@ -1828,6 +1833,9 @@ private struct SessionComposer: View {
             HStack(spacing: 10) {
                 if mode == .work, let selectedAccessMode {
                     accessModeMenu(selectedAccessMode)
+                }
+                if let computerUseStore {
+                    ComputerUseShortcut(store: computerUseStore)
                 }
 
                 Spacer(minLength: 0)

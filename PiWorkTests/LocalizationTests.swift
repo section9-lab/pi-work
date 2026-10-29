@@ -63,7 +63,7 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(chatSource.contains("static var defaults"))
         XCTAssertTrue(
             settingsSource.contains(
-                "SettingsSidebar(selection: $selection, language: languageStore.language)"
+                "SettingsSidebar(selection: $navigation.selection, language: languageStore.language)"
             )
         )
         XCTAssertTrue(settingsSource.contains("let language: AppLanguage"))
@@ -81,8 +81,9 @@ final class LocalizationTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("case experiments"))
-        XCTAssertTrue(source.contains("case .experiments: return \"flask\""))
+        let navigation = try String(contentsOf: repositoryRoot.appendingPathComponent("PiWork/Core/UI/AppSettingsNavigation.swift"), encoding: .utf8)
+        XCTAssertTrue(navigation.contains("case experiments"))
+        XCTAssertTrue(navigation.contains("case .experiments: return \"flask\""))
         XCTAssertTrue(source.contains(".modelsAndAuthentication"))
         XCTAssertTrue(source.contains(".experiments"))
         XCTAssertTrue(source.contains("ExperimentsSettingsView()"))
@@ -99,14 +100,15 @@ final class LocalizationTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("case personalPreferences"))
-        XCTAssertTrue(source.contains("settings.sidebar.personal_preferences"))
+        let navigation = try String(contentsOf: repositoryRoot.appendingPathComponent("PiWork/Core/UI/AppSettingsNavigation.swift"), encoding: .utf8)
+        XCTAssertTrue(navigation.contains("case personalPreferences"))
+        XCTAssertTrue(navigation.contains("settings.sidebar.personal_preferences"))
         XCTAssertTrue(source.contains("GlobalAgentInstructionsSettingsView()"))
         XCTAssertTrue(source.contains("AlignedPlaceholderTextEditor("))
         XCTAssertTrue(source.contains("settings.personal_preferences.changes_apply"))
     }
 
-    func testComputerUseExperimentIsComingSoonAndCannotBeEnabled() throws {
+    func testComputerUseExperimentRoutesToItsDedicatedSettings() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -121,10 +123,9 @@ final class LocalizationTests: XCTestCase {
                 .components(separatedBy: "private struct GeneralSettingsView: View {").first
         )
 
-        XCTAssertTrue(experimentsView.contains("settings.experiments.computer_use.title"))
-        XCTAssertTrue(experimentsView.contains("settings.experiments.coming_soon"))
-        XCTAssertTrue(experimentsView.contains("Toggle(isOn: .constant(false))"))
-        XCTAssertTrue(experimentsView.contains(".disabled(true)"))
+        XCTAssertTrue(experimentsView.contains("computer_use.settings"))
+        XCTAssertTrue(experimentsView.contains("AppSettingsNavigation.shared.selection = .computerUse"))
+        XCTAssertFalse(experimentsView.contains("Toggle("))
     }
 
     func testEveryReferencedLocalizationKeyExistsInTheCatalog() throws {

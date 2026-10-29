@@ -7,15 +7,18 @@ struct AppSettingsView: View {
     @ObservedObject var providerAuthStore: ProviderAuthStore
     @ObservedObject var installedExtensionsStore: InstalledExtensionsStore
     @ObservedObject var mcpStore: MCPStore
+    @ObservedObject var computerUseStore: ComputerUseStore
+    @ObservedObject var rtkStore: RTKStore
     @ObservedObject var languageStore: LanguageStore
     @ObservedObject var updateController: AppUpdateController
     @ObservedObject var runtimeUpdateController: AgentRuntimeUpdateController
     @StateObject private var globalInstructionsStore = GlobalAgentInstructionsStore.applicationDefault()
-    @State private var selection: SettingsDestination? = .general
+    @ObservedObject private var navigation = AppSettingsNavigation.shared
+    private var selection: SettingsDestination? { navigation.selection }
 
     var body: some View {
         HSplitView {
-            SettingsSidebar(selection: $selection, language: languageStore.language)
+            SettingsSidebar(selection: $navigation.selection, language: languageStore.language)
                 .frame(minWidth: 180, idealWidth: 200, maxWidth: 240)
 
             Group {
@@ -28,6 +31,10 @@ struct AppSettingsView: View {
                     )
                 case .agent:
                     AgentGeneralSettingsView(store: agentSettingsStore)
+                case .computerUse:
+                    ComputerUseSettingsView(store: computerUseStore)
+                case .rtk:
+                    RTKSettingsView(store: rtkStore)
                 case .extensions:
                     ExtensionSettingsView(store: installedExtensionsStore)
                 case .mcp:
@@ -53,49 +60,6 @@ struct AppSettingsView: View {
     }
 }
 
-private enum SettingsDestination: String, CaseIterable, Identifiable {
-    case general
-    case agent
-    case extensions
-    case mcp
-    case personalPreferences
-    case modelsAndAuthentication
-    case experiments
-
-    var id: String { rawValue }
-
-    func title(language: AppLanguage) -> String {
-        switch self {
-        case .general:
-            return L10n.string("settings.sidebar.general", language: language)
-        case .agent:
-            return L10n.string("settings.sidebar.agent", language: language)
-        case .extensions:
-            return L10n.string("settings.sidebar.extensions", language: language)
-        case .mcp:
-            return "MCP"
-        case .personalPreferences:
-            return L10n.string("settings.sidebar.personal_preferences", language: language)
-        case .modelsAndAuthentication:
-            return L10n.string("settings.sidebar.models_auth", language: language)
-        case .experiments:
-            return L10n.string("settings.sidebar.experiments", language: language)
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .general: return "gearshape"
-        case .agent: return "slider.horizontal.3"
-        case .extensions: return "puzzlepiece.extension"
-        case .mcp: return ""
-        case .personalPreferences: return "person.text.rectangle"
-        case .modelsAndAuthentication: return "key.horizontal"
-        case .experiments: return "flask"
-        }
-    }
-}
-
 private struct SettingsSidebar: View {
     @Binding var selection: SettingsDestination?
     let language: AppLanguage
@@ -108,11 +72,11 @@ private struct SettingsSidebar: View {
             Section(L10n.string("settings.sidebar.section", language: language)) {
                 ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
                     Group {
-                        if destination == .mcp {
+                        if destination == .mcp || destination == .computerUse || destination == .rtk {
                             Label {
                                 Text(destination.title(language: language))
                             } icon: {
-                                MCPGlyph(name: "Plug")
+                                MCPGlyph(name: destination == .mcp ? "Plug" : destination == .rtk ? "Terminal" : "Monitor")
                             }
                         } else {
                             Label(destination.title(language: language), systemImage: destination.icon)
@@ -286,21 +250,11 @@ private struct ExperimentsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: .constant(false)) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(L10n.string("settings.experiments.computer_use.title"))
-                        Text(L10n.string("settings.experiments.computer_use.description"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                Button(L10n.string("computer_use.settings")) {
+                    AppSettingsNavigation.shared.selection = .computerUse
                 }
-                .toggleStyle(.switch)
-                .accessibilityLabel(L10n.string("settings.experiments.computer_use.title"))
-                .disabled(true)
             } header: {
                 Text(L10n.string("settings.experiments.subtitle"))
-            } footer: {
-                Text(L10n.string("settings.experiments.coming_soon"))
             }
         }
         .formStyle(.grouped)

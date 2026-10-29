@@ -37,6 +37,7 @@ namespaced extension methods:
 - model/provider catalog and Pi's multi-provider authentication management
 - persistent Agent Host settings
 - application MCP server configuration, diagnostics, and OAuth management
+- RTK installation, enablement, version checks, and local savings statistics (`_piWork/rtk/get`, `_piWork/rtk/action`)
 - extension package installation, configuration, update, enablement, and removal
 - Git branch discovery and selection
 - HTML export

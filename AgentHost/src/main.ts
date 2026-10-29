@@ -49,6 +49,7 @@ import {
 } from "./acp-protocol.ts";
 import { ACPElicitationBroker } from "./acp-extension-ui.ts";
 import { createPiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
+import { RTKCoordinator } from "./rtk.ts";
 import { listAvailableModels } from "./model-catalog.ts";
 import { modelRuntimeOptions } from "./model-runtime-options.ts";
 import { installProviderAuthOverrides } from "./provider-auth-overrides.ts";
@@ -70,6 +71,7 @@ import {
 } from "./access-policy.ts";
 import { inspectGitBranches } from "./git-branches.ts";
 import { McpCoordinator, parseACPMcpServers } from "./mcp-coordinator.ts";
+import { ComputerUseCoordinator } from "./computer-use.ts";
 
 Bun.env.PI_WORK_AGENT_HOST = "1";
 takeOverStdout();
@@ -220,6 +222,8 @@ function writeHostRecord(record: unknown): void {
 const hostVersion = Bun.env.PI_WORK_HOST_VERSION ?? packageMetadata.version;
 const sessionCatalog = new SessionCatalog();
 const mcpCoordinator = new McpCoordinator(agentDirectory(Bun.env) ?? getAgentDir());
+const computerUseCoordinator = new ComputerUseCoordinator(agentDirectory(Bun.env) ?? getAgentDir());
+const rtkCoordinator = new RTKCoordinator(agentDirectory(Bun.env) ?? getAgentDir());
 let modelRuntimePromise: Promise<ModelRuntime> | undefined;
 let providerAuthCoordinatorPromise: Promise<ProviderAuthCoordinator> | undefined;
 let agentSettingsCoordinator: AgentSettingsCoordinator | undefined;
@@ -265,6 +269,36 @@ class HostRequestError extends Error {
 }
 
 async function handleRequest(request: HostRequest): Promise<HostResponse> {
+  if (request.method === "rtk.get" || request.method === "rtk.action") {
+    const params = request.params ?? {};
+    if (request.method === "rtk.action" && typeof params.action !== "string") throw new Error("RTK action requires a string action");
+    const result = request.method === "rtk.get"
+      ? await rtkCoordinator.snapshot(params.checkLatest === true)
+      : await rtkCoordinator.action(params.action as string);
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result };
+  }
+  if (request.method === "computerUse.verify") {
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true,
+      result: await computerUseCoordinator.verify() };
+  }
+  if (request.method === "computerUse.get" || request.method === "computerUse.action") {
+    const params = request.params ?? {};
+    let result;
+    if (request.method === "computerUse.get") result = params.check === true
+      ? await computerUseCoordinator.check() : computerUseCoordinator.snapshot();
+    else {
+      switch (params.action) {
+        case "enable": result = await computerUseCoordinator.setEnabled(true); break;
+        case "disable": result = await computerUseCoordinator.setEnabled(false); break;
+        case "check": result = await computerUseCoordinator.check(); break;
+        case "recheck": result = await computerUseCoordinator.recheck(params.force === true); break;
+        case "accessibility": case "screenRecording": result = await computerUseCoordinator.permission(params.action); break;
+        case "stop": result = computerUseCoordinator.stop(); break;
+        default: throw new Error("Unknown computer use action");
+      }
+    }
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result };
+  }
   if (request.method.startsWith("mcp.")) {
     const params = request.params ?? {};
     if (request.method === "mcp.list") {
@@ -609,6 +643,8 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
       mcp: mcpCoordinator,
+      computerUse: computerUseCoordinator,
+      rtk: rtkCoordinator,
       mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(cwd, Bun.env),
       ...(clientSupportsACPFormElicitation
@@ -674,6 +710,8 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
       mcp: mcpCoordinator,
+      computerUse: computerUseCoordinator,
+      rtk: rtkCoordinator,
       mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
       ...(clientSupportsACPFormElicitation
@@ -757,6 +795,8 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
       mcp: mcpCoordinator,
+      computerUse: computerUseCoordinator,
+      rtk: rtkCoordinator,
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
     });
     try {
@@ -1372,6 +1412,11 @@ function normalizeACPRequest(request: ACPRequest): HostRequest {
     "_piWork/mcp/save": "mcp.save",
     "_piWork/mcp/import": "mcp.import",
     "_piWork/mcp/action": "mcp.action",
+    "_piWork/computerUse/get": "computerUse.get",
+    "_piWork/computerUse/action": "computerUse.action",
+    "_piWork/computerUse/verify": "computerUse.verify",
+    "_piWork/rtk/get": "rtk.get",
+    "_piWork/rtk/action": "rtk.action",
     "_piWork/extensions/listInstalled": "extensions.listInstalled",
     "_piWork/extensions/install": "extensions.install",
     "_piWork/extensions/setEnabled": "extensions.setEnabled",
@@ -1464,12 +1509,12 @@ const pendingPrompts = new Set<Promise<void>>();
 async function dispatchLine(line: string): Promise<void> {
   let method: unknown;
   try { method = (JSON.parse(line) as { method?: unknown }).method; } catch { /* handleLine reports malformed JSON */ }
-  if (method !== "session/prompt") {
+  if (method !== "session/prompt" && method !== "_piWork/computerUse/verify") {
     await handleLine(line);
     return;
   }
-  // ACP prompt responses wait for the entire turn. Keep reading stdin so tool
-  // approvals, elicitation responses, cancellation and other sessions can run.
+  // Prompts and desktop verification wait for work to finish. Keep reading stdin
+  // so approvals, cancellation, and the global computer-use stop still work.
   const prompt = handleLine(line);
   pendingPrompts.add(prompt);
   void prompt.then(() => pendingPrompts.delete(prompt), () => pendingPrompts.delete(prompt));
@@ -1489,6 +1534,7 @@ for await (const chunk of Bun.stdin.stream()) {
 }
 
 sessionRegistry.closeAll();
+await computerUseCoordinator.dispose();
 await mcpCoordinator.close();
 await Promise.all(pendingPrompts);
 await flushRawStdout();

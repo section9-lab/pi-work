@@ -42,12 +42,16 @@ struct PiWorkApp: App {
                let providerAuthStore = agentRuntime.providerAuthStore,
                let installedExtensionsStore = agentRuntime.installedExtensionsStore,
                let mcpStore = agentRuntime.mcpStore,
+               let computerUseStore = agentRuntime.computerUseStore,
+               let rtkStore = agentRuntime.rtkStore,
                let runtimeUpdateController = agentRuntime.runtimeUpdateController {
                 AppSettingsView(
                     agentSettingsStore: agentSettingsStore,
                     providerAuthStore: providerAuthStore,
                     installedExtensionsStore: installedExtensionsStore,
                     mcpStore: mcpStore,
+                    computerUseStore: computerUseStore,
+                    rtkStore: rtkStore,
                     languageStore: languageStore,
                     updateController: updateController,
                     runtimeUpdateController: runtimeUpdateController
@@ -101,6 +105,7 @@ private struct RootView: View {
                    let scheduleRunner = agentRuntime.scheduleRunner {
                     ContentView(
                         sessionStore: sessionStore,
+                        computerUseStore: agentRuntime.computerUseStore,
                         installedExtensionsStore: installedExtensionsStore,
                         scheduleStore: agentRuntime.scheduleStore,
                         scheduleRunner: scheduleRunner
@@ -140,6 +145,7 @@ private struct RootView: View {
         .task(id: authSession.isSignedIn) {
             if authSession.isSignedIn {
                 await agentRuntime.runtimeUpdateController?.start()
+                await agentRuntime.computerUseStore?.load(check: true)
                 agentRuntime.scheduleRunner?.start()
             } else {
                 agentRuntime.scheduleRunner?.stop()
@@ -156,6 +162,8 @@ final class AppAgentRuntime: ObservableObject {
     let providerAuthStore: ProviderAuthStore?
     let installedExtensionsStore: InstalledExtensionsStore?
     let mcpStore: MCPStore?
+    let computerUseStore: ComputerUseStore?
+    let rtkStore: RTKStore?
     let runtimeUpdateController: AgentRuntimeUpdateController?
     let scheduleStore: ScheduleStore
     let scheduleRunner: ScheduleRunner?
@@ -175,6 +183,8 @@ final class AppAgentRuntime: ObservableObject {
             providerAuthStore = ProviderAuthStore(service: service)
             installedExtensionsStore = InstalledExtensionsStore(service: service)
             mcpStore = MCPStore(service: service)
+            computerUseStore = ComputerUseStore(service: service)
+            rtkStore = RTKStore(service: service)
             scheduleRunner = ScheduleRunner(
                 store: scheduleStore,
                 executor: ScheduleAgentExecutor(sessionClient: sessionStore)
@@ -187,6 +197,8 @@ final class AppAgentRuntime: ObservableObject {
             providerAuthStore = nil
             installedExtensionsStore = nil
             mcpStore = nil
+            computerUseStore = nil
+            rtkStore = nil
             runtimeUpdateController = nil
             scheduleRunner = nil
             errorMessage = String(describing: error)
