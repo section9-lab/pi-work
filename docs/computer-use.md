@@ -18,8 +18,9 @@ service ready. On macOS 13 the switch is disabled and the helper is never
 started. Turning the feature off keeps macOS grants but immediately rejects new
 calls and cancels queued calls and pending approvals.
 
-The input toolbar has a status/settings shortcut. The old experiment entry
-routes to the same settings page; there is only one master switch.
+The input toolbar has a status/settings shortcut. Computer Use has a dedicated
+settings page and one master switch. Keep the feature name **Computer Use** in
+every language, while localizing explanations, permission labels, and actions.
 
 ## Permission policy and lifecycle
 

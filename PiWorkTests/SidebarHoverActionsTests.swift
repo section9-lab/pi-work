@@ -210,7 +210,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         )
         let preferences = try XCTUnwrap(
             source.components(separatedBy: "private struct GlobalAgentInstructionsSettingsView").last?
-                .components(separatedBy: "private struct ExperimentsSettingsView").first
+                .components(separatedBy: "private struct AlignedPlaceholderTextEditor").first
         )
 
         XCTAssertTrue(preferences.contains("AlignedPlaceholderTextEditor("))

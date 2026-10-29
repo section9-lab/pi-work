@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人偏好";
 "settings.sidebar.models_auth" = "供應商";
-"settings.sidebar.experiments" = "實驗";
 "settings.sidebar.extensions" = "外掛程式";
 "settings.sidebar.isolated" = "pi-work 使用獨立設定，不會修改終端機中的 pi。";
 "settings.extensions.title" = "外掛程式設定";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "儲存";
 "settings.personal_preferences.placeholder" = "描述你偏好的語言、語氣、編碼規範和工作規則……";
 "settings.personal_preferences.changes_apply" = "儲存的指令會在之後建立或重新開啟的工作階段中生效。";
-"settings.experiments.title" = "實驗";
-"settings.experiments.subtitle" = "預覽仍在開發中的功能";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "允許 Agent 與 Mac 上的 App 互動";
-"settings.experiments.coming_soon" = "即將推出";
 "settings.general.title" = "一般";
 "settings.general.subtitle" = "選擇 pi-work 的外觀與顯示語言";
 "settings.general.language.title" = "語言";
@@ -719,12 +713,12 @@
 "mcp.validation.unsupportedTransport" = "目前版本支援 STDIO 和 Streamable HTTP。";
 
 // Computer Use
-"computer_use.title" = "電腦使用";
-"computer_use.enable" = "啟用電腦使用";
+"computer_use.title" = "Computer Use";
+"computer_use.enable" = "啟用 Computer Use";
 "computer_use.description" = "允許 PiWork 觀察桌面應用程式，並執行點擊、輸入和捲動。";
 "computer_use.access_note" = "每次呼叫遵循對話存取權限。Chat 會請求核准，並保留檔案和終端機存取限制。";
 "computer_use.unsupported" = "需要 macOS 14 或更新版本。其他功能不受影響。";
-"computer_use.runtime_unsupported" = "請更新代理程式執行環境以使用電腦使用。";
+"computer_use.runtime_unsupported" = "請更新代理程式執行環境以使用 Computer Use。";
 "computer_use.permissions" = "系統權限";
 "computer_use.accessibility" = "輔助使用";
 "computer_use.screen_recording" = "螢幕錄製";
@@ -751,7 +745,7 @@
 "computer_use.restart_busy" = "有電腦操作正在執行，何時套用權限？";
 "computer_use.apply_when_idle" = "完成後套用";
 "computer_use.stop_apply" = "停止操作並套用";
-"computer_use.test" = "測試電腦使用";
+"computer_use.test" = "測試 Computer Use";
 "computer_use.testing" = "正在測試觀察、操作與結果驗證…";
 "computer_use.test_note" = "開啟 PiWork 專用測試視窗，觀察輸入框、寫入測試文字，再重新讀取並核對結果。";
 "computer_use.test_observe" = "桌面觀察";
@@ -759,8 +753,8 @@
 "computer_use.test_verify" = "獨立結果驗證";
 "computer_use.passed" = "通過";
 "computer_use.not_passed" = "未通過";
-"computer_use.test_window_note" = "電腦使用會在下方輸入框中寫入測試文字，並重新讀取核對。";
-"computer_use.settings" = "電腦使用設定…";
+"computer_use.test_window_note" = "Computer Use 會在下方輸入框中寫入測試文字，並重新讀取核對。";
+"computer_use.settings" = "Computer Use 設定…";
 
 // RTK
 "rtk.description" = "RTK 會改寫 Agent 執行的命令（如 git status、cargo test、ls），只保留模型需要的輸出，減少 token 用量。";

@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "Preferencias personales";
 "settings.sidebar.models_auth" = "Proveedores";
-"settings.sidebar.experiments" = "Experimentos";
 "settings.sidebar.extensions" = "Complementos";
 "settings.sidebar.isolated" = "pi-work usa una configuración aislada y nunca modifica pi en la terminal.";
 "settings.extensions.title" = "Configuración de complementos";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "Guardar";
 "settings.personal_preferences.placeholder" = "Describe el idioma, el tono, las convenciones de código y las reglas de trabajo que prefieres…";
 "settings.personal_preferences.changes_apply" = "Las instrucciones guardadas se aplican a las sesiones creadas o reabiertas después.";
-"settings.experiments.title" = "Experimentos";
-"settings.experiments.subtitle" = "Prueba funciones que aún están en desarrollo";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "Permite que el Agent interactúe con las apps de tu Mac";
-"settings.experiments.coming_soon" = "Próximamente";
 "settings.general.title" = "General";
 "settings.general.subtitle" = "Elige el aspecto y el idioma de pi-work";
 "settings.general.language.title" = "Idioma";
@@ -719,8 +713,8 @@
 "mcp.validation.unsupportedTransport" = "Esta versión admite STDIO y Streamable HTTP.";
 
 // Computer Use
-"computer_use.title" = "Uso del ordenador";
-"computer_use.enable" = "Activar uso del ordenador";
+"computer_use.title" = "Computer Use";
+"computer_use.enable" = "Activar Computer Use";
 "computer_use.description" = "Permite a PiWork observar aplicaciones y hacer clic, escribir y desplazarse.";
 "computer_use.access_note" = "Cada llamada respeta los permisos de la conversación. Chat solicita aprobación y mantiene restringidos los archivos y el terminal.";
 "computer_use.unsupported" = "Requiere macOS 14 o posterior. Las demás funciones siguen disponibles.";
@@ -751,7 +745,7 @@
 "computer_use.restart_busy" = "Hay operaciones en curso. ¿Cuándo quieres aplicar los permisos?";
 "computer_use.apply_when_idle" = "Aplicar al terminar";
 "computer_use.stop_apply" = "Detener y aplicar";
-"computer_use.test" = "Probar control del ordenador";
+"computer_use.test" = "Probar Computer Use";
 "computer_use.testing" = "Probando observación, acción y verificación…";
 "computer_use.test_note" = "Abre una ventana de prueba de PiWork, observa el campo, escribe un texto y vuelve a leerlo para verificarlo.";
 "computer_use.test_observe" = "Observación del escritorio";
@@ -760,7 +754,7 @@
 "computer_use.passed" = "Correcto";
 "computer_use.not_passed" = "No superado";
 "computer_use.test_window_note" = "La prueba escribirá texto en este campo y lo leerá para verificarlo.";
-"computer_use.settings" = "Ajustes de uso del ordenador…";
+"computer_use.settings" = "Ajustes de Computer Use…";
 
 // RTK
 "rtk.description" = "RTK transforma los comandos del agente, como git status, cargo test y ls, y conserva la salida que necesita el modelo para reducir el uso de tokens.";

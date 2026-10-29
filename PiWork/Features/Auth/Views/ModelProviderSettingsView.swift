@@ -43,8 +43,6 @@ struct AppSettingsView: View {
                     GlobalAgentInstructionsSettingsView()
                 case .modelsAndAuthentication:
                     ModelProviderSettingsView(store: providerAuthStore)
-                case .experiments:
-                    ExperimentsSettingsView()
                 }
             }
             .navigationTitle((selection ?? .general).title(language: languageStore.language))
@@ -243,21 +241,6 @@ private final class PlaceholderTextView: NSTextView {
                 .foregroundColor: NSColor.placeholderTextColor,
             ]
         )
-    }
-}
-
-private struct ExperimentsSettingsView: View {
-    var body: some View {
-        Form {
-            Section {
-                Button(L10n.string("computer_use.settings")) {
-                    AppSettingsNavigation.shared.selection = .computerUse
-                }
-            } header: {
-                Text(L10n.string("settings.experiments.subtitle"))
-            }
-        }
-        .formStyle(.grouped)
     }
 }
 

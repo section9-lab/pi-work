@@ -16,7 +16,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
     case mcp
     case personalPreferences
     case modelsAndAuthentication
-    case experiments
 
     var id: String { rawValue }
 
@@ -38,8 +37,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
             return L10n.string("settings.sidebar.personal_preferences", language: language)
         case .modelsAndAuthentication:
             return L10n.string("settings.sidebar.models_auth", language: language)
-        case .experiments:
-            return L10n.string("settings.sidebar.experiments", language: language)
         }
     }
 
@@ -53,7 +50,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         case .mcp: return ""
         case .personalPreferences: return "person.text.rectangle"
         case .modelsAndAuthentication: return "key.horizontal"
-        case .experiments: return "flask"
         }
     }
 }

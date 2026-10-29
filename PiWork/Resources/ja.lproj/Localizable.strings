@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人設定";
 "settings.sidebar.models_auth" = "プロバイダー";
-"settings.sidebar.experiments" = "実験";
 "settings.sidebar.extensions" = "プラグイン";
 "settings.sidebar.isolated" = "pi-work は独立した設定を使用し、ターミナルの pi を変更しません。";
 "settings.extensions.title" = "プラグイン設定";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "保存";
 "settings.personal_preferences.placeholder" = "希望する言語、口調、コーディング規約、作業ルールを記述してください…";
 "settings.personal_preferences.changes_apply" = "保存した指示は、以後に作成または再度開いたセッションに適用されます。";
-"settings.experiments.title" = "実験";
-"settings.experiments.subtitle" = "開発中の機能をプレビューします";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "Agent が Mac 上のアプリを操作できるようにします";
-"settings.experiments.coming_soon" = "近日公開";
 "settings.general.title" = "一般";
 "settings.general.subtitle" = "pi-work の表示と使用言語を選択します";
 "settings.general.language.title" = "言語";
@@ -719,8 +713,8 @@
 "mcp.validation.unsupportedTransport" = "このバージョンは STDIO と Streamable HTTP に対応しています。";
 
 // Computer Use
-"computer_use.title" = "コンピューター操作";
-"computer_use.enable" = "コンピューター操作を有効にする";
+"computer_use.title" = "Computer Use";
+"computer_use.enable" = "Computer Use を有効にする";
 "computer_use.description" = "PiWork がアプリの画面を確認し、クリック、文字入力、スクロールを実行できるようにします。";
 "computer_use.access_note" = "各呼び出しには会話のアクセス権限が適用されます。Chat では承認が必要で、ファイルとターミナルへのアクセス制限は維持されます。";
 "computer_use.unsupported" = "macOS 14 以降が必要です。他の機能は引き続き利用できます。";
@@ -751,7 +745,7 @@
 "computer_use.restart_busy" = "操作を実行中です。いつ権限を適用しますか？";
 "computer_use.apply_when_idle" = "操作の完了後に適用";
 "computer_use.stop_apply" = "操作を停止して適用";
-"computer_use.test" = "コンピューター操作をテスト";
+"computer_use.test" = "Computer Use をテスト";
 "computer_use.testing" = "画面確認、操作、結果検証をテスト中…";
 "computer_use.test_note" = "専用のテストウインドウを開き、入力欄を確認し、テキストを入力してから再度読み取って検証します。";
 "computer_use.test_observe" = "画面の確認";
@@ -760,7 +754,7 @@
 "computer_use.passed" = "成功";
 "computer_use.not_passed" = "未成功";
 "computer_use.test_window_note" = "この入力欄にテスト文字列を入力し、再度読み取って検証します。";
-"computer_use.settings" = "コンピューター操作の設定…";
+"computer_use.settings" = "Computer Use の設定…";
 
 // RTK
 "rtk.description" = "RTK は git status、cargo test、ls などのエージェントのシェルコマンドを書き換え、モデルに必要な出力を残してトークン使用量を削減します。";

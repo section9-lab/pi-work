@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "Personal Preferences";
 "settings.sidebar.models_auth" = "Providers";
-"settings.sidebar.experiments" = "Experiments";
 "settings.sidebar.extensions" = "Plugins";
 "settings.sidebar.isolated" = "pi-work uses an isolated configuration and never modifies terminal pi.";
 "settings.extensions.title" = "Plugin Settings";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "Save";
 "settings.personal_preferences.placeholder" = "Describe your preferred language, tone, coding conventions, and working rules…";
 "settings.personal_preferences.changes_apply" = "Saved instructions apply to sessions created or reopened afterward.";
-"settings.experiments.title" = "Experiments";
-"settings.experiments.subtitle" = "Preview features that are still being developed";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "Let the Agent interact with apps on your Mac";
-"settings.experiments.coming_soon" = "Coming Soon";
 "settings.general.title" = "General";
 "settings.general.subtitle" = "Choose how pi-work appears and communicates";
 "settings.general.language.title" = "Language";

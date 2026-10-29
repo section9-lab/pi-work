@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "个人偏好";
 "settings.sidebar.models_auth" = "供应商";
-"settings.sidebar.experiments" = "实验";
 "settings.sidebar.extensions" = "插件";
 "settings.sidebar.isolated" = "pi-work 使用独立配置，不会修改终端中的 pi。";
 "settings.extensions.title" = "插件设置";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "保存";
 "settings.personal_preferences.placeholder" = "描述你偏好的语言、语气、编码规范和工作规则……";
 "settings.personal_preferences.changes_apply" = "保存的指令会在之后创建或重新打开的会话中生效。";
-"settings.experiments.title" = "实验";
-"settings.experiments.subtitle" = "预览仍在开发中的功能";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "允许 Agent 与 Mac 上的应用交互";
-"settings.experiments.coming_soon" = "即将推出";
 "settings.general.title" = "通用";
 "settings.general.subtitle" = "选择 pi-work 的外观与显示语言";
 "settings.general.language.title" = "语言";
@@ -719,12 +713,12 @@
 "mcp.validation.unsupportedTransport" = "当前版本支持 STDIO 和 Streamable HTTP。";
 
 // Computer Use
-"computer_use.title" = "电脑使用";
-"computer_use.enable" = "启用电脑使用";
+"computer_use.title" = "Computer Use";
+"computer_use.enable" = "启用 Computer Use";
 "computer_use.description" = "允许 PiWork 观察桌面应用，并执行点击、输入和滚动。";
 "computer_use.access_note" = "每次调用遵循会话访问权限。Chat 会请求批准，并保留文件和终端访问限制。";
 "computer_use.unsupported" = "需要 macOS 14 或更高版本。其他功能不受影响。";
-"computer_use.runtime_unsupported" = "请更新代理运行时以使用电脑使用。";
+"computer_use.runtime_unsupported" = "请更新代理运行时以使用 Computer Use。";
 "computer_use.permissions" = "系统权限";
 "computer_use.accessibility" = "辅助功能";
 "computer_use.screen_recording" = "屏幕录制";
@@ -751,7 +745,7 @@
 "computer_use.restart_busy" = "有电脑操作正在执行，何时应用权限？";
 "computer_use.apply_when_idle" = "完成后应用";
 "computer_use.stop_apply" = "停止操作并应用";
-"computer_use.test" = "测试电脑使用";
+"computer_use.test" = "测试 Computer Use";
 "computer_use.testing" = "正在测试观察、操作与结果验证…";
 "computer_use.test_note" = "打开 PiWork 专用测试窗口，观察输入框、写入测试文本，再重新读取并核对结果。";
 "computer_use.test_observe" = "桌面观察";
@@ -759,8 +753,8 @@
 "computer_use.test_verify" = "独立结果验证";
 "computer_use.passed" = "通过";
 "computer_use.not_passed" = "未通过";
-"computer_use.test_window_note" = "电脑使用会在下方输入框中写入测试文本，并重新读取核对。";
-"computer_use.settings" = "电脑使用设置…";
+"computer_use.test_window_note" = "Computer Use 会在下方输入框中写入测试文本，并重新读取核对。";
+"computer_use.settings" = "Computer Use 设置…";
 
 // RTK
 "rtk.description" = "RTK 会改写 Agent 执行的命令（如 git status、cargo test、ls），只保留模型需要的输出，减少 token 用量。";

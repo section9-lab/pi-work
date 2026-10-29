@@ -70,25 +70,6 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(chatSource.contains(".lineLimit(3)"))
     }
 
-    func testSettingsSidebarIncludesExperimentsDestination() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift"
-            ),
-            encoding: .utf8
-        )
-
-        let navigation = try String(contentsOf: repositoryRoot.appendingPathComponent("PiWork/Core/UI/AppSettingsNavigation.swift"), encoding: .utf8)
-        XCTAssertTrue(navigation.contains("case experiments"))
-        XCTAssertTrue(navigation.contains("case .experiments: return \"flask\""))
-        XCTAssertTrue(source.contains(".modelsAndAuthentication"))
-        XCTAssertTrue(source.contains(".experiments"))
-        XCTAssertTrue(source.contains("ExperimentsSettingsView()"))
-    }
-
     func testSettingsSidebarIncludesGlobalPersonalPreferencesDestination() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -106,26 +87,6 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(source.contains("GlobalAgentInstructionsSettingsView()"))
         XCTAssertTrue(source.contains("AlignedPlaceholderTextEditor("))
         XCTAssertTrue(source.contains("settings.personal_preferences.changes_apply"))
-    }
-
-    func testComputerUseExperimentRoutesToItsDedicatedSettings() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift"
-            ),
-            encoding: .utf8
-        )
-        let experimentsView = try XCTUnwrap(
-            source.components(separatedBy: "private struct ExperimentsSettingsView: View {").last?
-                .components(separatedBy: "private struct GeneralSettingsView: View {").first
-        )
-
-        XCTAssertTrue(experimentsView.contains("computer_use.settings"))
-        XCTAssertTrue(experimentsView.contains("AppSettingsNavigation.shared.selection = .computerUse"))
-        XCTAssertFalse(experimentsView.contains("Toggle("))
     }
 
     func testEveryReferencedLocalizationKeyExistsInTheCatalog() throws {

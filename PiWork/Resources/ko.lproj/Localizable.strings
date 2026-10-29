@@ -16,7 +16,6 @@
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "개인 환경설정";
 "settings.sidebar.models_auth" = "공급업체";
-"settings.sidebar.experiments" = "실험";
 "settings.sidebar.extensions" = "플러그인";
 "settings.sidebar.isolated" = "pi-work는 독립된 설정을 사용하며 터미널의 pi를 변경하지 않습니다.";
 "settings.extensions.title" = "플러그인 설정";
@@ -45,11 +44,6 @@
 "settings.personal_preferences.save" = "저장";
 "settings.personal_preferences.placeholder" = "선호하는 언어, 어조, 코딩 규칙 및 작업 규칙을 설명하세요…";
 "settings.personal_preferences.changes_apply" = "저장된 지침은 이후에 만들거나 다시 여는 세션에 적용됩니다.";
-"settings.experiments.title" = "실험";
-"settings.experiments.subtitle" = "개발 중인 기능을 미리 확인합니다";
-"settings.experiments.computer_use.title" = "Computer Use";
-"settings.experiments.computer_use.description" = "Agent가 Mac의 앱과 상호 작용하도록 허용합니다";
-"settings.experiments.coming_soon" = "출시 예정";
 "settings.general.title" = "일반";
 "settings.general.subtitle" = "pi-work의 표시 방식과 언어를 선택합니다";
 "settings.general.language.title" = "언어";
@@ -719,8 +713,8 @@
 "mcp.validation.unsupportedTransport" = "이 버전은 STDIO 및 Streamable HTTP를 지원합니다.";
 
 // Computer Use
-"computer_use.title" = "컴퓨터 사용";
-"computer_use.enable" = "컴퓨터 사용 활성화";
+"computer_use.title" = "Computer Use";
+"computer_use.enable" = "Computer Use 활성화";
 "computer_use.description" = "PiWork가 데스크톱 앱을 관찰하고 클릭, 입력 및 스크롤을 수행하도록 허용합니다.";
 "computer_use.access_note" = "각 호출은 대화의 접근 권한을 따릅니다. Chat은 승인을 요청하며 파일과 터미널 접근 제한을 유지합니다.";
 "computer_use.unsupported" = "macOS 14 이상이 필요합니다. 다른 기능은 계속 사용할 수 있습니다.";
@@ -751,7 +745,7 @@
 "computer_use.restart_busy" = "컴퓨터 작업이 실행 중입니다. 언제 권한을 적용할까요?";
 "computer_use.apply_when_idle" = "작업 완료 후 적용";
 "computer_use.stop_apply" = "작업 중지 후 적용";
-"computer_use.test" = "컴퓨터 사용 테스트";
+"computer_use.test" = "Computer Use 테스트";
 "computer_use.testing" = "관찰, 동작 및 결과 검증 테스트 중…";
 "computer_use.test_note" = "전용 테스트 창에서 입력란을 관찰하고 테스트 문구를 입력한 다음 다시 읽어 결과를 검증합니다.";
 "computer_use.test_observe" = "데스크톱 관찰";
@@ -760,7 +754,7 @@
 "computer_use.passed" = "통과";
 "computer_use.not_passed" = "통과하지 못함";
 "computer_use.test_window_note" = "테스트 문구를 아래 입력란에 입력한 다음 다시 읽어 검증합니다.";
-"computer_use.settings" = "컴퓨터 사용 설정…";
+"computer_use.settings" = "Computer Use 설정…";
 
 // RTK
 "rtk.description" = "RTK는 git status, cargo test, ls 같은 에이전트 셸 명령을 변환하여 모델에 필요한 출력만 유지하고 토큰 사용량을 줄입니다.";
