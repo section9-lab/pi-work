@@ -214,7 +214,11 @@ final class ExtensionsCatalogTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(settingsSource.contains("case extensions"))
+        let navigationSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/Core/UI/AppSettingsNavigation.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(navigationSource.contains("case extensions"))
         XCTAssertTrue(settingsSource.contains("ExtensionSettingsView(store: installedExtensionsStore)"))
         XCTAssertTrue(appSource.contains("installedExtensionsStore: installedExtensionsStore"))
     }

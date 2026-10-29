@@ -134,10 +134,22 @@ final class LocalizationTests: XCTestCase {
         let expression = try NSRegularExpression(
             pattern: #"L10n\.(?:string|format)\(\s*\"([^\"]+)\""#
         )
+        // Resolve the finite MCP key families. Keep unknown interpolations in
+        // the audited set so new dynamic keys still fail until covered here.
+        let dynamicKeys: [String: [String]] = [
+            #"mcp.auth.\(auth.state)"#: ["authorizing", "success", "failed", "cancelled"]
+                .map { "mcp.auth." + $0 },
+            #"mcp.status.\(server.status)"#: ["unchecked", "connecting", "connected", "disconnected", "needs-auth", "failed"]
+                .map { "mcp.status." + $0 },
+            #"mcp.validation.\(rawValue)"#: [MCPDraftError.invalidJSON, .invalidName, .invalidURL, .invalidCommand,
+                                          .invalidTimeout, .duplicateKey, .missingKey, .invalidPairs, .unsupportedTransport]
+                .map { "mcp.validation." + $0.rawValue },
+        ]
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        let referencedKeys = Set<String>(expression.matches(in: source, range: range).compactMap { match in
-            guard let keyRange = Range(match.range(at: 1), in: source) else { return nil }
-            return String(source[keyRange])
+        let referencedKeys = Set<String>(expression.matches(in: source, range: range).flatMap { match -> [String] in
+            guard let keyRange = Range(match.range(at: 1), in: source) else { return [] }
+            let key = String(source[keyRange])
+            return dynamicKeys[key] ?? [key]
         })
 
         XCTAssertFalse(referencedKeys.isEmpty)
