@@ -436,7 +436,7 @@ private struct AppUpdateSettingsRow: View {
         case let .updateAvailable(update):
             return L10n.format("update.status.available", update.version)
         case .failed:
-            return L10n.string("update.status.failed")
+            return controller.failureDescription
         }
     }
 

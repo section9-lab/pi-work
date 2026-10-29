@@ -61,6 +61,11 @@
 "update.status.up_to_date" = "PiWork %@ は最新バージョンです。";
 "update.status.available" = "この Mac ではバージョン %@ を利用できます。";
 "update.status.failed" = "GitHub Release を確認できません。もう一度お試しください。";
+"update.error.response" = "GitHub から無効なリリース情報が返されました。時間をおいて再試行してください。";
+"update.error.server" = "GitHub から HTTP %ld が返されました。時間をおいて再試行してください。";
+"update.error.rate_limited" = "GitHub のリクエスト上限に達しました。時間をおいて再試行してください。";
+"update.error.asset" = "この Mac 用のインストーラがリリースにありません。時間をおいて再試行してください。";
+"update.error.open" = "更新のダウンロードリンクを開けません。もう一度お試しください。";
 "update.download" = "アップデートをダウンロード";
 "update.later" = "後で";
 "update.alert.available.title" = "新しいバージョンがあります";

@@ -61,6 +61,11 @@
 "update.status.up_to_date" = "PiWork %@ es la versión más reciente.";
 "update.status.available" = "La versión %@ está disponible para este Mac.";
 "update.status.failed" = "No se pudo consultar GitHub Releases. Inténtalo de nuevo.";
+"update.error.response" = "GitHub devolvió información de versión no válida. Inténtalo más tarde.";
+"update.error.server" = "GitHub devolvió HTTP %ld. Inténtalo más tarde.";
+"update.error.rate_limited" = "Se alcanzó el límite de solicitudes de GitHub. Inténtalo más tarde.";
+"update.error.asset" = "Esta versión no tiene un instalador para este Mac. Inténtalo más tarde.";
+"update.error.open" = "No se pudo abrir el enlace de descarga. Inténtalo de nuevo.";
 "update.download" = "Descargar actualización";
 "update.later" = "Más tarde";
 "update.alert.available.title" = "Hay una nueva versión disponible";

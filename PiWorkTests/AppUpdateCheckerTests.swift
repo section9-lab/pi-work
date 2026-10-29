@@ -138,6 +138,129 @@ final class AppUpdateCheckerTests: XCTestCase {
         XCTAssertEqual(receivedRequest?.value(forHTTPHeaderField: "X-GitHub-Api-Version"), "2022-11-28")
     }
 
+    func testRateLimitedAPIUsesThePublicReleaseWithoutDownloadingTheDMG() async throws {
+        for architecture in [AppArchitecture.arm64, .x86_64] {
+            var requests: [URLRequest] = []
+            let checker = makeRoutedChecker(currentVersion: "0.1.0", architecture: architecture) { request in
+                requests.append(request)
+                if request.url?.host == "api.github.com" {
+                    return self.response(request.url!, status: 403, headers: ["X-RateLimit-Remaining": "0"])
+                }
+                if request.url == GitHubReleaseUpdateChecker.publicReleaseURL {
+                    return self.response(URL(string: "https://github.com/section9-lab/pi-work/releases/tag/v0.2.0")!)
+                }
+                return self.response(URL(string: "https://release-assets.githubusercontent.com/installer.dmg")!)
+            }
+
+            let result = try await checker.check()
+
+            XCTAssertEqual(result, .updateAvailable(AppUpdate(version: "0.2.0", downloadURL: URL(
+                string: "https://github.com/section9-lab/pi-work/releases/download/v0.2.0/PiWork-0.2.0-macos-\(architecture.rawValue).dmg"
+            )!)))
+            XCTAssertEqual(requests.map(\.httpMethod), ["GET", "HEAD", "HEAD"])
+        }
+    }
+
+    func testPublicFallbackReportsInstalledVersionAsUpToDate() async throws {
+        var requestCount = 0
+        let checker = makeRoutedChecker(currentVersion: "0.2.0") { request in
+            requestCount += 1
+            return self.response(request.url?.host == "api.github.com" ? request.url! : URL(
+                string: "https://github.com/section9-lab/pi-work/releases/tag/v0.2.0"
+            )!, status: request.url?.host == "api.github.com" ? 429 : 200)
+        }
+
+        let result = try await checker.check()
+
+        XCTAssertEqual(result, .upToDate(latestVersion: "0.2.0"))
+        XCTAssertEqual(requestCount, 2)
+    }
+
+    func testTransportFailureFallsBackToThePublicRelease() async throws {
+        let checker = makeRoutedChecker(currentVersion: "0.2.0") { request in
+            if request.url?.host == "api.github.com" { throw URLError(.cannotConnectToHost) }
+            return self.response(URL(string: "https://github.com/section9-lab/pi-work/releases/tag/v0.2.0")!)
+        }
+
+        let result = try await checker.check()
+
+        XCTAssertEqual(result, .upToDate(latestVersion: "0.2.0"))
+    }
+
+    func testPublicFallbackRejectsMissingInstallers() async {
+        let checker = makeRoutedChecker(currentVersion: "0.1.0") { request in
+            if request.url?.host == "api.github.com" { return self.response(request.url!, status: 429) }
+            if request.url == GitHubReleaseUpdateChecker.publicReleaseURL {
+                return self.response(URL(string: "https://github.com/section9-lab/pi-work/releases/tag/v0.2.0")!)
+            }
+            return self.response(request.url!, status: 404)
+        }
+
+        do {
+            _ = try await checker.check()
+            XCTFail("Missing installer must not be offered")
+        } catch {
+            XCTAssertEqual(error as? AppUpdateCheckError, .compatibleAssetNotFound)
+        }
+    }
+
+    func testPublicFallbackRejectsForeignAndNonAppReleaseRedirects() async {
+        for address in [
+            "https://github.com/another-owner/pi-work/releases/tag/v0.2.0",
+            "https://example.com/section9-lab/pi-work/releases/tag/v0.2.0",
+            "http://github.com/section9-lab/pi-work/releases/tag/v0.2.0",
+            "https://github.com/section9-lab/pi-work/releases/tag/runtime-v1.0.0",
+            "https://github.com/section9-lab/pi-work/releases/latest"
+        ] {
+            var requests = 0
+            let checker = makeRoutedChecker(currentVersion: "0.1.0") { request in
+                requests += 1
+                return self.response(request.url?.host == "api.github.com" ? request.url! : URL(string: address)!,
+                                     status: request.url?.host == "api.github.com" ? 429 : 200)
+            }
+            do {
+                _ = try await checker.check()
+                XCTFail("Untrusted redirect must not produce an update: \(address)")
+            } catch {
+                XCTAssertEqual(error as? AppUpdateCheckError, .rateLimited)
+                XCTAssertEqual(requests, 2)
+            }
+        }
+    }
+
+    func testPublicFallbackRejectsUntrustedAssetRedirects() async {
+        let checker = makeRoutedChecker(currentVersion: "0.1.0") { request in
+            if request.url?.host == "api.github.com" { return self.response(request.url!, status: 429) }
+            if request.url == GitHubReleaseUpdateChecker.publicReleaseURL {
+                return self.response(URL(string: "https://github.com/section9-lab/pi-work/releases/tag/v0.2.0")!)
+            }
+            return self.response(URL(string: "https://example.com/installer.dmg")!)
+        }
+
+        do {
+            _ = try await checker.check()
+            XCTFail("Untrusted asset must not be offered")
+        } catch {
+            XCTAssertEqual(error as? AppUpdateCheckError, .rateLimited)
+        }
+    }
+
+    func testCancelledRequestDoesNotStartTheFallback() async {
+        var requests = 0
+        let checker = makeRoutedChecker(currentVersion: "0.1.0") { _ in
+            requests += 1
+            throw URLError(.cancelled)
+        }
+
+        do {
+            _ = try await checker.check()
+            XCTFail("Cancelled check must stop")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .cancelled)
+            XCTAssertEqual(requests, 1)
+        }
+    }
+
     @MainActor
     func testControllerPublishesAnAvailableUpdateAndOpensItsDownload() async throws {
         let downloadURL = try XCTUnwrap(URL(string: "https://example.com/PiWork.dmg"))
@@ -173,6 +296,22 @@ final class AppUpdateCheckerTests: XCTestCase {
         await controller.checkForUpdates()
 
         XCTAssertEqual(controller.state, .failed)
+        XCTAssertEqual(controller.failureDescription, AppUpdateCheckError.invalidResponse.localizedDescription)
+    }
+
+    @MainActor
+    func testControllerShowsTheRateLimitReasonAndCanRetry() async {
+        var checks = 0
+        let controller = AppUpdateController(currentVersion: "0.1.0", check: {
+            checks += 1
+            if checks == 1 { throw AppUpdateCheckError.rateLimited }
+            return .upToDate(latestVersion: "0.1.0")
+        }, openURL: { _ in true })
+
+        await controller.checkForUpdates()
+        XCTAssertEqual(controller.failureDescription, L10n.string("update.error.rate_limited"))
+        await controller.checkForUpdates()
+        XCTAssertEqual(controller.state, .upToDate(latestVersion: "0.1.0"))
     }
 
     func testUpdateCheckIsExposedInTheApplicationMenuAndGeneralSettings() throws {
@@ -208,6 +347,22 @@ final class AppUpdateCheckerTests: XCTestCase {
         XCTAssertTrue(appSource.contains("orderFrontStandardAboutPanel"))
         XCTAssertTrue(appSource.contains("currentPiVersion"))
         XCTAssertTrue(configuration.contains("PI_CODING_AGENT_VERSION"))
+    }
+
+    private func makeRoutedChecker(
+        currentVersion: String,
+        architecture: AppArchitecture = .arm64,
+        handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) -> GitHubReleaseUpdateChecker {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UpdateURLProtocolStub.self]
+        UpdateURLProtocolStub.requestHandler = handler
+        return GitHubReleaseUpdateChecker(currentVersion: currentVersion, architecture: architecture,
+                                           session: URLSession(configuration: configuration))
+    }
+
+    private func response(_ url: URL, status: Int = 200, headers: [String: String] = [:]) -> (HTTPURLResponse, Data) {
+        (HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, Data())
     }
 
     private func makeChecker(

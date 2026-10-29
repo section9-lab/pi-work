@@ -61,6 +61,11 @@
 "update.status.up_to_date" = "PiWork %@ 已是最新版本。";
 "update.status.available" = "此 Mac 可更新至 %@。";
 "update.status.failed" = "無法檢查 GitHub Release，請重試。";
+"update.error.response" = "GitHub 傳回了無效的發佈資訊，請稍後重試。";
+"update.error.server" = "GitHub 傳回 HTTP %ld，請稍後重試。";
+"update.error.rate_limited" = "GitHub 請求次數已達上限，請稍後重試。";
+"update.error.asset" = "本次發佈缺少適用於此 Mac 的安裝程式，請稍後重試。";
+"update.error.open" = "無法開啟更新下載連結，請重試。";
 "update.download" = "下載更新";
 "update.later" = "稍後";
 "update.alert.available.title" = "發現新版本";

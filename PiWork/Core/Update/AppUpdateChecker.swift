@@ -66,35 +66,74 @@ enum AppUpdateCheckResult: Equatable {
     case updateAvailable(AppUpdate)
 }
 
-enum AppUpdateCheckError: Error, Equatable {
+enum AppUpdateCheckError: LocalizedError, Equatable {
     case invalidResponse
     case server(statusCode: Int)
+    case rateLimited
     case compatibleAssetNotFound
+    case cannotOpenDownload
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: return L10n.string("update.error.response")
+        case let .server(statusCode): return L10n.format("update.error.server", statusCode)
+        case .rateLimited: return L10n.string("update.error.rate_limited")
+        case .compatibleAssetNotFound: return L10n.string("update.error.asset")
+        case .cannotOpenDownload: return L10n.string("update.error.open")
+        }
+    }
 }
 
 struct GitHubReleaseUpdateChecker {
+    private static let repository = "section9-lab/pi-work"
     static let latestReleaseURL = URL(
-        string: "https://api.github.com/repos/section9-lab/pi-work/releases/latest"
+        string: "https://api.github.com/repos/\(repository)/releases/latest"
     )!
+    private static let repositoryURL = URL(string: "https://github.com/\(repository)")!
+    static let publicReleaseURL = repositoryURL.appendingPathComponent("releases/latest")
 
     let currentVersion: String
     let architecture: AppArchitecture
     let session: URLSession
     let releaseURL: URL
+    let fallbackURL: URL?
 
     init(
         currentVersion: String,
         architecture: AppArchitecture = .current,
         session: URLSession = .shared,
-        releaseURL: URL = GitHubReleaseUpdateChecker.latestReleaseURL
+        releaseURL: URL = GitHubReleaseUpdateChecker.latestReleaseURL,
+        fallbackURL: URL? = GitHubReleaseUpdateChecker.publicReleaseURL
     ) {
         self.currentVersion = currentVersion
         self.architecture = architecture
         self.session = session
         self.releaseURL = releaseURL
+        self.fallbackURL = fallbackURL
     }
 
     func check() async throws -> AppUpdateCheckResult {
+        guard ReleaseVersion(currentVersion) != nil else { throw AppUpdateCheckError.invalidResponse }
+        do {
+            return try await checkAPI()
+        } catch {
+            try Task.checkCancellation()
+            guard let fallbackURL,
+                  !(error is CancellationError),
+                  (error as? URLError)?.code != .cancelled,
+                  (error as? AppUpdateCheckError) != .compatibleAssetNotFound else { throw error }
+            let apiError = error
+            do {
+                return try await checkPublicRelease(at: fallbackURL)
+            } catch {
+                try Task.checkCancellation()
+                if (error as? AppUpdateCheckError) == .compatibleAssetNotFound { throw error }
+                throw apiError
+            }
+        }
+    }
+
+    private func checkAPI() async throws -> AppUpdateCheckResult {
         var request = URLRequest(
             url: releaseURL,
             cachePolicy: .reloadIgnoringLocalCacheData,
@@ -108,6 +147,10 @@ struct GitHubReleaseUpdateChecker {
             throw AppUpdateCheckError.invalidResponse
         }
         guard response.statusCode == 200 else {
+            if response.statusCode == 429 || (response.statusCode == 403
+                && response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0") {
+                throw AppUpdateCheckError.rateLimited
+            }
             throw AppUpdateCheckError.server(statusCode: response.statusCode)
         }
 
@@ -140,6 +183,50 @@ struct GitHubReleaseUpdateChecker {
             version: version,
             downloadURL: asset.browserDownloadURL
         ))
+    }
+
+    /// The public latest-release redirect does not consume anonymous API quota.
+    /// HEAD requests discover the tag and verify the DMG without downloading it.
+    private func checkPublicRelease(at url: URL) async throws -> AppUpdateCheckResult {
+        let response = try await head(url)
+        guard response.statusCode == 200, let resolvedURL = response.url,
+              isTrustedGitHubURL(resolvedURL),
+              resolvedURL.user == nil, resolvedURL.password == nil, resolvedURL.port == nil,
+              resolvedURL.query == nil, resolvedURL.fragment == nil else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+        let components = resolvedURL.pathComponents
+        let tagPrefix = Self.repositoryURL.pathComponents + ["releases", "tag"]
+        guard components.count == tagPrefix.count + 1, components.starts(with: tagPrefix),
+              let tag = components.last, tag.utf8.count <= 64,
+              tag == tag.trimmingCharacters(in: .whitespacesAndNewlines),
+              let latest = ReleaseVersion(tag), let installed = ReleaseVersion(currentVersion) else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+        let version = normalizedVersion(tag)
+        guard installed < latest else { return .upToDate(latestVersion: version) }
+
+        let downloadURL = Self.repositoryURL.appendingPathComponent("releases/download")
+            .appendingPathComponent(tag)
+            .appendingPathComponent("PiWork-\(version)-macos-\(architecture.rawValue).dmg")
+        let assetResponse = try await head(downloadURL)
+        if assetResponse.statusCode == 404 { throw AppUpdateCheckError.compatibleAssetNotFound }
+        guard assetResponse.statusCode == 200, let assetURL = assetResponse.url,
+              AgentRuntimeDownload.isTrusted(assetURL),
+              assetURL.host?.lowercased() != "github.com" || assetURL == downloadURL else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+        return .updateAvailable(AppUpdate(version: version, downloadURL: downloadURL))
+    }
+
+    private func head(_ url: URL) async throws -> HTTPURLResponse {
+        try Task.checkCancellation()
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.httpMethod = "HEAD"
+        let (_, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard let response = response as? HTTPURLResponse else { throw AppUpdateCheckError.invalidResponse }
+        return response
     }
 
     private func normalizedVersion(_ tag: String) -> String {
@@ -189,6 +276,7 @@ final class AppUpdateController: ObservableObject {
     let currentVersion: String
     private let check: Check
     private let openURL: (URL) -> Bool
+    private var lastError: Error?
 
     init(
         currentVersion: String,
@@ -222,8 +310,13 @@ final class AppUpdateController: ObservableObject {
 
     var isChecking: Bool { state == .checking }
 
+    var failureDescription: String {
+        lastError?.localizedDescription ?? L10n.string("update.alert.failed.message")
+    }
+
     func checkForUpdates() async {
         guard !isChecking else { return }
+        lastError = nil
         state = .checking
         do {
             switch try await check() {
@@ -233,6 +326,7 @@ final class AppUpdateController: ObservableObject {
                 state = .updateAvailable(update)
             }
         } catch {
+            lastError = error
             state = .failed
         }
     }
@@ -246,7 +340,10 @@ final class AppUpdateController: ObservableObject {
     func openAvailableUpdate() -> Bool {
         guard case let .updateAvailable(update) = state else { return false }
         let opened = openURL(update.downloadURL)
-        if !opened { state = .failed }
+        if !opened {
+            lastError = AppUpdateCheckError.cannotOpenDownload
+            state = .failed
+        }
         return opened
     }
 
@@ -274,7 +371,7 @@ final class AppUpdateController: ObservableObject {
         case .failed:
             alert.alertStyle = .warning
             alert.messageText = L10n.string("update.alert.failed.title")
-            alert.informativeText = L10n.string("update.alert.failed.message")
+            alert.informativeText = failureDescription
             alert.addButton(withTitle: L10n.string("common.done"))
         case .idle, .checking:
             return
