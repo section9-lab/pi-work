@@ -8,6 +8,7 @@ import {
   createACPSessionConfigOptions,
   decodeACPModelValue,
   createACPSessionUpdate,
+  createACPEventMetadata,
   decodeACPMessage,
   encodeACPMessage,
   normalizeACPPromptContent,
@@ -15,6 +16,16 @@ import {
 } from "../src/acp-protocol.ts";
 
 describe("ACP v1 JSON-RPC protocol", () => {
+  test("preserves stream identity and ordering without forwarding unrelated payload values", () => {
+    const event = { sequence: 12, turnId: "turn-one", generationIndex: 3, contentIndex: 1, phase: "delta", token: "private" };
+    const metadata = { sequence: 12, turnId: "turn-one", generationIndex: 3, contentIndex: 1, phase: "delta" };
+    expect(createACPEventMetadata(event)).toEqual(metadata);
+    expect(createACPSessionUpdate("session-one", {
+      sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello" },
+    }, event)).toMatchObject({ params: { update: { _meta: metadata } } });
+    expect(createACPEventMetadata({ sequence: NaN, generationIndex: -1, contentIndex: "1" })).toEqual({});
+  });
+
   test("detects only explicitly advertised ACP form elicitation support", () => {
     expect(clientSupportsFormElicitation({
       clientCapabilities: { elicitation: { form: {} } },
@@ -103,7 +114,7 @@ describe("ACP v1 JSON-RPC protocol", () => {
       agentInfo: { name: "pi-work-agent-host", version: "0.1.0" },
       agentCapabilities: {
         promptCapabilities: { image: true, audio: false, embeddedContext: false },
-        mcpCapabilities: { http: false, sse: false },
+        mcpCapabilities: { http: true, sse: false },
         sessionCapabilities: {
           list: {},
           delete: {},
@@ -131,6 +142,10 @@ describe("ACP v1 JSON-RPC protocol", () => {
             "extensions.remove",
             "extensions.settings.list",
             "extensions.settings.update",
+            "mcp.list",
+            "mcp.save",
+            "mcp.import",
+            "mcp.action",
             "git.branches",
             "session.exportHtml",
             "session.snapshot",

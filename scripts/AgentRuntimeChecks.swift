@@ -184,7 +184,9 @@ struct AgentRuntimeChecks {
             environment: ["PI_WORK_TEST_CRASH": "1"],
             handshakeTimeout: 1, runtimeStore: crashStore)
         let initial = try await crashService.start()
-        try expect(initial.runtime?.version == fixtureManifest.version, "verified external runtime not started")
+        let crashSelection = try await crashStore.selection()
+        try expect(initial.runtime?.version == fixtureManifest.version,
+                   "verified external runtime not started: \(crashSelection.lastFailure ?? "no failure recorded")")
         try rejects("wrong runtime handshake accepted") {
             try AgentRuntimeHealth.validate(AgentHostHelloPayload(
                 hostVersion: initial.hostVersion, piVersion: initial.piVersion, capabilities: [],

@@ -39,6 +39,7 @@ import {
   createACPSessionConfigOptions,
   createACPSessionModeState,
   createACPSessionUpdate,
+  createACPEventMetadata,
   decodeACPModelValue,
   encodeACPMessage,
   normalizeACPPromptContent,
@@ -68,6 +69,7 @@ import {
   type AccessMode,
 } from "./access-policy.ts";
 import { inspectGitBranches } from "./git-branches.ts";
+import { McpCoordinator, parseACPMcpServers } from "./mcp-coordinator.ts";
 
 Bun.env.PI_WORK_AGENT_HOST = "1";
 takeOverStdout();
@@ -84,14 +86,14 @@ function writeHostRecord(record: unknown): void {
       writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: value.delta },
-      })));
+      }, value)));
       return;
     }
     if (value.contentType === "thinking" && typeof value.delta === "string") {
       writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
         sessionUpdate: "agent_thought_chunk",
         content: { type: "text", text: value.delta },
-      })));
+      }, value)));
       return;
     }
   }
@@ -106,7 +108,7 @@ function writeHostRecord(record: unknown): void {
       rawInput: value.rawInput && typeof value.rawInput === "object"
         ? value.rawInput
         : { summary: String(value.summary ?? "") },
-    })));
+    }, value)));
     return;
   }
   if (legacyRecord.event === "session.toolUpdated" || legacyRecord.event === "session.toolCompleted") {
@@ -148,7 +150,7 @@ function writeHostRecord(record: unknown): void {
         ? { rawOutput: value.rawOutput }
         : {}),
       title: String(value.toolName),
-    })));
+    }, value)));
     return;
   }
   if (legacyRecord.event === "session.planChanged") {
@@ -156,7 +158,7 @@ function writeHostRecord(record: unknown): void {
     writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
       sessionUpdate: "plan",
       entries: Array.isArray(value.entries) ? value.entries : [],
-    })));
+    }, value)));
     return;
   }
   if (legacyRecord.event === "session.extensionStatusChanged") {
@@ -165,7 +167,7 @@ function writeHostRecord(record: unknown): void {
       sessionUpdate: "_piWork/extension_status",
       key: String(value.key),
       ...(typeof value.text === "string" ? { text: value.text } : {}),
-    })));
+    }, value)));
     return;
   }
   if (legacyRecord.event === "session.extensionWidgetChanged") {
@@ -174,7 +176,7 @@ function writeHostRecord(record: unknown): void {
       sessionUpdate: "_piWork/extension_widget",
       key: String(value.key),
       ...(value.widget as Record<string, unknown> | undefined),
-    })));
+    }, value)));
     return;
   }
   if (legacyRecord.event === "session.approvalRequested") {
@@ -196,6 +198,7 @@ function writeHostRecord(record: unknown): void {
           kind: "other",
           status: "pending",
           rawInput: { summary: String(value.summary ?? "") },
+          _meta: createACPEventMetadata(value),
         },
         options: [
           { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
@@ -205,11 +208,7 @@ function writeHostRecord(record: unknown): void {
     }));
     return;
   }
-  if (
-    legacyRecord.event === "session.stateChanged"
-    || legacyRecord.event === "session.messageDelta"
-    || legacyRecord.event === "session.error"
-  ) return;
+  if (legacyRecord.event === "session.messageDelta") return;
   const value = payload as Record<string, unknown> | undefined;
   writeRawStdout(encodeACPMessage({
     jsonrpc: "2.0",
@@ -220,6 +219,7 @@ function writeHostRecord(record: unknown): void {
 
 const hostVersion = Bun.env.PI_WORK_HOST_VERSION ?? packageMetadata.version;
 const sessionCatalog = new SessionCatalog();
+const mcpCoordinator = new McpCoordinator(agentDirectory(Bun.env) ?? getAgentDir());
 let modelRuntimePromise: Promise<ModelRuntime> | undefined;
 let providerAuthCoordinatorPromise: Promise<ProviderAuthCoordinator> | undefined;
 let agentSettingsCoordinator: AgentSettingsCoordinator | undefined;
@@ -265,6 +265,51 @@ class HostRequestError extends Error {
 }
 
 async function handleRequest(request: HostRequest): Promise<HostResponse> {
+  if (request.method.startsWith("mcp.")) {
+    const params = request.params ?? {};
+    if (request.method === "mcp.list") {
+      return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result: mcpCoordinator.snapshot() };
+    }
+    if (request.method === "mcp.save") {
+      if (typeof params.name !== "string" || typeof params.configurationJSON !== "string"
+        || typeof params.allowInChat !== "boolean" || !Array.isArray(params.readOnlyTools)
+        || !params.readOnlyTools.every((value) => typeof value === "string")) throw new Error("Invalid MCP server settings");
+      mcpCoordinator.save(params.name, params.configurationJSON, { allowInChat: params.allowInChat, readOnlyTools: params.readOnlyTools });
+      await sessionRegistry.reloadExtensions();
+    } else if (request.method === "mcp.import") {
+      if (typeof params.configurationJSON !== "string") throw new Error("MCP import requires JSON configuration");
+      mcpCoordinator.importConfiguration(params.configurationJSON);
+      await sessionRegistry.reloadExtensions();
+    } else if (request.method === "mcp.action") {
+      if (typeof params.name !== "string") throw new Error("MCP action requires a server name");
+      switch (params.action) {
+        case "check":
+          mcpCoordinator.startCheck(params.name);
+          await sessionRegistry.reloadExtensions();
+          break;
+        case "enable": case "disable":
+          mcpCoordinator.setEnabled(params.name, params.action === "enable");
+          await sessionRegistry.reloadExtensions();
+          break;
+        case "remove":
+          mcpCoordinator.remove(params.name);
+          await sessionRegistry.reloadExtensions();
+          break;
+        case "login": mcpCoordinator.startLogin(params.name); break;
+        case "cancelLogin": mcpCoordinator.cancelLogin(params.name); break;
+        case "completeLogin":
+          if (typeof params.redirectURL !== "string") throw new Error("MCP login requires a callback URL");
+          mcpCoordinator.completeLogin(params.redirectURL);
+          break;
+        case "logout":
+          mcpCoordinator.logout(params.name);
+          await sessionRegistry.reloadExtensions();
+          break;
+        default: throw new Error("Unknown MCP action");
+      }
+    } else throw new Error("Unknown MCP request");
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result: mcpCoordinator.snapshot() };
+  }
   if (request.method === "settings.get") {
     return {
       version: PROTOCOL_VERSION,
@@ -563,6 +608,8 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       profile: profile as SessionProfile,
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
+      mcp: mcpCoordinator,
+      mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(cwd, Bun.env),
       ...(clientSupportsACPFormElicitation
         ? { requestElicitation: elicitationBroker.request }
@@ -603,8 +650,10 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
 
     await getExtensionPackagesCoordinator().list();
     const manager = sessionCatalog.open(path as string, sessionDirectory as string | undefined);
+    const mcpChanged = mcpCoordinator.setSessionServers(manager.getSessionId(), parseACPMcpServers(request.params?.mcpServers));
     const existing = sessionRegistry.descriptor(manager.getSessionId());
     if (existing) {
+      if (mcpChanged) await sessionRegistry.reloadExtensions();
       const state = await acpSessionState(existing.id);
       return {
         version: PROTOCOL_VERSION,
@@ -624,6 +673,8 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       profile,
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
+      mcp: mcpCoordinator,
+      mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
       ...(clientSupportsACPFormElicitation
         ? { requestElicitation: elicitationBroker.request }
@@ -705,6 +756,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       profile,
       modelRuntime: await getModelRuntime(),
       agentDir: agentDirectory(Bun.env),
+      mcp: mcpCoordinator,
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
     });
     try {
@@ -1268,7 +1320,9 @@ async function handleLine(line: string): Promise<void> {
       id: request?.id ?? null,
       error: {
         code: -32000,
-        message: error instanceof Error ? error.message : String(error),
+        message: request?.method.startsWith("_piWork/mcp/") && error instanceof SyntaxError
+          ? "MCP configuration or credential storage contains invalid JSON."
+          : error instanceof Error ? error.message : String(error),
         data: {
           code: error instanceof HostRequestError
             || error instanceof PromptImagesError
@@ -1314,6 +1368,10 @@ function normalizeACPRequest(request: ACPRequest): HostRequest {
     "_piWork/auth/logout": "auth.logout",
     "_piWork/settings/get": "settings.get",
     "_piWork/settings/update": "settings.update",
+    "_piWork/mcp/list": "mcp.list",
+    "_piWork/mcp/save": "mcp.save",
+    "_piWork/mcp/import": "mcp.import",
+    "_piWork/mcp/action": "mcp.action",
     "_piWork/extensions/listInstalled": "extensions.listInstalled",
     "_piWork/extensions/install": "extensions.install",
     "_piWork/extensions/setEnabled": "extensions.setEnabled",
@@ -1361,6 +1419,7 @@ function normalizeACPParams(method: string, params: unknown): unknown {
       cwd: value.cwd,
       sessionDirectory: piWorkMetadata.sessionDirectory,
       profile: piWorkMetadata.profile ?? "work",
+      mcpServers: value.mcpServers,
     };
   }
   if (method === "session/load" || method === "session/resume") {
@@ -1369,6 +1428,7 @@ function normalizeACPParams(method: string, params: unknown): unknown {
       cwd: value.cwd,
       sessionDirectory: piWorkMetadata.sessionDirectory,
       profile: piWorkMetadata.profile ?? "work",
+      mcpServers: value.mcpServers,
     };
   }
   if (method === "session/prompt") {
@@ -1399,6 +1459,21 @@ function normalizeACPParams(method: string, params: unknown): unknown {
 
 const decoder = new TextDecoder();
 let inputBuffer = "";
+const pendingPrompts = new Set<Promise<void>>();
+
+async function dispatchLine(line: string): Promise<void> {
+  let method: unknown;
+  try { method = (JSON.parse(line) as { method?: unknown }).method; } catch { /* handleLine reports malformed JSON */ }
+  if (method !== "session/prompt") {
+    await handleLine(line);
+    return;
+  }
+  // ACP prompt responses wait for the entire turn. Keep reading stdin so tool
+  // approvals, elicitation responses, cancellation and other sessions can run.
+  const prompt = handleLine(line);
+  pendingPrompts.add(prompt);
+  void prompt.then(() => pendingPrompts.delete(prompt), () => pendingPrompts.delete(prompt));
+}
 
 for await (const chunk of Bun.stdin.stream()) {
   inputBuffer += decoder.decode(chunk, { stream: true });
@@ -1408,10 +1483,12 @@ for await (const chunk of Bun.stdin.stream()) {
     let line = inputBuffer.slice(0, newlineIndex);
     inputBuffer = inputBuffer.slice(newlineIndex + 1);
     if (line.endsWith("\r")) line = line.slice(0, -1);
-    await handleLine(line);
+    await dispatchLine(line);
     newlineIndex = inputBuffer.indexOf("\n");
   }
 }
 
 sessionRegistry.closeAll();
+await mcpCoordinator.close();
+await Promise.all(pendingPrompts);
 await flushRawStdout();

@@ -63,6 +63,7 @@ class HeadlessWidgetTUI extends TuiMainScreen {
       clearScreen() {},
       setTitle() {},
       setProgress() {},
+      setProgramStatus() {},
     });
   }
 
@@ -186,7 +187,9 @@ export function createACPExtensionUIContext(
         ...(prefill === undefined ? {} : { default: prefill }),
       });
     },
-    notify() {},
+    notify(message, type) {
+      callbacks.onStatusChanged?.("pi-work.notification", stripTerminalSequences(`${type ?? "info"}: ${message}`));
+    },
     onTerminalInput() { return () => {}; },
     setStatus(key, text) {
       callbacks.onStatusChanged?.(key, text === undefined ? undefined : stripTerminalSequences(text));

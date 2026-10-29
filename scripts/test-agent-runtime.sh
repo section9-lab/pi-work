@@ -10,5 +10,6 @@ swiftc -swift-version 5 -parse-as-library \
   PiWork/Core/Agent/AgentHostExecutable.swift PiWork/Core/Agent/AgentHostProtocol.swift \
   PiWork/Core/Agent/AgentHostLineFramer.swift PiWork/Core/Agent/AgentHostClient.swift \
   PiWork/Core/Agent/AgentHostService.swift scripts/AgentRuntimeChecks.swift \
+  PiWork/Core/Agent/MCPService.swift \
   -o "$RUNTIME_TEST_DIRECTORY/checks"
 "$RUNTIME_TEST_DIRECTORY/checks" "$RUNTIME_TEST_DIRECTORY" "${1:-}"

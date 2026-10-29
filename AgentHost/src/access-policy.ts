@@ -134,6 +134,22 @@ export class AccessController {
     await this.requestApproval(request);
   }
 
+  async authorizeMcp(request: ToolAuthorizationRequest & {
+    approvedReadOnly: boolean;
+    chatAllowed: boolean;
+  }): Promise<void> {
+    if (request.signal?.aborted) throw new AccessPolicyError("approval_cancelled", "MCP call cancelled");
+    if (this.mode === "full") return;
+    if (this.mode === "readOnly") {
+      if (request.approvedReadOnly) return;
+      throw new AccessPolicyError("access_denied", "This MCP tool has not been approved for read-only access");
+    }
+    if (this.mode === "none" && !request.chatAllowed) {
+      throw new AccessPolicyError("access_denied", "This MCP tool is unavailable in Chat");
+    }
+    await this.requestApproval(request);
+  }
+
   pendingApprovals(): AccessApprovalRequest[] {
     return Array.from(this.pending.values(), ({ request }) => request);
   }

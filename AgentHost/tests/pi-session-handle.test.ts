@@ -59,6 +59,7 @@ function makePiSession(overrides: Record<string, unknown> = {}) {
     model: testModel,
     getContextUsage: () => undefined,
     getAllTools: () => [],
+    getActiveToolNames: () => [],
     thinkingLevel: "high" as PiThinkingLevel,
     getAvailableThinkingLevels: (): PiThinkingLevel[] => ["off", "low", "medium", "high", "max"],
     setThinkingLevel: (_level: PiThinkingLevel) => {},

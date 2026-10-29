@@ -24,6 +24,7 @@ The goal is a minimal, responsive Mac experience with a small resource footprint
 - **Chat and code with Pi** in a desktop GUI. Use Chat for everyday conversations, or connect a local folder in Work for project tasks with a chosen Git branch and access level.
 - **Choose your model provider** using the OAuth and API key connections available in the app, then select a model and thinking effort for each session.
 - **Skills and Extensions** make it easy to discover, install, and manage capabilities from the open pi ecosystem.
+- **MCP services** connect local stdio and remote HTTP tools, with OAuth and per-tool permissions in native settings. See the [MCP guide](docs/mcp.md).
 - **Schedule** automates recurring work and keeps every run in view. Scheduled tasks run while pi-work is open.
 - **Made for macOS** with light, dark, and system appearances, plus English, Simplified Chinese, Traditional Chinese, Japanese, Korean, and Spanish interfaces.
 

@@ -41,11 +41,13 @@ struct PiWorkApp: App {
             if let agentSettingsStore = agentRuntime.agentSettingsStore,
                let providerAuthStore = agentRuntime.providerAuthStore,
                let installedExtensionsStore = agentRuntime.installedExtensionsStore,
+               let mcpStore = agentRuntime.mcpStore,
                let runtimeUpdateController = agentRuntime.runtimeUpdateController {
                 AppSettingsView(
                     agentSettingsStore: agentSettingsStore,
                     providerAuthStore: providerAuthStore,
                     installedExtensionsStore: installedExtensionsStore,
+                    mcpStore: mcpStore,
                     languageStore: languageStore,
                     updateController: updateController,
                     runtimeUpdateController: runtimeUpdateController
@@ -153,6 +155,7 @@ final class AppAgentRuntime: ObservableObject {
     let agentSettingsStore: AgentSettingsStore?
     let providerAuthStore: ProviderAuthStore?
     let installedExtensionsStore: InstalledExtensionsStore?
+    let mcpStore: MCPStore?
     let runtimeUpdateController: AgentRuntimeUpdateController?
     let scheduleStore: ScheduleStore
     let scheduleRunner: ScheduleRunner?
@@ -171,6 +174,7 @@ final class AppAgentRuntime: ObservableObject {
             agentSettingsStore = AgentSettingsStore(service: service)
             providerAuthStore = ProviderAuthStore(service: service)
             installedExtensionsStore = InstalledExtensionsStore(service: service)
+            mcpStore = MCPStore(service: service)
             scheduleRunner = ScheduleRunner(
                 store: scheduleStore,
                 executor: ScheduleAgentExecutor(sessionClient: sessionStore)
@@ -182,6 +186,7 @@ final class AppAgentRuntime: ObservableObject {
             agentSettingsStore = nil
             providerAuthStore = nil
             installedExtensionsStore = nil
+            mcpStore = nil
             runtimeUpdateController = nil
             scheduleRunner = nil
             errorMessage = String(describing: error)

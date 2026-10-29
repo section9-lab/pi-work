@@ -383,7 +383,8 @@ extension AgentHostACPSessionState {
 actor AgentHostService: AgentHostServicing,
     ProviderAuthServicing,
     AgentSettingsServicing,
-    InstalledExtensionsServicing {
+    InstalledExtensionsServicing,
+    MCPServicing {
     static let coreCapabilities: Set<String> = []
 
     static func bundled(runtimeStore: AgentRuntimeStore? = nil) throws -> AgentHostService {
@@ -600,7 +601,7 @@ actor AgentHostService: AgentHostServicing,
         id: String = UUID().uuidString,
         method: String,
         params: Parameters,
-        timeout: TimeInterval = 30,
+        timeout: TimeInterval? = 30,
         as responseType: Result.Type
     ) async throws -> Result {
         let hello = try await start()
@@ -1288,6 +1289,9 @@ actor AgentHostService: AgentHostServicing,
                     text: text,
                     images: images
                 ),
+                // ACP resolves after the whole turn, including user approvals.
+                // Tool/model deadlines, cancellation and host exit still apply.
+                timeout: nil,
                 as: AgentHostACPPromptResult.self
             )
         } catch {

@@ -6,6 +6,7 @@ struct AppSettingsView: View {
     @ObservedObject var agentSettingsStore: AgentSettingsStore
     @ObservedObject var providerAuthStore: ProviderAuthStore
     @ObservedObject var installedExtensionsStore: InstalledExtensionsStore
+    @ObservedObject var mcpStore: MCPStore
     @ObservedObject var languageStore: LanguageStore
     @ObservedObject var updateController: AppUpdateController
     @ObservedObject var runtimeUpdateController: AgentRuntimeUpdateController
@@ -29,6 +30,8 @@ struct AppSettingsView: View {
                     AgentGeneralSettingsView(store: agentSettingsStore)
                 case .extensions:
                     ExtensionSettingsView(store: installedExtensionsStore)
+                case .mcp:
+                    MCPSettingsView(store: mcpStore)
                 case .personalPreferences:
                     GlobalAgentInstructionsSettingsView()
                 case .modelsAndAuthentication:
@@ -54,6 +57,7 @@ private enum SettingsDestination: String, CaseIterable, Identifiable {
     case general
     case agent
     case extensions
+    case mcp
     case personalPreferences
     case modelsAndAuthentication
     case experiments
@@ -68,6 +72,8 @@ private enum SettingsDestination: String, CaseIterable, Identifiable {
             return L10n.string("settings.sidebar.agent", language: language)
         case .extensions:
             return L10n.string("settings.sidebar.extensions", language: language)
+        case .mcp:
+            return "MCP"
         case .personalPreferences:
             return L10n.string("settings.sidebar.personal_preferences", language: language)
         case .modelsAndAuthentication:
@@ -82,6 +88,7 @@ private enum SettingsDestination: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .agent: return "slider.horizontal.3"
         case .extensions: return "puzzlepiece.extension"
+        case .mcp: return ""
         case .personalPreferences: return "person.text.rectangle"
         case .modelsAndAuthentication: return "key.horizontal"
         case .experiments: return "flask"
@@ -100,8 +107,17 @@ private struct SettingsSidebar: View {
 
             Section(L10n.string("settings.sidebar.section", language: language)) {
                 ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
-                    Label(destination.title(language: language), systemImage: destination.icon)
-                        .tag(destination)
+                    Group {
+                        if destination == .mcp {
+                            Label {
+                                Text(destination.title(language: language))
+                            } icon: {
+                                MCPGlyph(name: "Plug")
+                            }
+                        } else {
+                            Label(destination.title(language: language), systemImage: destination.icon)
+                        }
+                    }.tag(destination)
                 }
             }
         }

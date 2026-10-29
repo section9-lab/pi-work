@@ -22,6 +22,10 @@ export const PI_WORK_CAPABILITIES = [
   "extensions.remove",
   "extensions.settings.list",
   "extensions.settings.update",
+  "mcp.list",
+  "mcp.save",
+  "mcp.import",
+  "mcp.action",
   "git.branches",
   "session.exportHtml",
   "session.snapshot",
@@ -99,12 +103,26 @@ export function encodeACPMessage(message: ACPMessage): string {
 export function createACPSessionUpdate(
   sessionId: string,
   update: ACPSessionUpdate,
+  event?: Record<string, unknown>,
 ): ACPNotification {
   return {
     jsonrpc: "2.0",
     method: "session/update",
-    params: { sessionId, update },
+    params: { sessionId, update: event ? { ...update, _meta: createACPEventMetadata(event) } : update },
   };
+}
+
+/** Keep stream blocks and event ordering stable across the ACP/private bridge. */
+export function createACPEventMetadata(event: Record<string, unknown>): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  for (const key of ["sequence", "generationIndex", "contentIndex"]) {
+    const value = event[key];
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) metadata[key] = value;
+  }
+  for (const key of ["turnId", "phase"]) {
+    if (typeof event[key] === "string") metadata[key] = event[key];
+  }
+  return metadata;
 }
 
 export function createACPInitializeResult(options: {
@@ -124,7 +142,7 @@ export function createACPInitializeResult(options: {
         embeddedContext: false,
       },
       mcpCapabilities: {
-        http: false,
+        http: true,
         sse: false,
       },
       sessionCapabilities: {

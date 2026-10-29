@@ -2,6 +2,7 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   type InlineExtension,
+  type ExtensionFactory,
   type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
@@ -69,12 +70,13 @@ export async function createPiWorkResourceLoader(options: PiWorkContextOptions &
   cwd: string;
   agentDir?: string;
   settingsManager?: SettingsManager;
+  extensions?: ExtensionFactory[];
 }): Promise<DefaultResourceLoader> {
   const loader = new DefaultResourceLoader({
     cwd: options.cwd,
     agentDir: options.agentDir ?? getAgentDir(),
     settingsManager: options.settingsManager,
-    extensionFactories: [piWorkContextExtension(options)],
+    extensionFactories: [piWorkContextExtension(options), ...(options.extensions ?? [])],
   });
   await loader.reload();
   return loader;

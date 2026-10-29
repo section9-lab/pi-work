@@ -6,6 +6,7 @@ import {
   type ModelRuntime,
   type SessionManager,
   type SettingsManager,
+  type McpServerEntry,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
 
@@ -44,6 +45,8 @@ import {
   createPiWorkResourceLoader,
   type PiWorkProfile,
 } from "./pi-work-context-extension.ts";
+import type { McpCoordinator } from "./mcp-coordinator.ts";
+import { isMcpToolName } from "./mcp-native-adapter.ts";
 
 type PiAgentSession = Pick<
   AgentSession,
@@ -56,6 +59,7 @@ type PiAgentSession = Pick<
   | "setThinkingLevel"
   | "getAvailableThinkingLevels"
   | "getAllTools"
+  | "getActiveToolNames"
   | "setActiveToolsByName"
   | "extensionRunner"
   | "resourceLoader"
@@ -161,11 +165,12 @@ function extensionToolNames(
 ): string[] {
   if (selection === "none") return [];
   return session.getAllTools()
-    .filter(({ sourceInfo }) => (
-      sourceInfo.source !== "builtin"
-      && sourceInfo.source !== "sdk"
-      && (selection === "all" || sourceInfo.source === "npm:pi-web-access")
-    ))
+    .filter(({ name, sourceInfo, exposure }) => {
+      if (name === "tool_search") return true;
+      if (isMcpToolName(name)) return exposure === "direct" || session.getActiveToolNames().includes(name);
+      return sourceInfo.source !== "builtin" && sourceInfo.source !== "sdk"
+        && (selection === "all" || sourceInfo.source === "npm:pi-web-access");
+    })
     .map(({ name }) => name);
 }
 
@@ -180,6 +185,8 @@ export async function createPiSessionHandle(
     now?: () => Date;
     timeZone?: string;
     requestElicitation?: ACPElicitationRequester;
+    mcp?: McpCoordinator;
+    mcpServers?: McpServerEntry[];
   },
   createSession: CreateSession = createAgentSession,
 ): Promise<PiSessionHandle> {
@@ -205,6 +212,10 @@ export async function createPiSessionHandle(
     now: options.now,
     timeZone: options.timeZone,
     selectedGitBranch: () => selectedGitBranch(options.sessionManager),
+    extensions: options.mcp?.extensions({
+      profile: options.profile, controller: accessController, servers: options.mcpServers,
+      sessionId: options.sessionManager.getSessionId(),
+    }),
   });
   if (options.profile === "chat") {
     createOptions.excludeTools = builtInPiToolNames;
@@ -243,11 +254,15 @@ export async function createPiSessionHandle(
         },
       },
     );
-    await session.bindExtensions({
-      uiContext: extensionUI,
-      mode: "rpc",
-    });
   }
+  await session.bindExtensions({
+    uiContext: extensionUI, mode: "rpc",
+    onError: () => {
+      const message = "An extension failed. Check its configuration.";
+      if (handle) handle.setExtensionStatus("pi-work.extensions", message);
+      else pendingStatuses.set("pi-work.extensions", message);
+    },
+  });
   const extensionSelection: ExtensionToolSelection = options.profile === "chat"
     ? "pi-web-access"
     : "all";

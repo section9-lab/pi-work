@@ -161,7 +161,7 @@ actor AgentHostClient {
         id: String = UUID().uuidString,
         method: String,
         params: Parameters,
-        timeout: TimeInterval = 30,
+        timeout: TimeInterval? = 30,
         as responseType: Result.Type
     ) async throws -> Result {
         guard let stdinHandle, process?.isRunning == true else {
@@ -182,13 +182,15 @@ actor AgentHostClient {
                 }
 
                 pendingRequests[id] = continuation
-                requestTimeoutTasks[id] = Task { [weak self] in
-                    do {
-                        try await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
-                    } catch {
-                        return
+                if let timeout {
+                    requestTimeoutTasks[id] = Task { [weak self] in
+                        do {
+                            try await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
+                        } catch {
+                            return
+                        }
+                        await self?.requestDidTimeout(id)
                     }
-                    await self?.requestDidTimeout(id)
                 }
                 do {
                     try stdinHandle.write(contentsOf: line)

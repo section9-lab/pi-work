@@ -36,6 +36,7 @@ namespaced extension methods:
 
 - model/provider catalog and Pi's multi-provider authentication management
 - persistent Agent Host settings
+- application MCP server configuration, diagnostics, and OAuth management
 - extension package installation, configuration, update, enablement, and removal
 - Git branch discovery and selection
 - HTML export
@@ -76,9 +77,11 @@ from probing arbitrary or partially compatible agents with unsupported private r
   per-model context-window or maximum-output metadata.
 - Filesystem, terminal, URL elicitation, and terminal-auth client capabilities are not advertised
   or implemented. Form elicitation is advertised and implemented.
-- MCP HTTP and SSE transports are not advertised. MCP server parameters, including stdio servers,
-  are accepted by the wire shape but are not connected because the Pi runtime has no native MCP
-  integration.
+- MCP stdio and Streamable HTTP servers supplied through `mcpServers` on session creation or
+  restoration are connected through Pi's native MCP extension. HTTP is advertised; deprecated
+  SSE remains unsupported. Client-supplied servers are session-scoped and never persisted. The
+  application-managed MCP catalog, configuration, diagnostics, and OAuth controls use the
+  capability-gated `mcp.list`, `mcp.save`, `mcp.import`, and `mcp.action` PiWork extensions.
 - Embedded-resource and audio prompt blocks are not supported by the native composer. Baseline
   resource links are preserved as Markdown links when forwarded to Pi.
 - Audio tool content is identified but does not yet have native playback controls.
