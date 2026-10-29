@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { chmod, cp, mkdir, readFile, rename, rm } from "node:fs/promises";
-import { release } from "node:os";
+import { release, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionFactory, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AccessController } from "./access-policy.ts";
+import type { AccessController, AccessMode } from "./access-policy.ts";
 
 export const computerUseToolNames = new Set([
   "find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for",
@@ -75,7 +75,7 @@ export class ComputerUseCoordinator {
     // Stable across host recovery: reconnect to our existing helper rather than
     // leaving a new LaunchServices daemon behind after every host crash.
     const identity = createHash("sha256").update(agentDir).digest("hex").slice(0, 12);
-    const socketDirectory = join("/tmp", `piwork-cu-${process.getuid?.() ?? "user"}-${identity}`);
+    const socketDirectory = join(tmpdir(), `pwc-${identity}`);
     if (!options.runtime) {
       process.env.PI_COMPUTER_USE_HELPER_APP_PATH = this.helperPath;
       process.env.PI_CU_SOCKET_PATH = join(socketDirectory, "bridge.sock");
@@ -97,9 +97,10 @@ export class ComputerUseCoordinator {
     return () => { this.listeners.delete(listener); };
   }
   private publish(): void { for (const listener of this.listeners) listener(); }
-  available(name: string, mode: string): boolean {
+  available(name: string, mode: AccessMode, chatAllowed = false): boolean {
     return this.supported && this.enabled && this.status === "ready" && !this.pendingRestart
-      && computerUseToolNames.has(name) && (mode !== "readOnly" || computerUseReadTools.has(name));
+      && (mode !== "none" || chatAllowed) && computerUseToolNames.has(name)
+      && (mode !== "readOnly" || computerUseReadTools.has(name));
   }
 
   async setEnabled(value: boolean): Promise<ComputerUseSnapshot> {
@@ -220,6 +221,10 @@ export class ComputerUseCoordinator {
           if (!tool) throw new Error(`Computer use tool is missing: ${name}`);
           const value = await tool.execute(`verification-${name}`, params, signal, undefined, context);
           if (value.isError) throw new Error("The computer use test tool failed.");
+          if (name === "observe_ui" && params.mode === "visual"
+              && !value.content.some((part) => part.type === "image" && part.data.length > 0)) {
+            throw new Error("The test window outline was returned without a screenshot. Desktop observation did not pass.");
+          }
           return record(value.details);
         };
         const found = await call("find_roots", { pid });
@@ -302,7 +307,7 @@ export class ComputerUseCoordinator {
             // Permission setup belongs to Settings, never to a model tool call.
             const previousHeadless = process.env.PI_COMPUTER_USE_HEADLESS;
             if (controller.mode === "readOnly") process.env.PI_COMPUTER_USE_HEADLESS = "1";
-            let result;
+            let result: Awaited<ReturnType<ToolDefinition["execute"]>>;
             try {
               result = await definition.execute(id, params, callSignal, onUpdate, { ...context, hasUI: false });
             } finally {
@@ -313,7 +318,11 @@ export class ComputerUseCoordinator {
             const details = record(result.details);
             const successor = record(details.capture).stateId ?? details.stateId;
             if (typeof successor === "string") {
-              this.stateOwners.set(successor, { session, generation: this.generation, target: record(details.target) });
+              const observedTarget = record(details.target);
+              this.stateOwners.set(successor, { session, generation: this.generation,
+                // inspect_ui also has a target, but it is an element rather
+                // than a window. Keep the window identity in later approvals.
+                target: typeof observedTarget.pid === "number" ? observedTarget : target });
               if (this.stateOwners.size > 128) this.stateOwners.delete(this.stateOwners.keys().next().value!);
             }
             return result;
@@ -366,7 +375,10 @@ class NativeComputerUseRuntime implements ComputerUseRuntime {
     const sourceBytes = await readFile(join(source, executable));
     const installed = await readFile(join(this.helperPath, executable)).catch(() => undefined);
     const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
-    if (installed && hash(installed) === hash(sourceBytes)) return;
+    if (installed && hash(installed) === hash(sourceBytes)) {
+      try { await runProcess("/usr/bin/codesign", ["--verify", "--strict", this.helperPath]); return; }
+      catch { /* Repair a damaged Info.plist or resource seal from the trusted payload. */ }
+    }
     await runProcess("/usr/bin/codesign", ["--verify", "--strict", source]);
     await this.stop();
     await mkdir(dirname(this.helperPath), { recursive: true, mode: 0o700 });

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AccessController } from "../src/access-policy.ts";
 import { ComputerUseCoordinator, type ComputerUseRuntime } from "../src/computer-use.ts";
 
@@ -35,6 +36,24 @@ function deferred() {
 }
 
 describe("Computer use lifecycle and access", () => {
+  test("registered upstream actions reject historical or foreign state before touching the desktop", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      const tools: ToolDefinition[] = [];
+      await f.coordinator.extension(new AccessController({ cwd: f.directory, mode: "full" }), "work")({
+        registerTool: (tool: ToolDefinition) => { tools.push(tool); },
+      } as unknown as ExtensionAPI);
+      const action = tools.find((tool) => tool.name === "act_ui")!;
+      const outcome = await action.execute("stale", { stateId: "historical-or-foreign",
+        actions: [{ action: "click", x: 10, y: 10 }] }, undefined, undefined,
+        { sessionManager: { getSessionId: () => "session-two" } } as unknown as ExtensionToolContext)
+        .then(() => "unexpected success", (error: unknown) => error instanceof Error ? error.message : String(error));
+      expect(outcome).toContain("Observe the target again");
+      expect(f.coordinator.snapshot().activeCalls).toBe(0);
+    } finally { await f.cleanup(); }
+  });
+
   test("macOS 13 and disabled snapshots never prepare or start a helper", async () => {
     const f = fixture(false);
     try {
@@ -56,6 +75,9 @@ describe("Computer use lifecycle and access", () => {
       expect((await f.coordinator.recheck()).status).toBe("ready");
       expect(f.coordinator.available("observe_ui", "readOnly")).toBe(true);
       expect(f.coordinator.available("act_ui", "readOnly")).toBe(false);
+      expect(f.coordinator.available("observe_ui", "none")).toBe(false);
+      expect(f.coordinator.available("act_ui", "none")).toBe(false);
+      expect(f.coordinator.available("observe_ui", "none", true)).toBe(true);
       expect(f.coordinator.available("evaluate_browser", "full")).toBe(false);
     } finally { await f.cleanup(); }
   });

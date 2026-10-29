@@ -797,3 +797,4 @@
 /* Anonymous product analytics */
 "analytics.title" = "Share anonymous usage";
 "analytics.description" = "Counts daily activity and app versions. No conversations, files, commands or account details are sent.";
+"computer_use.permission_unknown" = "Not checked";

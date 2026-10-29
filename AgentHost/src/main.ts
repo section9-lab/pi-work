@@ -71,7 +71,7 @@ import {
 } from "./access-policy.ts";
 import { inspectGitBranches } from "./git-branches.ts";
 import { McpCoordinator, parseACPMcpServers } from "./mcp-coordinator.ts";
-import { ComputerUseCoordinator } from "./computer-use.ts";
+import { ComputerUseCoordinator, type ComputerUseSnapshot } from "./computer-use.ts";
 
 Bun.env.PI_WORK_AGENT_HOST = "1";
 takeOverStdout();
@@ -283,7 +283,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
   }
   if (request.method === "computerUse.get" || request.method === "computerUse.action") {
     const params = request.params ?? {};
-    let result;
+    let result: ComputerUseSnapshot;
     if (request.method === "computerUse.get") result = params.check === true
       ? await computerUseCoordinator.check() : computerUseCoordinator.snapshot();
     else {

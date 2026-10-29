@@ -171,7 +171,7 @@ function extensionToolNames(
   return session.getAllTools()
     .filter(({ name, sourceInfo, exposure }) => {
       if (name === "tool_search") return true;
-      if (computerUseToolNames.has(name)) return computerUse?.available(name, accessMode) ?? false;
+      if (computerUseToolNames.has(name)) return computerUse?.available(name, accessMode, selection === "pi-web-access") ?? false;
       if (isMcpToolName(name)) return exposure === "direct" || session.getActiveToolNames().includes(name);
       return sourceInfo.source !== "builtin" && sourceInfo.source !== "sdk"
         && (selection === "all" || sourceInfo.source === "npm:pi-web-access");

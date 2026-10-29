@@ -117,7 +117,9 @@ jobs:
       - name: Apply ad-hoc application signature
         run: |
           app_path="$ARCHIVE_PATH/Products/Applications/PiWork.app"
-          codesign --force --deep --sign - "$app_path"
+          # Preserve the helper's staged identity and hardened-runtime flags:
+          # changing them here invalidates existing macOS privacy grants.
+          codesign --force --deep --preserve-metadata=entitlements,flags,runtime --sign - "$app_path"
           echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
 
       - name: Verify application

@@ -9,8 +9,12 @@ COMPUTER_USE_BUN="$COMPUTER_USE_ROOT/build/Bun/$COMPUTER_USE_ARCH/bun"
 (cd AgentHost && "$COMPUTER_USE_BUN" build --compile --no-compile-autoload-bunfig --target="bun-darwin-$COMPUTER_USE_ARCH" src/main.ts --outfile "../build/pi-work-computer-use-host-$COMPUTER_USE_ARCH")
 /usr/bin/codesign --force --sign - "$COMPUTER_USE_ROOT/build/pi-work-computer-use-host-$COMPUTER_USE_ARCH"
 COMPUTER_USE_APP="$COMPUTER_USE_ROOT/build/PiWork-ComputerUse.app"
-mkdir -p "$COMPUTER_USE_APP/Contents/MacOS" "$COMPUTER_USE_APP/Contents/Resources"
-swiftc -swift-version 5 -parse-as-library \
+COMPUTER_USE_HOST_RESOURCES="$COMPUTER_USE_APP/Contents/Resources/AgentHost/$COMPUTER_USE_ARCH"
+mkdir -p "$COMPUTER_USE_APP/Contents/MacOS" "$COMPUTER_USE_HOST_RESOURCES"
+cp "$COMPUTER_USE_ROOT/build/pi-work-computer-use-host-$COMPUTER_USE_ARCH" "$COMPUTER_USE_HOST_RESOURCES/pi-work-agent-host"
+cp -R AgentHost/node_modules/@earendil-works/pi-coding-agent/dist/core/export-html "$COMPUTER_USE_HOST_RESOURCES/"
+cp -R AgentHost/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme "$COMPUTER_USE_HOST_RESOURCES/"
+swiftc -target "$(uname -m)-apple-macosx13.0" -swift-version 5 -parse-as-library \
   PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppSettingsNavigation.swift PiWork/Core/Update/*.swift \
   PiWork/Core/Agent/AgentHostExecutable.swift PiWork/Core/Agent/AgentHostProtocol.swift \
   PiWork/Core/Agent/AgentHostLineFramer.swift PiWork/Core/Agent/AgentHostClient.swift \
@@ -35,4 +39,9 @@ cat > "$COMPUTER_USE_APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 /usr/bin/codesign --force --sign - "$COMPUTER_USE_APP"
+# Launch outside protected Documents folders, just as an installed application.
+COMPUTER_USE_INSTALLED_APP="$HOME/Library/Caches/pi-work/ComputerUseQA/PiWork-ComputerUse.app"
+mkdir -p "$(dirname "$COMPUTER_USE_INSTALLED_APP")"
+/usr/bin/ditto "$COMPUTER_USE_APP" "$COMPUTER_USE_INSTALLED_APP"
 printf 'Built %s\n' "$COMPUTER_USE_APP"
+printf 'Launch: open %q\n' "$COMPUTER_USE_INSTALLED_APP"

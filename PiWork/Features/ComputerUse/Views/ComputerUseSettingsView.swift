@@ -18,6 +18,8 @@ struct ComputerUseSettingsView: View {
                 .toggleStyle(.switch)
                 .disabled(!store.systemSupported || !store.runtimeSupported || store.isWorking || store.isLoading)
                 .accessibilityIdentifier("computer-use-toggle")
+                .accessibilityLabel(L10n.string("computer_use.enable"))
+                .accessibilityHint(L10n.string("computer_use.description"))
                 if !store.systemSupported || !store.runtimeSupported {
                     Text(L10n.string(store.statusKey)).foregroundStyle(.secondary)
                 }
@@ -114,17 +116,24 @@ struct ComputerUseSettingsView: View {
     private func permissionRow(_ title: String, granted: Bool, action: String) -> some View {
         LabeledContent(L10n.string(title)) {
             HStack {
-                Text(L10n.string(granted ? "computer_use.granted" : "computer_use.not_granted"))
+                Text(L10n.string(!store.enabled ? "computer_use.permission_unknown"
+                                : granted ? "computer_use.granted" : "computer_use.not_granted"))
                     .foregroundStyle(.secondary)
                 Button(L10n.string("computer_use.open_settings")) { Task { await store.action(action) } }
                     .disabled(!store.enabled || store.isWorking || store.isActive || store.isTesting)
+                    .accessibilityIdentifier("computer-use-permission-\(action)")
+                    .accessibilityLabel(L10n.string("computer_use.open_settings") + ": " + L10n.string(title))
             }
         }
+        .accessibilityElement(children: .contain)
     }
     private func verificationRow(_ title: String, success: Bool) -> some View {
         LabeledContent(L10n.string(title)) {
             Text(L10n.string(success ? "computer_use.passed" : "computer_use.not_passed"))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.string(title))
+        .accessibilityValue(L10n.string(success ? "computer_use.passed" : "computer_use.not_passed"))
     }
 }
 

@@ -49,6 +49,7 @@ final class ComputerUseStore: ObservableObject {
             let hello = try await service.start()
             runtimeSupported = hello.supportsPiWorkCapability(.computerUseGet)
                 && hello.supportsPiWorkCapability(.computerUseAction)
+                && hello.supportsPiWorkCapability(.computerUseVerify)
             guard runtimeSupported else { snapshot = nil; return }
             snapshot = try await service.computerUseSnapshot(check: check)
             if !silent { errorMessage = snapshot?.error }

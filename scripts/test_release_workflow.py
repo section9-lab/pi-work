@@ -48,7 +48,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = self.workflow_text()
 
         self.assertIn("CODE_SIGNING_ALLOWED=NO", workflow)
-        self.assertIn('codesign --force --deep --sign - "$app_path"', workflow)
+        self.assertIn(
+            'codesign --force --deep --preserve-metadata=entitlements,flags,runtime --sign - "$app_path"',
+            workflow,
+        )
         self.assertIn('codesign --force --sign - "$dmg_path"', workflow)
         self.assertNotIn("notarytool", workflow)
         self.assertNotIn("stapler", workflow)
