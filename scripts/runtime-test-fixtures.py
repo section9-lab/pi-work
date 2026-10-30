@@ -23,12 +23,15 @@ subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(payload / "pi
 (payload / "pi-work-agent-host").chmod(0o755)
 shutil.copyfile(payload / "pi-work-agent-host", payload / "bun")
 (payload / "bun").chmod(0o755)
-for name in ["theme/theme.json", "export-html/template.html"]:
+for name in ["photon_rs_bg.wasm", "theme/theme.json", "export-html/template.html"]:
     path = payload / name
     path.parent.mkdir(exist_ok=True)
     path.write_text("runtime test resource\n")
 metadata = json.loads((Path(__file__).resolve().parents[1] / "AgentHost/package.json").read_text())
 metadata["piWorkRuntime"]["version"] = "1.1.0"
+# Synthetic fixtures deliberately exercise the original client version; actual
+# release artifacts are checked using their declared minimum app version.
+metadata["piWorkRuntime"]["minimumAppVersion"] = "0.1.10"
 architecture = "arm64" if __import__("platform").machine() == "arm64" else "x86_64"
 packager.package(payload, metadata, architecture, root)
 

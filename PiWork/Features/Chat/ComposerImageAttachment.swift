@@ -116,13 +116,13 @@ enum ComposerImagePasteboard {
 
 enum ComposerImageProcessor {
     static let maximumCount = 5
-    static let maximumDimension = 2_000
-    static let maximumImageBytes = 4_718_592
-    static let maximumTotalBytes = 12 * 1_024 * 1_024
+    // Local transport/memory safety bounds, not provider encoding limits.
+    // Pi applies the active model's resize profile after receiving these bytes.
+    static let maximumImageBytes = 50 * 1_024 * 1_024
+    static let maximumTotalBytes = 50 * 1_024 * 1_024
 
     private static let maximumSourceBytes = 50 * 1_024 * 1_024
     private static let maximumPixelCount = 50_000_000
-    private static let minimumDimensionAfterCompression = 320
 
     static func process(
         _ sources: [ComposerImageSource],
@@ -180,7 +180,27 @@ enum ComposerImageProcessor {
             throw ComposerImageAttachmentError.imageDimensionsTooLarge
         }
 
-        let thumbnailSize = min(max(sourceWidth, sourceHeight), maximumDimension)
+        // Pi supports these formats natively. Preserve original bytes, metadata,
+        // dimensions and quality; the SDK owns resizing and provider limits.
+        let supportedTypes: [String: String] = [
+            UTType.png.identifier: "image/png",
+            UTType.jpeg.identifier: "image/jpeg",
+            UTType.gif.identifier: "image/gif",
+            UTType.webP.identifier: "image/webp"
+        ]
+        if let type = CGImageSourceGetType(imageSource) as String?,
+           let mimeType = supportedTypes[type] {
+            return ComposerImageAttachment(
+                mimeType: mimeType,
+                data: source.data,
+                pixelWidth: sourceWidth,
+                pixelHeight: sourceHeight
+            )
+        }
+
+        // Compatibility only: convert TIFF/HEIC clipboard images to lossless PNG
+        // at their original resolution, applying orientation without shrinking.
+        let thumbnailSize = max(sourceWidth, sourceHeight)
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -195,108 +215,33 @@ enum ComposerImageProcessor {
             throw ComposerImageAttachmentError.unsupportedImage
         }
 
-        let mimeType = hasAlpha(thumbnail) ? "image/png" : "image/jpeg"
-        var image = try redraw(
-            thumbnail,
-            width: thumbnail.width,
-            height: thumbnail.height
+        let data = try encodePNG(thumbnail)
+        guard data.count <= maximumImageBytes else {
+            throw ComposerImageAttachmentError.imageTooLarge
+        }
+        return ComposerImageAttachment(
+            mimeType: "image/png",
+            data: data,
+            pixelWidth: thumbnail.width,
+            pixelHeight: thumbnail.height
         )
-        var jpegQuality = 0.84
-
-        for _ in 0..<12 {
-            let data = try encode(image, mimeType: mimeType, jpegQuality: jpegQuality)
-            if data.count <= maximumImageBytes {
-                return ComposerImageAttachment(
-                    mimeType: mimeType,
-                    data: data,
-                    pixelWidth: image.width,
-                    pixelHeight: image.height
-                )
-            }
-
-            if mimeType == "image/jpeg", jpegQuality > 0.58 {
-                jpegQuality -= 0.12
-                continue
-            }
-
-            let longestEdge = max(image.width, image.height)
-            guard longestEdge > minimumDimensionAfterCompression else {
-                throw ComposerImageAttachmentError.imageTooLarge
-            }
-            let sizeRatio = sqrt(Double(maximumImageBytes) / Double(data.count)) * 0.9
-            let targetLongestEdge = max(
-                minimumDimensionAfterCompression,
-                Int(Double(longestEdge) * min(sizeRatio, 0.82))
-            )
-            let scale = Double(targetLongestEdge) / Double(longestEdge)
-            image = try redraw(
-                image,
-                width: max(1, Int(Double(image.width) * scale)),
-                height: max(1, Int(Double(image.height) * scale))
-            )
-            jpegQuality = 0.84
-        }
-
-        throw ComposerImageAttachmentError.imageTooLarge
     }
 
-    private static func redraw(_ image: CGImage, width: Int, height: Int) throws -> CGImage {
-        guard
-            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let context = CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        else {
-            throw ComposerImageAttachmentError.unsupportedImage
-        }
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        guard let result = context.makeImage() else {
-            throw ComposerImageAttachmentError.unsupportedImage
-        }
-        return result
-    }
-
-    private static func encode(
-        _ image: CGImage,
-        mimeType: String,
-        jpegQuality: Double
-    ) throws -> Data {
+    private static func encodePNG(_ image: CGImage) throws -> Data {
         let data = NSMutableData()
-        let type = mimeType == "image/png" ? UTType.png : UTType.jpeg
         guard let destination = CGImageDestinationCreateWithData(
             data,
-            type.identifier as CFString,
+            UTType.png.identifier as CFString,
             1,
             nil
         ) else {
             throw ComposerImageAttachmentError.unsupportedImage
         }
-        let properties: [CFString: Any] = mimeType == "image/jpeg"
-            ? [kCGImageDestinationLossyCompressionQuality: jpegQuality]
-            : [:]
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else {
             throw ComposerImageAttachmentError.unsupportedImage
         }
         return data as Data
-    }
-
-    private static func hasAlpha(_ image: CGImage) -> Bool {
-        switch image.alphaInfo {
-        case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly:
-            return true
-        case .none, .noneSkipFirst, .noneSkipLast:
-            return false
-        @unknown default:
-            return true
-        }
     }
 
     private static func digest(for data: Data) -> Data {

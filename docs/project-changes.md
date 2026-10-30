@@ -1,9 +1,13 @@
 # Project code changes
 
-Expand a project under Work and click **Code Changes**. The sheet lists staged,
-unstaged, and untracked files. Select a file to inspect its diff, line numbers,
-and addition/deletion counts. Filter the list or refresh the snapshot as needed.
-Closing the sheet returns to the conversation with its draft intact.
+Select a project under Work, then click **Code Changes** in the window's top-right
+toolbar. A resizable review pane opens to the right of the conversation, not as a
+session/sidebar destination or modal sheet. Its file list shows staged, unstaged,
+and untracked files; select a file to inspect its diff, line numbers, and
+addition/deletion counts below. Filter or refresh the snapshot as needed.
+Closing or toggling the pane leaves the conversation and draft intact. Switching
+projects updates the pane; switching sessions in the same project keeps the review
+project-scoped. Chat and non-project destinations do not show the review control.
 
 The baseline is HEAD, so a file edited both in the index and working tree shows
 its combined current changes. Renames include the original path. Unborn

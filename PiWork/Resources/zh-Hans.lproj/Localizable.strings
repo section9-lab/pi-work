@@ -345,9 +345,9 @@
 "chat.image.error.unsupported" = "不支持这种图片格式。";
 "chat.image.error.source_too_large" = "每张原始图片不能超过 50 MB。";
 "chat.image.error.dimensions_too_large" = "这张图片的像素数过大。";
-"chat.image.error.image_too_large" = "无法将这张图片压缩到 4.5 MB 以下。";
+"chat.image.error.image_too_large" = "格式转换后的图片超过了 50 MB 安全限制。";
 "chat.image.error.too_many" = "最多可添加 5 张图片。";
-"chat.image.error.total_too_large" = "图片附件总大小不能超过 12 MB。";
+"chat.image.error.total_too_large" = "图片附件总大小不能超过 50 MB。";
 "chat.skill.used" = "已使用技能 · %@";
 "chat.message.copy" = "复制回复";
 "chat.message.copied" = "已复制";

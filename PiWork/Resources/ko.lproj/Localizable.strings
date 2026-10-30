@@ -345,9 +345,9 @@
 "chat.image.error.unsupported" = "지원하지 않는 이미지 형식입니다.";
 "chat.image.error.source_too_large" = "원본 이미지는 한 장당 50 MB 이하여야 합니다.";
 "chat.image.error.dimensions_too_large" = "이 이미지의 픽셀 수가 너무 많습니다.";
-"chat.image.error.image_too_large" = "이 이미지를 4.5 MB 미만으로 압축할 수 없습니다.";
+"chat.image.error.image_too_large" = "변환된 이미지가 안전 제한인 50 MB를 초과합니다.";
 "chat.image.error.too_many" = "이미지는 최대 5장까지 첨부할 수 있습니다.";
-"chat.image.error.total_too_large" = "첨부 이미지의 총용량은 12 MB 이하여야 합니다.";
+"chat.image.error.total_too_large" = "첨부 이미지의 총용량은 50 MB 이하여야 합니다.";
 "chat.skill.used" = "스킬 사용 · %@";
 "chat.message.copy" = "응답 복사";
 "chat.message.copied" = "복사됨";

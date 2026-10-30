@@ -1,10 +1,44 @@
 import SwiftUI
 
-/// A project-scoped, read-only review surface; opening it leaves the current
-/// conversation and its draft intact underneath the sheet.
+/// Workspace chrome shared by the conversation and its trailing review pane.
+/// Keeping the content in a stable split-view child preserves editor focus/drafts.
+struct ProjectChangesWorkspace<Content: View>: View {
+    let project: PiProject?
+    @Binding var isPresented: Bool
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HSplitView {
+            content()
+                .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+                .background { AppPalette.windowGradient.ignoresSafeArea() }
+            if isPresented, let project {
+                ProjectChangesView(project: project) { isPresented = false }
+                    .id(project.path)
+                    .frame(minWidth: 340, idealWidth: 520, maxWidth: 800)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if project != nil {
+                    Button { isPresented.toggle() } label: {
+                        Label(L10n.string("changes.title"), systemImage: "sidebar.right")
+                    }
+                    .help(L10n.string("changes.title"))
+                    .accessibilityIdentifier("project-changes-toggle")
+                    .accessibilityAddTraits(isPresented ? .isSelected : [])
+                    .tint(isPresented ? .accentColor : .primary)
+                }
+            }
+        }
+    }
+}
+
+/// A project-scoped, read-only review pane alongside the conversation.
+/// Its presentation belongs to the workspace, never to an individual session.
 struct ProjectChangesView: View {
     let project: PiProject
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
     @State private var snapshot: ProjectChangesSnapshot?
     @State private var selectedPath: String?
     @State private var diff: FileDiff?
@@ -32,9 +66,9 @@ struct ProjectChangesView: View {
             } else if let snapshot, snapshot.files.isEmpty {
                 placeholder(title: L10n.string("changes.clean"), detail: L10n.string("changes.clean_detail"))
             } else {
-                HSplitView {
-                    fileList.frame(minWidth: 220, idealWidth: 270, maxWidth: 360)
-                    diffPane.frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+                VSplitView {
+                    fileList.frame(minHeight: 100, idealHeight: 180, maxHeight: 280)
+                    diffPane.frame(maxWidth: .infinity, minHeight: 220, maxHeight: .infinity)
                 }
             }
             Divider()
@@ -43,10 +77,11 @@ struct ProjectChangesView: View {
                 Spacer()
                 if let snapshot { Text(L10n.format("changes.file_count", snapshot.files.count)) }
             }
-            .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.vertical, 10)
+            .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .frame(minWidth: 800, idealWidth: 1060, minHeight: 540, idealHeight: 720)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppPalette.raisedSurface)
+        .accessibilityIdentifier("project-changes-panel")
         .task(id: refresh) { await loadSnapshot() }
         .task(id: "\(revision)-\(selectedPath ?? "")") { await loadDiff() }
     }
@@ -67,8 +102,13 @@ struct ProjectChangesView: View {
             }
                 .help(L10n.string("changes.refresh")).disabled(loading)
                 .accessibilityLabel(L10n.string("changes.refresh"))
-            Button(L10n.string("changes.done")) { dismiss() }.keyboardShortcut(.cancelAction)
-        }.padding(20)
+            Button(action: onClose) {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .medium))
+            }
+            .help(L10n.string("changes.done"))
+            .accessibilityLabel(L10n.string("changes.done"))
+            .accessibilityIdentifier("project-changes-close")
+        }.buttonStyle(.borderless).padding(14)
     }
 
     private var fileList: some View {
@@ -180,6 +220,7 @@ struct ProjectChangesView: View {
     @MainActor private func loadDiff() async {
         diff = nil
         diffError = nil
+        loadingDiff = false
         guard let snapshot, let file = selectedFile else { return }
         loadingDiff = true
         do {

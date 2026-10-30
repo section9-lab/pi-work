@@ -345,9 +345,9 @@
 "chat.image.error.unsupported" = "This image format is not supported.";
 "chat.image.error.source_too_large" = "Each source image must be 50 MB or smaller.";
 "chat.image.error.dimensions_too_large" = "This image has too many pixels.";
-"chat.image.error.image_too_large" = "This image could not be compressed below 4.5 MB.";
+"chat.image.error.image_too_large" = "The converted image exceeds the 50 MB safety limit.";
 "chat.image.error.too_many" = "You can attach up to 5 images.";
-"chat.image.error.total_too_large" = "Attachments must total 12 MB or less.";
+"chat.image.error.total_too_large" = "Attachments must total 50 MB or less.";
 "chat.skill.used" = "Used skill · %@";
 "chat.message.copy" = "Copy response";
 "chat.message.copied" = "Copied";

@@ -2,6 +2,29 @@ import XCTest
 @testable import PiWork
 
 final class ProjectChangesTests: XCTestCase {
+    func testReviewIsWorkspaceToolbarAndTrailingPaneNotSidebarOrSessionSheet() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        func source(_ path: String) throws -> String {
+            try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+        }
+        let content = try source("PiWork/App/Root/ContentView.swift")
+        let sidebar = try source("PiWork/Features/Sidebar/Views/SidebarView.swift")
+        let chat = try source("PiWork/Features/Chat/Views/ChatView.swift")
+        let panel = try source("PiWork/Features/Changes/ProjectChangesView.swift")
+        XCTAssertTrue(content.contains("ProjectChangesWorkspace(project: changesProject"))
+        XCTAssertTrue(panel.contains("ToolbarItem(placement: .primaryAction)"))
+        XCTAssertTrue(panel.contains("project-changes-toggle"))
+        XCTAssertTrue(panel.contains("HSplitView"))
+        XCTAssertTrue(panel.contains("ProjectChangesView(project: project)"))
+        XCTAssertTrue(panel.contains(".id(project.path)"))
+        XCTAssertFalse(sidebar.contains("changesProject"))
+        XCTAssertFalse(sidebar.contains("changes.title"))
+        XCTAssertFalse(chat.contains("ProjectChangesView"))
+        XCTAssertTrue(panel.contains("VSplitView"))
+        XCTAssertTrue(panel.contains("Button(action: onClose)"))
+        XCTAssertFalse(panel.contains("dismiss()"))
+    }
+
     func testStatusPreservesUnusualPathsAndRenamePairs() {
         let files = ProjectChangesService.parseStatus(" M folder/a b.swift\0R  新名.swift\0old.swift\0?? line\nbreak.txt\0 D removed.txt\0")
         XCTAssertEqual(files.count, 4)

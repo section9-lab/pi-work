@@ -73,6 +73,15 @@ struct AgentRuntimeChecks {
         ] {
             try rejects("invalid manifest accepted") { try changed(manifest, patch).validate() }
         }
+        var legacyFiles = manifest.files
+        legacyFiles.removeValue(forKey: AgentRuntimeManifest.photonWasmFilename)
+        let legacy = try changed(manifest, ["files": legacyFiles])
+        try legacy.validate() // Historical channel entries must remain readable.
+        try expect(!legacy.isCompatible(appVersion: "0.1.10"), "runtime without Photon WASM was compatible")
+        try expect(try AgentRuntimeIndex(schemaVersion: 1, releases: [legacy, manifest])
+            .latestCompatible(appVersion: "0.1.10") == manifest, "legacy manifest broke channel selection")
+        try expect(try AgentRuntimeIndex(schemaVersion: 1, releases: [legacy])
+            .latestCompatible(appVersion: "0.1.10") == nil, "channel offered a runtime without Photon WASM")
         let newer = try changed(manifest, ["version": "1.10.0", "url": AgentRuntimeManifest.repository
             + "runtime-v1.10.0/PiWorkRuntime-1.10.0-macos-\(manifest.architecture).tar.gz"])
         let incompatible = try changed(newer, ["minimumAppVersion": "9.0.0"])
@@ -95,6 +104,13 @@ struct AgentRuntimeChecks {
             }
         }
         try expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("escaped").path), "archive escaped staging")
+        let wasm = payload.appendingPathComponent(AgentRuntimeManifest.photonWasmFilename)
+        let wasmBytes = try Data(contentsOf: wasm)
+        try Data("tampered".utf8).write(to: wasm)
+        try rejects("tampered Photon WASM accepted") { try AgentRuntimeArchive.verify(installed) }
+        try FileManager.default.removeItem(at: wasm)
+        try rejects("missing Photon WASM accepted") { try AgentRuntimeArchive.verify(installed) }
+        try wasmBytes.write(to: wasm)
         let resource = payload.appendingPathComponent("theme/theme.json")
         let original = try Data(contentsOf: resource)
         try Data("tampered".utf8).write(to: resource)
@@ -159,6 +175,12 @@ struct AgentRuntimeChecks {
         try await manualRollback.stage(stored)
         try await manualRollback.cancelPending()
         try expect(try await manualRollback.selection().pending == nil, "cancelled update remained pending")
+        // An already downloaded legacy runtime must not override the fixed bundled host.
+        try JSONEncoder().encode(legacy).write(to: storedDirectory.appendingPathComponent("installed.json"))
+        try await manualRollback.stage(AgentRuntimeInstallation(directory: storedDirectory, manifest: legacy))
+        let legacyLaunch = AgentRuntimeStore(root: storeRoot, appVersion: "0.1.10")
+        try expect(try await legacyLaunch.beginLaunch() == nil, "legacy runtime did not fall back to bundled")
+        try JSONEncoder().encode(manifest).write(to: storedDirectory.appendingPathComponent("installed.json"))
 
         // A signed executable that exits immediately must fall back to the bundled host.
         try await manualRollback.stage(stored)
@@ -287,7 +309,8 @@ struct AgentRuntimeChecks {
             // Use the packaged SDK through the same service and launch journal
             // as the App, with all agent/session writes confined to this test.
             let realStoreRoot = root.appendingPathComponent("actual-store")
-            let realStore = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            let actualAppVersion = actual.minimumAppVersion
+            let realStore = AgentRuntimeStore(root: realStoreRoot, appVersion: actualAppVersion)
             _ = try await realStore.beginLaunch()
             if ProcessInfo.processInfo.environment["PI_WORK_TEST_LIVE_CHANNEL"] == "1" {
                 let onlineInstaller = AgentRuntimeInstaller(store: realStore)
@@ -300,7 +323,7 @@ struct AgentRuntimeChecks {
                 try await realStore.stage(AgentRuntimeInstallation(directory: cached, manifest: actual))
             }
             try expect(try await realStore.beginLaunch() == nil, "installation switched the current process")
-            let realLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            let realLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: actualAppVersion)
             let agentDirectory = root.appendingPathComponent("actual-agent")
             try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
             let realService = AgentHostService(executableURL: candidate.executableURL, environment: [
@@ -325,7 +348,7 @@ struct AgentRuntimeChecks {
                 await realService.stop()
                 throw error
             }
-            let rollbackLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: "0.1.10")
+            let rollbackLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: actualAppVersion)
             try expect(try await rollbackLaunch.beginLaunch() == nil, "packaged runtime did not roll back to bundled")
         }
         print("Agent runtime: \(checks) checks passed")

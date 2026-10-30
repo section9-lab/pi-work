@@ -53,6 +53,13 @@ jobs:
         run: python3 scripts/package-agent-runtime.py --architecture "${{ matrix.architecture }}" --output dist
       - name: Smoke test packaged runtime
         run: bash scripts/test-agent-runtime.sh dist/runtime-${{ matrix.architecture }}.json
+      - name: Verify packaged image support without build dependencies
+        run: |
+          smoke_dir="$(mktemp -d)"
+          tar -xzf dist/PiWorkRuntime-*.tar.gz -C "$smoke_dir"
+          mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"
+          trap 'mv "$RUNNER_TEMP/image-smoke-node_modules" AgentHost/node_modules; rm -rf "$smoke_dir"' EXIT
+          "$smoke_dir/bun" scripts/test-runtime-images.ts "$smoke_dir/pi-work-agent-host"
       - uses: actions/upload-artifact@v4
         with:
           name: AgentRuntime-${{ matrix.architecture }}

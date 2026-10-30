@@ -134,6 +134,18 @@ jobs:
             exit 1
           fi
 
+      - name: Verify packaged image support without build dependencies
+        run: |
+          case "${{ matrix.arch }}" in
+            arm64) host_arch=arm64 ;;
+            x86_64) host_arch=x64 ;;
+          esac
+          # Hide the original WASM path baked into Photon on the build machine.
+          # Otherwise a broken release can pass by reading node_modules.
+          mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"
+          trap 'mv "$RUNNER_TEMP/image-smoke-node_modules" AgentHost/node_modules' EXIT
+          bun scripts/test-runtime-images.ts "$APP_PATH/Contents/Resources/AgentHost/$host_arch/pi-work-agent-host"
+
       - name: Reclaim build storage
         run: |
           rm -rf "$DERIVED_DATA_PATH"

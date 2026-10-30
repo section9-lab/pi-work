@@ -17,6 +17,7 @@ struct AgentRuntimeManifest: Codable, Equatable {
     let files: [String: String]
 
     var id: String { "\(version)-\(architecture)" }
+    static let photonWasmFilename = "photon_rs_bg.wasm"
     static let maximumArchiveBytes: Int64 = 256 * 1024 * 1024
     static let maximumExpandedBytes = 768 * 1024 * 1024
     static let repository = "https://github.com/section9-lab/pi-work/releases/download/"
@@ -50,7 +51,10 @@ struct AgentRuntimeManifest: Codable, Equatable {
         architecture: AppArchitecture = .current,
         macOSVersion: String = ProcessInfo.processInfo.operatingSystemVersionStringForRuntime
     ) -> Bool {
-        guard apiVersion == 1, acpVersion == 1,
+        // Keep legacy manifests parseable so a channel containing old releases
+        // still works, but never select or launch a runtime missing image support.
+        guard files[Self.photonWasmFilename] != nil,
+              apiVersion == 1, acpVersion == 1,
               self.architecture == architecture.rawValue,
               let app = ReleaseVersion(appVersion),
               let minimumApp = ReleaseVersion(minimumAppVersion), app >= minimumApp,
@@ -85,6 +89,7 @@ struct AgentRuntimeManifest: Codable, Equatable {
     static func isPayloadPath(_ path: String) -> Bool {
         isSafePath(path) && (path == AgentHostExecutable.filename
             || path == AgentHostExecutable.bunFilename
+            || path == photonWasmFilename
             || path.hasPrefix("export-html/") || path.hasPrefix("theme/"))
     }
 }

@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var sessionOpenTask: Task<Void, Never>?
     @State private var agentError: String?
     @State private var exportingSessionIDs: Set<String> = []
+    @State private var showsProjectChanges = false
 
     init(
         sessionStore: SessionStore,
@@ -39,7 +40,7 @@ struct ContentView: View {
 
     var body: some View {
         splitView
-            .frame(minWidth: 900, minHeight: 600)
+            .frame(minWidth: showsProjectChanges && changesProject != nil ? 1100 : 900, minHeight: 600)
             .task {
                 await bootstrapChatIfNeeded()
                 await bootstrapWorkProjects()
@@ -76,39 +77,37 @@ struct ContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
-            Group {
-                if selectedTab == .work, selectedCustomDestination == .schedule {
-                    ScheduleView(
-                        store: scheduleStore,
-                        runner: scheduleRunner,
-                        projects: projectStore.projects
-                    )
-                } else if selectedTab == .work, selectedCustomDestination == .skills {
-                    SkillsCatalogView(store: skillsCatalogStore)
-                } else if selectedTab == .work,
-                          selectedCustomDestination == .connectedApps {
-                    ExtensionsCatalogView(
-                        store: extensionsCatalogStore,
-                        installedStore: installedExtensionsStore
-                    )
-                } else {
-                    ChatView(
-                        mode: selectedTab,
-                        projects: projectStore.projects,
-                        selectedProject: $workSession.selectedProject,
-                        sessionStore: sessionStore,
-                        computerUseStore: computerUseStore,
-                        hostError: agentError,
-                        isLoadingSession: isOpeningSelectedSession,
-                        onSelectProject: startNewSession(for:),
-                        onAddFolder: pickFolder
-                    )
-                }
+            ProjectChangesWorkspace(project: changesProject, isPresented: $showsProjectChanges) {
+                primaryContent
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                AppBackgroundGradient()
-            }
+        }
+    }
+
+    // Workspace chrome, not a session destination: the review panel follows the
+    // selected project and does not replace or recreate the conversation.
+    private var changesProject: PiProject? {
+        selectedTab == .work && selectedCustomDestination == nil ? workSession.selectedProject : nil
+    }
+
+    @ViewBuilder private var primaryContent: some View {
+        if selectedTab == .work, selectedCustomDestination == .schedule {
+            ScheduleView(store: scheduleStore, runner: scheduleRunner, projects: projectStore.projects)
+        } else if selectedTab == .work, selectedCustomDestination == .skills {
+            SkillsCatalogView(store: skillsCatalogStore)
+        } else if selectedTab == .work, selectedCustomDestination == .connectedApps {
+            ExtensionsCatalogView(store: extensionsCatalogStore, installedStore: installedExtensionsStore)
+        } else {
+            ChatView(
+                mode: selectedTab,
+                projects: projectStore.projects,
+                selectedProject: $workSession.selectedProject,
+                sessionStore: sessionStore,
+                computerUseStore: computerUseStore,
+                hostError: agentError,
+                isLoadingSession: isOpeningSelectedSession,
+                onSelectProject: startNewSession(for:),
+                onAddFolder: pickFolder
+            )
         }
     }
 

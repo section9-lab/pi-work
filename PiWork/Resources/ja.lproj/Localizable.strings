@@ -345,9 +345,9 @@
 "chat.image.error.unsupported" = "この画像形式には対応していません。";
 "chat.image.error.source_too_large" = "元の画像は1枚あたり50 MB以下にしてください。";
 "chat.image.error.dimensions_too_large" = "この画像はピクセル数が多すぎます。";
-"chat.image.error.image_too_large" = "この画像を4.5 MB未満に圧縮できませんでした。";
+"chat.image.error.image_too_large" = "変換後の画像が安全上の上限50 MBを超えています。";
 "chat.image.error.too_many" = "添付できる画像は5枚までです。";
-"chat.image.error.total_too_large" = "添付画像の合計は12 MB以下にしてください。";
+"chat.image.error.total_too_large" = "添付画像の合計は50 MB以下にしてください。";
 "chat.skill.used" = "スキルを使用 · %@";
 "chat.message.copy" = "回答をコピー";
 "chat.message.copied" = "コピーしました";

@@ -929,7 +929,7 @@ final class SessionComposerTests: XCTestCase {
         )
     }
 
-    func testImageProcessorNormalizesDeduplicatesAndResizesImages() throws {
+    func testImageProcessorPreservesOriginalPNGBytesAndResolution() throws {
         let imageData = try makeComposerTestImageData(width: 2_200, height: 1_100)
 
         let attachments = try ComposerImageProcessor.process([
@@ -940,8 +940,38 @@ final class SessionComposerTests: XCTestCase {
         let attachment = try XCTUnwrap(attachments.first)
         XCTAssertEqual(attachments.count, 1)
         XCTAssertEqual(attachment.mimeType, "image/png")
-        XCTAssertLessThanOrEqual(max(attachment.pixelWidth, attachment.pixelHeight), 2_000)
+        XCTAssertEqual(attachment.pixelWidth, 2_200)
+        XCTAssertEqual(attachment.pixelHeight, 1_100)
+        XCTAssertEqual(attachment.data, imageData)
         XCTAssertNotNil(CGImageSourceCreateWithData(attachment.data as CFData, nil))
+    }
+
+    func testImageProcessorPreservesJPEGAndGIFWithoutReencoding() throws {
+        for (type, mimeType) in [(UTType.jpeg, "image/jpeg"), (.gif, "image/gif")] {
+            let data = try makeComposerTestImageData(width: 2200, height: 40, type: type)
+            let image = try XCTUnwrap(ComposerImageProcessor.process([.init(data: data)]).first)
+            XCTAssertEqual(image.data, data)
+            XCTAssertEqual(image.mimeType, mimeType)
+            XCTAssertEqual(image.pixelWidth, 2200)
+        }
+    }
+
+    func testImageProcessorConvertsTIFFLosslesslyWithoutShrinking() throws {
+        let data = try makeComposerTestImageData(width: 2200, height: 40, type: .tiff)
+        let image = try XCTUnwrap(ComposerImageProcessor.process([.init(data: data)]).first)
+        XCTAssertEqual(image.mimeType, "image/png")
+        XCTAssertEqual(image.pixelWidth, 2200)
+        XCTAssertEqual(image.pixelHeight, 40)
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(image.data as CFData, nil))
+        XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.png.identifier)
+    }
+
+    func testImageProcessorKeepsRawInputSafetyBounds() throws {
+        XCTAssertEqual(ComposerImageProcessor.maximumImageBytes, 50 * 1024 * 1024)
+        XCTAssertEqual(ComposerImageProcessor.maximumTotalBytes, 50 * 1024 * 1024)
+        XCTAssertThrowsError(try ComposerImageProcessor.process([.init(data: Data([0, 1, 2]))])) { error in
+            XCTAssertEqual(error as? ComposerImageAttachmentError, .unsupportedImage)
+        }
     }
 
     func testImageProcessorRejectsMoreThanFiveDistinctImages() throws {
@@ -2395,7 +2425,8 @@ final class SessionComposerTests: XCTestCase {
 private func makeComposerTestImageData(
     width: Int,
     height: Int,
-    red: CGFloat = 0.4
+    red: CGFloat = 0.4,
+    type: UTType = .png
 ) throws -> Data {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let context = try XCTUnwrap(
@@ -2416,7 +2447,7 @@ private func makeComposerTestImageData(
     let destination = try XCTUnwrap(
         CGImageDestinationCreateWithData(
             data,
-            UTType.png.identifier as CFString,
+            type.identifier as CFString,
             1,
             nil
         )

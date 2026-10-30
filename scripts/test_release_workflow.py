@@ -137,6 +137,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "The Agent Host lockfile must use a registry available to clean CI runners.",
         )
 
+    def test_app_stages_photon_wasm_and_checks_packaged_images(self):
+        project = PROJECT_PATH.read_text()
+        self.assertIn("node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm", project)
+        self.assertIn('cp "$HOST_PHOTON_SOURCE" "$HOST_DESTINATION_DIR/photon_rs_bg.wasm"', project)
+        for workflow in [self.workflow_text(),
+                         (REPOSITORY_ROOT / ".github/workflows/release-agent-runtime.yml").read_text()]:
+            self.assertIn("scripts/test-runtime-images.ts", workflow)
+            self.assertIn('mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"', workflow)
+            self.assertIn("trap '", workflow)
+
     def test_compiled_agent_host_does_not_autoload_project_bunfig(self):
         project = PROJECT_PATH.read_text()
         package = AGENT_HOST_PACKAGE_PATH.read_text()

@@ -13,6 +13,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 DOWNLOAD_BASE = "https://github.com/section9-lab/pi-work/releases/download/"
+PHOTON_WASM = "photon_rs_bg.wasm"
 
 
 def sha256(path):
@@ -37,13 +38,15 @@ def package(payload, metadata, architecture, output):
             raise ValueError("Runtime packages cannot contain symbolic links")
         if path.is_file():
             relative = path.relative_to(payload).as_posix()
-            if relative not in ("pi-work-agent-host", "bun") and not relative.startswith(("theme/", "export-html/")):
+            if relative not in ("pi-work-agent-host", "bun", PHOTON_WASM) and not relative.startswith(("theme/", "export-html/")):
                 raise ValueError(f"Unexpected payload file: {relative}")
             files[relative] = sha256(path)
-    if not {"pi-work-agent-host", "bun"}.issubset(files) or not all(
+    if not {"pi-work-agent-host", "bun", PHOTON_WASM}.issubset(files) or not all(
         any(path.startswith(prefix) for path in files) for prefix in ("theme/", "export-html/")
     ):
-        raise ValueError("Host executable, Bun, theme, and HTML export assets are required")
+        raise ValueError("Host executable, Bun, Photon WASM, theme, and HTML export assets are required")
+    if (payload / PHOTON_WASM).stat().st_size == 0:
+        raise ValueError("Photon WASM must not be empty")
     if len(files) > 4096 or sum((payload / path).stat().st_size for path in files) > 768 * 1024 * 1024:
         raise ValueError("Runtime payload exceeds the client size limit")
     output.mkdir(parents=True, exist_ok=True)
@@ -99,6 +102,9 @@ def main():
         subprocess.run([bun_executable, "build", "--compile", "--no-compile-autoload-bunfig",
                         f"--target=bun-darwin-{target}", "src/main.ts", "--outfile", str(host)],
                        cwd=host_root, check=True)
+        # Match Pi's copy-binary-assets; Photon loads this external file at runtime.
+        shutil.copyfile(host_root / "node_modules/@silvia-odwyer/photon-node" / PHOTON_WASM,
+                        payload / PHOTON_WASM)
         for source, destination in [("core/export-html", "export-html"), ("modes/interactive/theme", "theme")]:
             shutil.copytree(sdk / "dist" / source, payload / destination)
         bun = payload / "bun"

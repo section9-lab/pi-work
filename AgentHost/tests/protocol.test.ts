@@ -1,25 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { createHostHelloRecord, encodeRecord } from "../src/protocol.ts";
-import * as hostProtocol from "../src/protocol.ts";
-
-type ParsedPromptImage = {
-  type: "image";
-  mimeType: string;
-  data: string;
-};
-
-const parsePromptImages = (
-  hostProtocol as unknown as {
-    parsePromptImages?: (value: unknown) => ParsedPromptImage[];
-  }
-).parsePromptImages;
+import { createHostHelloRecord, encodeRecord, parsePromptImages } from "../src/protocol.ts";
 
 const pngData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function promptImageFailure(value: unknown): { code: string; message: string } | undefined {
-  if (!parsePromptImages) return undefined;
   try {
     parsePromptImages(value);
     return undefined;
@@ -66,9 +52,9 @@ describe("host protocol", () => {
   });
 
   test("rejects unsupported prompt image MIME types", () => {
-    expect(promptImageFailure([{ mimeType: "image/gif", data: pngData }])).toEqual({
+    expect(promptImageFailure([{ mimeType: "image/tiff", data: pngData }])).toEqual({
       code: "invalid_image",
-      message: "Prompt images must use image/png or image/jpeg",
+      message: "Prompt images must use image/png, image/jpeg, image/gif, or image/webp",
     });
   });
 
@@ -92,22 +78,38 @@ describe("host protocol", () => {
     });
   });
 
-  test("rejects a prompt image larger than 4.5 MiB", () => {
+  test("preserves large raw images for Pi to resize", () => {
+    const data = Buffer.concat([pngSignature, Buffer.alloc(6 * 1024 * 1024)]).toString("base64");
+    expect(parsePromptImages([{ mimeType: "image/png", data }])[0]?.data).toBe(data);
+  });
+
+  test("accepts Pi-native GIF and WebP signatures without reencoding", () => {
+    for (const [mimeType, bytes] of [
+      ["image/gif", Buffer.from("GIF89a")],
+      ["image/webp", Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP")])],
+    ] as const) {
+      const data = bytes.toString("base64");
+      expect(parsePromptImages([{ mimeType, data }])[0]).toEqual({ type: "image", mimeType, data });
+      expect(promptImageFailure([{ mimeType, data: pngData }])?.code).toBe("invalid_image");
+    }
+  });
+
+  test("rejects a source image larger than the 50 MiB safety bound", () => {
     const data = Buffer.concat([
       pngSignature,
-      Buffer.alloc(Math.floor(4.5 * 1024 * 1024)),
+      Buffer.alloc(50 * 1024 * 1024),
     ]).toString("base64");
 
     expect(promptImageFailure([{ mimeType: "image/png", data }])).toEqual({
       code: "image_too_large",
-      message: "Each prompt image must be at most 4.5 MiB",
+      message: "Each source image must be at most 50 MiB",
     });
   });
 
-  test("rejects prompt images larger than 12 MiB in total", () => {
+  test("rejects source images larger than 50 MiB in total", () => {
     const data = Buffer.concat([
       pngSignature,
-      Buffer.alloc(4 * 1024 * 1024),
+      Buffer.alloc(13 * 1024 * 1024),
     ]).toString("base64");
 
     expect(promptImageFailure(Array.from({ length: 4 }, () => ({
@@ -115,7 +117,7 @@ describe("host protocol", () => {
       data,
     })))).toEqual({
       code: "images_too_large",
-      message: "Prompt images must be at most 12 MiB in total",
+      message: "Source images must be at most 50 MiB in total",
     });
   });
 

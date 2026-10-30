@@ -25,7 +25,8 @@ class AgentRuntimePackageTests(unittest.TestCase):
         self.addCleanup(self.scratch.cleanup)
         self.root = Path(self.scratch.name)
         self.payload = self.root / "payload"
-        for relative in ["pi-work-agent-host", "bun", "theme/theme.json", "export-html/template.html"]:
+        for relative in ["pi-work-agent-host", "bun", "photon_rs_bg.wasm",
+                         "theme/theme.json", "export-html/template.html"]:
             path = self.payload / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(relative.encode())
@@ -63,6 +64,23 @@ class AgentRuntimePackageTests(unittest.TestCase):
         (self.payload / "theme/theme.json").unlink()
         with self.assertRaises(ValueError):
             self.package()
+
+    def test_missing_or_empty_photon_wasm_is_rejected(self):
+        wasm = self.payload / "photon_rs_bg.wasm"
+        wasm.unlink()
+        with self.assertRaises(ValueError):
+            self.package()
+        wasm.write_bytes(b"")
+        with self.assertRaises(ValueError):
+            self.package()
+
+    def test_photon_wasm_is_hashed_and_not_executable(self):
+        manifest = self.package()
+        wasm = self.payload / "photon_rs_bg.wasm"
+        self.assertEqual(manifest["files"][wasm.name], hashlib.sha256(wasm.read_bytes()).hexdigest())
+        archive = self.root / "dist" / manifest["url"].split("/")[-1]
+        with tarfile.open(archive) as tar:
+            self.assertEqual(tar.getmember(wasm.name).mode, 0o644)
 
     def test_unexpected_payload_files_are_rejected(self):
         (self.payload / "extra-executable").write_bytes(b"unexpected")

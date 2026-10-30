@@ -92,7 +92,7 @@ targets:
         PRODUCT_NAME: PiWork
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.1.18
+        MARKETING_VERSION: 0.1.19
     postCompileScripts:
       - name: "Stage bundled agent host"
         basedOnDependencyAnalysis: false
@@ -119,7 +119,7 @@ targets:
             echo "error: pi-coding-agent version is missing."
             exit 1
           fi
-          # Pi requires themes/export assets beside the compiled host. Keep this
+          # Pi requires Photon WASM and theme/export assets beside the compiled host. Keep this
           # mixed payload in Resources: Helpers treats every nested file as code.
           HOST_VERSION_DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/AgentHost/pi-coding-agent-version"
           mkdir -p "$(dirname "$HOST_VERSION_DESTINATION")"
@@ -154,6 +154,15 @@ targets:
             mkdir -p "$HOST_DESTINATION_DIR"
             cp "$HOST_OUTPUT" "$HOST_DESTINATION"
             chmod +x "$HOST_DESTINATION"
+
+            # Match Pi's copy-binary-assets: Photon reads this WASM at runtime;
+            # bun build --compile does not embed its dynamic filesystem read.
+            HOST_PHOTON_SOURCE="$HOST_SOURCE_ROOT/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"
+            if [ ! -s "$HOST_PHOTON_SOURCE" ]; then
+              echo "error: Photon image processing WASM is missing."
+              exit 1
+            fi
+            cp "$HOST_PHOTON_SOURCE" "$HOST_DESTINATION_DIR/photon_rs_bg.wasm"
 
             HOST_EXPORT_ASSETS_SOURCE="$HOST_SOURCE_ROOT/node_modules/@earendil-works/pi-coding-agent/dist/core/export-html"
             HOST_EXPORT_ASSETS_DESTINATION="$HOST_DESTINATION_DIR/export-html"

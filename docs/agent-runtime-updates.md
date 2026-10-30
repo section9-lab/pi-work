@@ -1,7 +1,8 @@
 # Independent agent runtime updates
 
-PiWork can update its Agent Host, embedded Pi SDK, Bun package manager, themes, and HTML export assets
-without replacing the application. Settings → General → pi-coding-agent offers
+PiWork can update its Agent Host, embedded Pi SDK, Bun package manager, Photon
+image-processing WASM, themes, and HTML export assets without replacing the
+application. Settings → General → pi-coding-agent offers
 the newest **compatible PiWork runtime**, not an untested upstream npm release.
 Installation leaves running tasks alone. The update activates on the next launch;
 a pending update can be cancelled, and an active downloaded runtime can be restored
@@ -59,6 +60,35 @@ not a Developer ID attestation. No application-bundle files are rewritten.
    `agent-runtime-stable/runtime-index.json`; publishing merges compatibility
    history. Runtime releases use `--latest=false`, so app update checks continue
    to use the latest ordinary app release.
+
+### Photon resource compatibility
+
+Like Pi's upstream `copy-binary-assets`, both packagers copy `photon_rs_bg.wasm`
+from the locked `@silvia-odwyer/photon-node` dependency beside the compiled host.
+It is a required, hashed runtime resource, not an executable. Keep Pi's default
+`images.autoResize` behavior and model-specific `inputLimits.images.resize`;
+do not work around missing resources by disabling SDK image processing.
+
+The composer passes PNG/JPEG/GIF/WebP bytes through unchanged. TIFF/HEIC clipboard
+sources are converted to PNG at their original resolution for compatibility, not
+resized or encoded as lossy JPEG by the app. Raw inputs retain local safety bounds
+of five attachments, 50 MiB per image/combined, and 50 million pixels per source;
+these are not model payload limits. Pi alone applies the selected model's image
+encoding and resize profile before storing the images in conversation history.
+
+Legacy channel manifests without WASM remain parseable, but this app does not
+select or launch them. An installed legacy runtime falls back through the normal
+rollback path to the fixed bundled host. Apps through 0.1.18 reject this new
+payload filename. Fixed runtime **1.1.1** therefore sets `minimumAppVersion` to
+**0.1.19**, the first app release containing the updated resource whitelist.
+Ship that app update first; do not replace runtime 1.1.0 or
+advertise the new payload as compatible with older apps.
+
+Both release workflows test small and large user attachments and `read` image
+results against a local synthetic model, including a model-specific resize
+profile. They hide build-time `node_modules` before running the actual packaged
+host, so missing WASM cannot be masked by the build machine's original path.
+These checks do not use real credentials or send images to an external provider.
 
 The channel must be published once before online runtime checks can succeed. No
 upstream latest-version endpoint or terminal installation is used as a substitute.
