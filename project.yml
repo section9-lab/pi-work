@@ -24,6 +24,9 @@ settings:
       ENABLE_HARDENED_RUNTIME: YES
 
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
   Mixpanel:
     url: https://github.com/mixpanel/mixpanel-swift
     revision: 3ad0fb82216978c124b04accac6c9f9eaf848187
@@ -37,6 +40,8 @@ targets:
     platform: macOS
     deploymentTarget: "13.0"
     dependencies:
+      - package: Sparkle
+        product: Sparkle
       - package: Mixpanel
         product: Mixpanel
       - package: MarkdownUI
@@ -56,7 +61,15 @@ targets:
         # Must be a string: CFNetwork builds the default User-Agent from this
         # and calls -length on it, so a numeric value crashes on the first
         # URLSession request.
-        CFBundleVersion: "1"
+        CFBundleVersion: "$(MARKETING_VERSION)"
+        SUFeedURL: https://github.com/section9-lab/pi-work/releases/latest/download/appcast-arm64.xml
+        SUPublicEDKey: 505h9ukVBh/uUry59ttcjaD72HbuilPwr0kMYmMgKzE=
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: false
+        SUAllowsAutomaticUpdates: false
+        SUEnableSystemProfiling: false
+        SUVerifyUpdateBeforeExtraction: true
+        SURequireSignedFeed: true
         LSMinimumSystemVersion: "13.0"
         NSHumanReadableCopyright: Copyright © section9-lab
         # openauth issuer for Google / email-OTP sign-in. Overridable at
@@ -78,7 +91,7 @@ targets:
         PRODUCT_NAME: PiWork
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.1.15
+        MARKETING_VERSION: 0.1.16
     postCompileScripts:
       - name: "Stage bundled agent host"
         basedOnDependencyAnalysis: false

@@ -51,7 +51,7 @@
 "update.title" = "Actualización de software";
 "update.installed_version" = "Versión instalada %@";
 "update.check" = "Buscar actualizaciones…";
-"update.checking" = "Buscando en GitHub Releases…";
+"update.checking" = "Buscando actualizaciones…";
 "update.status.up_to_date" = "PiWork %@ es la versión más reciente.";
 "update.status.available" = "La versión %@ está disponible para este Mac.";
 "update.status.failed" = "No se pudo consultar GitHub Releases. Inténtalo de nuevo.";
@@ -63,7 +63,7 @@
 "update.download" = "Descargar actualización";
 "update.later" = "Más tarde";
 "update.alert.available.title" = "Hay una nueva versión disponible";
-"update.alert.available.message" = "PiWork %@ está disponible. Tienes la versión %@. Descarga el DMG y úsalo para sustituir PiWork en Aplicaciones.";
+"update.alert.available.message" = "PiWork %@ está disponible. Tu versión es %@.";
 "update.alert.up_to_date.title" = "PiWork está actualizado";
 "update.alert.up_to_date.message" = "Estás usando la versión más reciente (%@).";
 "update.alert.failed.title" = "No se pudieron buscar actualizaciones";
@@ -792,3 +792,15 @@
 "analytics.title" = "Compartir uso anónimo";
 "analytics.description" = "Registra la actividad diaria y las versiones. No envía conversaciones, archivos, comandos ni datos de la cuenta.";
 "computer_use.permission_unknown" = "Sin comprobar";
+
+"update.install" = "Actualizar";
+
+"update.downloading" = "Descargando actualización…";
+
+"update.extracting" = "Verificando y preparando la actualización…";
+
+"update.installing" = "Instalando y reiniciando…";
+
+"update.automatic_checks" = "Buscar actualizaciones automáticamente";
+
+"update.restart_note" = "PiWork se reiniciará al terminar. Las tareas en curso se detendrán.";

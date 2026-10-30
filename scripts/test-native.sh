@@ -15,6 +15,7 @@ python3 - "$NATIVE_SOURCE_ROOT" "$NATIVE_CHECK_ROOT" <<'PY'
 import json, pathlib, shutil, sys
 source, target = map(pathlib.Path, sys.argv[1:])
 for folder, destination in [('PiWork', 'Sources/PiWork'), ('PiWorkTests', 'Tests/PiWorkTests')]:
+    shutil.rmtree(target / destination, ignore_errors=True)
     for original in (source / folder).rglob('*.swift'):
         output = target / destination / original.relative_to(source / folder)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -26,10 +27,11 @@ for folder, destination in [('PiWork', 'Sources/PiWork'), ('PiWorkTests', 'Tests
 (target / 'Package.swift').write_text('''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "PiWorkNativeChecks", platforms: [.macOS(.v13)], dependencies: [
+ .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
  .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", exact: "2.4.1"),
  .package(url: "https://github.com/mixpanel/mixpanel-swift", revision: "3ad0fb82216978c124b04accac6c9f9eaf848187")
 ], targets: [
- .executableTarget(name: "PiWork", dependencies: [.product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Mixpanel", package: "mixpanel-swift")]),
+ .executableTarget(name: "PiWork", dependencies: [.product(name: "Sparkle", package: "Sparkle"), .product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Mixpanel", package: "mixpanel-swift")]),
  .testTarget(name: "PiWorkTests", dependencies: ["PiWork"])
 ])
 ''')

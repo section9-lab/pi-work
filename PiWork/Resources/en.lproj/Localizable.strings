@@ -51,7 +51,7 @@
 "update.title" = "Software Update";
 "update.installed_version" = "Installed version %@";
 "update.check" = "Check for Updates…";
-"update.checking" = "Checking GitHub Releases…";
+"update.checking" = "Checking for updates…";
 "update.status.up_to_date" = "PiWork %@ is the latest version.";
 "update.status.available" = "Version %@ is available for this Mac.";
 "update.status.failed" = "Unable to check GitHub Releases. Try again.";
@@ -63,7 +63,7 @@
 "update.download" = "Download Update";
 "update.later" = "Later";
 "update.alert.available.title" = "A New Version Is Available";
-"update.alert.available.message" = "PiWork %@ is available. You have %@. Download the DMG, then use it to replace PiWork in Applications.";
+"update.alert.available.message" = "PiWork %@ is available. You have %@.";
 "update.alert.up_to_date.title" = "PiWork Is Up to Date";
 "update.alert.up_to_date.message" = "You are using the latest version (%@).";
 "update.alert.failed.title" = "Unable to Check for Updates";
@@ -792,3 +792,15 @@
 "analytics.title" = "Share anonymous usage";
 "analytics.description" = "Counts daily activity and app versions. No conversations, files, commands or account details are sent.";
 "computer_use.permission_unknown" = "Not checked";
+
+"update.install" = "Install Update";
+
+"update.downloading" = "Downloading update…";
+
+"update.extracting" = "Verifying and preparing update…";
+
+"update.installing" = "Installing and restarting…";
+
+"update.automatic_checks" = "Automatically check for updates";
+
+"update.restart_note" = "PiWork will restart automatically after upgrading. Running tasks will stop.";

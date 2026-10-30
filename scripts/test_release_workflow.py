@@ -26,6 +26,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("GITHUB_REF_NAME", workflow)
         self.assertIn("PROJECT_VERSION", workflow)
 
+    def test_app_updates_require_signed_archives_and_feeds(self):
+        workflow = self.workflow_text()
+        self.assertIn("secrets.SPARKLE_ED25519_PRIVATE_KEY", workflow)
+        self.assertIn("scripts/generate-appcast.py", workflow)
+        self.assertIn("dist/appcast-*.xml", workflow)
+        self.assertIn("SURequireSignedFeed: true", PROJECT_PATH.read_text())
+        self.assertIn("SUVerifyUpdateBeforeExtraction: true", PROJECT_PATH.read_text())
+        self.assertIn('CFBundleVersion: "$(MARKETING_VERSION)"', PROJECT_PATH.read_text())
+
     def test_installed_app_reports_the_marketing_version(self):
         project = PROJECT_PATH.read_text()
         info_plist = INFO_PLIST_PATH.read_text()

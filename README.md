@@ -86,6 +86,14 @@ install it without replacing PiWork. It activates on the next launch. Packages
 are verified and tested before activation, with automatic fallback if startup
 fails. See [runtime updates](docs/agent-runtime-updates.md) for the release process.
 
+### Does PiWork update itself?
+
+PiWork checks for app updates on launch and daily while running. When a new
+version appears, click **Install Update** to download, verify, install, and
+restart the app. Automatic checks can be turned off in Settings → General.
+Releases from before the in-app updater need one manual upgrade first.
+See [app updates](docs/app-updates.md) for signing, publishing, and local checks.
+
 ### Does pi-work share my terminal Pi settings?
 
 pi-work uses its own agent environment for settings, provider connections, skills, and extensions. Configure your providers inside the app, even if you already use Pi in the terminal.

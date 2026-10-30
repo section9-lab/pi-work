@@ -286,6 +286,11 @@ private struct GeneralSettingsView: View {
 
             Section {
                 AppUpdateSettingsRow(controller: updateController)
+                Toggle(L10n.string("update.automatic_checks"), isOn: Binding(
+                    get: { updateController.automaticallyChecksForUpdates },
+                    set: { updateController.setAutomaticChecks($0) }
+                ))
+                .disabled(updateController.isInstalling)
                 PiCodingAgentUpdateSettingsRow(controller: runtimeUpdateController)
             }
             .id(languageStore.language)
@@ -374,44 +379,13 @@ private struct AppUpdateSettingsRow: View {
     var body: some View {
         AgentSettingsRow(
             title: L10n.string("update.title"),
-            description: statusDescription
+            description: controller.statusDescription
         ) {
-            if controller.isChecking {
-                ProgressView()
-                    .controlSize(.small)
-                    .help(L10n.string("update.checking"))
-            } else {
-                Button(buttonTitle) {
-                    if case .updateAvailable = controller.state {
-                        controller.openAvailableUpdate()
-                    } else {
-                        Task { await controller.checkForUpdatesAndPresent() }
-                    }
-                }
-            }
+            AppUpdateActions(controller: controller)
         }
-    }
-
-    private var statusDescription: String {
-        switch controller.state {
-        case .idle:
-            return L10n.format("update.installed_version", controller.currentVersion)
-        case .checking:
-            return L10n.string("update.checking")
-        case .upToDate:
-            return L10n.format("update.status.up_to_date", controller.currentVersion)
-        case let .updateAvailable(update):
-            return L10n.format("update.status.available", update.version)
-        case .failed:
-            return controller.failureDescription
+        if case .available = controller.state {
+            Text(L10n.string("update.restart_note")).font(.caption).foregroundStyle(.secondary)
         }
-    }
-
-    private var buttonTitle: String {
-        if case .updateAvailable = controller.state {
-            return L10n.string("update.download")
-        }
-        return L10n.string("update.check")
     }
 }
 

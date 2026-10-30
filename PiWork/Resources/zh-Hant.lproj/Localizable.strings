@@ -51,7 +51,7 @@
 "update.title" = "軟體更新";
 "update.installed_version" = "已安裝版本 %@";
 "update.check" = "檢查更新…";
-"update.checking" = "正在檢查 GitHub Release…";
+"update.checking" = "正在檢查更新…";
 "update.status.up_to_date" = "PiWork %@ 已是最新版本。";
 "update.status.available" = "此 Mac 可更新至 %@。";
 "update.status.failed" = "無法檢查 GitHub Release，請重試。";
@@ -63,7 +63,7 @@
 "update.download" = "下載更新";
 "update.later" = "稍後";
 "update.alert.available.title" = "發現新版本";
-"update.alert.available.message" = "PiWork %@ 已發佈，目前版本為 %@。下載 DMG 後，請用它取代「應用程式」中的 PiWork。";
+"update.alert.available.message" = "PiWork %@ 已可升級，目前版本為 %@。";
 "update.alert.up_to_date.title" = "PiWork 已是最新版本";
 "update.alert.up_to_date.message" = "目前使用的是最新版本（%@）。";
 "update.alert.failed.title" = "無法檢查更新";
@@ -792,3 +792,15 @@
 "analytics.title" = "匿名使用統計";
 "analytics.description" = "僅統計每日活躍與版本，不上傳對話、檔案、指令或帳號資訊。";
 "computer_use.permission_unknown" = "未檢查";
+
+"update.install" = "升級";
+
+"update.downloading" = "正在下載更新…";
+
+"update.extracting" = "正在驗證並準備更新…";
+
+"update.installing" = "正在升級並重新啟動…";
+
+"update.automatic_checks" = "自動檢查更新";
+
+"update.restart_note" = "升級完成後會自動重新啟動 PiWork，執行中的工作將停止。";

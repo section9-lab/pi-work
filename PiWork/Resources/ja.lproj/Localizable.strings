@@ -51,7 +51,7 @@
 "update.title" = "ソフトウェアアップデート";
 "update.installed_version" = "インストール済みバージョン %@";
 "update.check" = "アップデートを確認…";
-"update.checking" = "GitHub Release を確認中…";
+"update.checking" = "アップデートを確認中…";
 "update.status.up_to_date" = "PiWork %@ は最新バージョンです。";
 "update.status.available" = "この Mac ではバージョン %@ を利用できます。";
 "update.status.failed" = "GitHub Release を確認できません。もう一度お試しください。";
@@ -63,7 +63,7 @@
 "update.download" = "アップデートをダウンロード";
 "update.later" = "後で";
 "update.alert.available.title" = "新しいバージョンがあります";
-"update.alert.available.message" = "PiWork %@ を利用できます。現在のバージョンは %@ です。DMG をダウンロードし、「アプリケーション」の PiWork と置き換えてください。";
+"update.alert.available.message" = "PiWork %@ が利用できます。現在のバージョンは %@ です。";
 "update.alert.up_to_date.title" = "PiWork は最新です";
 "update.alert.up_to_date.message" = "最新バージョン（%@）を使用しています。";
 "update.alert.failed.title" = "アップデートを確認できません";
@@ -792,3 +792,15 @@
 "analytics.title" = "匿名の使用状況を共有";
 "analytics.description" = "日ごとの利用状況とバージョンのみを集計します。会話、ファイル、コマンド、アカウント情報は送信しません。";
 "computer_use.permission_unknown" = "未確認";
+
+"update.install" = "アップデート";
+
+"update.downloading" = "アップデートをダウンロード中…";
+
+"update.extracting" = "アップデートを検証して準備中…";
+
+"update.installing" = "インストールして再起動中…";
+
+"update.automatic_checks" = "アップデートを自動で確認";
+
+"update.restart_note" = "更新後、PiWork は自動的に再起動します。実行中のタスクは停止します。";

@@ -66,7 +66,9 @@ jobs:
       - name: Check Agent Host and runtime recovery
         run: |
           (cd AgentHost && bun run typecheck && bun test)
-          python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py
+          bash scripts/fetch-sparkle-tools.sh
+          python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py scripts/test_appcast.py
+          bash scripts/test-app-updates.sh
           bash scripts/test-agent-runtime.sh
 
       - name: Generate Xcode project
@@ -164,11 +166,26 @@ jobs:
           mkdir -p dist
           mv "$DMG_PATH" dist/
 
+      - name: Sign Sparkle update archive and feed
+        env:
+          SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+        run: |
+          sign_tool="$(bash scripts/fetch-sparkle-tools.sh)"
+          python3 scripts/generate-appcast.py \
+            --version "$PROJECT_VERSION" \
+            --architecture "${{ matrix.suffix }}" \
+            --dmg "dist/PiWork-${PROJECT_VERSION}-macos-${{ matrix.suffix }}.dmg" \
+            --output "dist/appcast-${{ matrix.suffix }}.xml" \
+            --notes "docs/releases/${PROJECT_VERSION}.md" \
+            --sign-tool "$sign_tool"
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: PiWork-${{ matrix.suffix }}
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/appcast-*.xml
           if-no-files-found: error
           retention-days: 7
 
@@ -214,6 +231,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             dist/*.dmg \
+            dist/appcast-*.xml \
             dist/SHA256SUMS.txt \
             --verify-tag \
             --notes-file dist/RELEASE_NOTES.md \

@@ -18,6 +18,15 @@ struct PiWorkApp: App {
                 languageStore: languageStore
             )
                 .onAppear { ForegroundUsageTracker.shared.start() }
+                .task {
+#if DEBUG
+                    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+#endif
+                    updateController.start()
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    AppUpdateBanner(controller: updateController)
+                }
                 .environment(\.locale, languageStore.language.locale)
         }
         .windowStyle(.hiddenTitleBar)
@@ -32,9 +41,9 @@ struct PiWorkApp: App {
             }
             CommandGroup(after: .appInfo) {
                 Button(L10n.string("update.check")) {
-                    Task { await updateController.checkForUpdatesAndPresent() }
+                    updateController.checkForUpdatesAndPresent()
                 }
-                .disabled(updateController.isChecking)
+                .disabled(!updateController.canCheckForUpdates || updateController.isInstalling)
             }
         }
 
