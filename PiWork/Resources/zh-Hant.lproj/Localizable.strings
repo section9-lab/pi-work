@@ -1,3 +1,14 @@
+/* Running input */
+"settings.agent.running_input.title" = "執行中傳送訊息";
+"settings.agent.running_input.follow_up" = "Follow-up · 完成後執行";
+"settings.agent.running_input.steer" = "Steer · 追加指示";
+"settings.agent.running_input.description" = "Follow-up 會在目前任務完成後處理新訊息。Steer 會在下一個可接收指示的節點處理，不會立即中斷正在執行的工具。設定變更對下一則訊息生效。";
+"chat.input_queue.pending" = "待處理訊息";
+"chat.input_queue.clear" = "取消全部";
+"chat.input_queue.images" = "圖片附件";
+"chat.input_queue.cancelled" = "未傳送";
+"chat.input_queue.restore" = "還原至輸入框";
+
 /* 通用 */
 "common.back" = "返回";
 "common.cancel" = "取消";

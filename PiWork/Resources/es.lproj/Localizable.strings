@@ -1,3 +1,14 @@
+/* Running input */
+"settings.agent.running_input.title" = "Mensajes enviados durante la ejecución";
+"settings.agent.running_input.follow_up" = "Follow-up · Al finalizar";
+"settings.agent.running_input.steer" = "Steer · Instrucciones adicionales";
+"settings.agent.running_input.description" = "Follow-up espera a que termine la tarea actual. Steer entrega instrucciones en el siguiente punto disponible; no interrumpe inmediatamente una herramienta en ejecución. Los cambios se aplican al siguiente mensaje.";
+"chat.input_queue.pending" = "Mensajes pendientes";
+"chat.input_queue.clear" = "Cancelar todos";
+"chat.input_queue.images" = "Imágenes adjuntas";
+"chat.input_queue.cancelled" = "Sin enviar";
+"chat.input_queue.restore" = "Restaurar en la entrada";
+
 /* Común */
 "common.back" = "Atrás";
 "common.cancel" = "Cancelar";

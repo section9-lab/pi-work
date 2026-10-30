@@ -25,6 +25,7 @@ import {
 import {
   SessionRegistryError,
   type SessionHandle,
+  type QueuedInput,
   type SessionHandleEvent,
   type SessionHandleSnapshot,
   type SessionContextUsage,
@@ -72,7 +73,7 @@ type PiAgentSession = Pick<
   | "exportToHtml"
   | "dispose"
   | "subscribe"
-> & {
+> & Partial<Pick<AgentSession, "isStreaming" | "waitForIdle" | "clearQueue" | "getSteeringMessages" | "getFollowUpMessages">> & {
   agent: Pick<AgentSession["agent"], "streamFunction">;
   modelRuntime: Pick<ModelRuntime, "getModel">;
 };
@@ -298,6 +299,13 @@ export class PiSessionHandle implements SessionHandle {
   private transcriptRevision = crypto.randomUUID();
   private readonly extensionListeners = new Set<(event: SessionHandleEvent) => void>();
   private readonly extensionWidgets = new Map<string, SessionExtensionWidget>();
+  private readonly queuedInputMetadata = new Map<string, { input: QueuedInput; expandedText?: string }>();
+  private submittingInput?: QueuedInput;
+  private startedInputID?: string;
+  private queuedInputs: QueuedInput[] = [];
+  private queuedRunError?: unknown;
+  private initialPreflight: Promise<void> = Promise.resolve();
+  private deliveryCandidates: string[] = [];
   private readonly extensionStatuses = new Map<string, string>();
   private readonly unsubscribeComputerUse?: () => void;
 
@@ -399,6 +407,7 @@ export class PiSessionHandle implements SessionHandle {
       modelOptions: this.modelOptions(),
       accessMode: this.accessController.mode,
       pendingApprovals: this.accessController.pendingApprovals(),
+      queuedInputs: this.queuedInputs,
       ...(this.extensionWidgets.size > 0 ? { extensionWidgets: Object.fromEntries(
         [...this.extensionWidgets].map(([key, widget]) => [
           key, { ...widget, lines: [...widget.lines] },
@@ -629,11 +638,79 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   async prompt(text: string, images: ImageContent[] = []): Promise<void> {
-    await this.session.prompt(text, images.length > 0 ? { images } : undefined);
+    let ready!: () => void;
+    let failed!: (error: unknown) => void;
+    this.initialPreflight = new Promise<void>((resolve, reject) => { ready = resolve; failed = reject; });
+    void this.initialPreflight.catch(() => {});
+    try {
+      await this.session.prompt(text, { images, preflightResult: ready });
+      ready();
+      await this.waitForIdle();
+    } catch (error) {
+      failed(error);
+      throw error;
+    }
+  }
+
+  async waitForIdle(): Promise<void> {
+    await this.session.waitForIdle?.();
+    if (this.queuedRunError) {
+      const error = this.queuedRunError;
+      this.queuedRunError = undefined;
+      throw error;
+    }
     const lastMessage = this.session.messages.at(-1);
     if (lastMessage?.role === "assistant" && lastMessage.stopReason === "error") {
       throw new Error(lastMessage.errorMessage || "Model request failed");
     }
+  }
+
+  async enqueueInput(input: QueuedInput): Promise<"queued" | "handled"> {
+    // The initial prompt can await input handlers/auth before Pi marks itself busy.
+    // Do not let an additional input start a parallel run in that preflight window.
+    await this.initialPreflight;
+    this.queuedInputMetadata.set(input.id, { input });
+    this.submittingInput = input;
+    try {
+      // prompt() atomically chooses queue vs. start after asynchronous input handlers.
+      // This avoids stranding a follow-up if the previous run settles during preflight.
+      return await new Promise<"queued" | "handled">((resolve, reject) => {
+        let started = false;
+        const completion = this.session.prompt(input.text || (input.images.length ? " " : ""), {
+          images: input.images,
+          streamingBehavior: input.behavior,
+          preflightResult: (disposition) => {
+            started = disposition === "started";
+            if (started) this.startedInputID = input.id;
+            if (disposition === "handled") this.queuedInputMetadata.delete(input.id);
+            resolve(disposition === "handled" ? "handled" : "queued");
+          },
+        });
+        void completion.catch((error) => {
+          this.queuedInputMetadata.delete(input.id);
+          if (started) this.queuedRunError = error;
+          reject(error);
+        });
+      });
+    } finally {
+      this.submittingInput = undefined;
+    }
+  }
+
+  clearInputQueue(): QueuedInput[] {
+    const inputs = [...this.queuedInputs];
+    this.session.clearQueue?.();
+    this.queuedInputs = [];
+    this.deliveryCandidates = [];
+    for (const id of this.queuedInputMetadata.keys()) {
+      if (id !== this.submittingInput?.id) this.queuedInputMetadata.delete(id);
+    }
+    if (inputs.length > 0) {
+      for (const listener of this.extensionListeners) {
+        listener({ type: "inputQueueChanged", inputs: [], recoveredInputs: inputs });
+      }
+    }
+    return inputs;
   }
 
   abort(): Promise<void> {
@@ -662,6 +739,40 @@ export class PiSessionHandle implements SessionHandle {
 
   subscribe(listener: (event: SessionHandleEvent) => void): () => void {
     const unsubscribeSession = this.session.subscribe((event) => {
+      if (event.type === "queue_update") {
+        const available = [...this.queuedInputMetadata.values()];
+        const next: QueuedInput[] = [];
+        for (const behavior of ["steer", "followUp"] as const) {
+          const texts = behavior === "steer" ? event.steering : event.followUp;
+          for (const text of texts) {
+            const index = available.findIndex((entry) => entry.input.behavior === behavior
+              && (entry.expandedText === text || (entry.expandedText === undefined && entry.input.id === this.submittingInput?.id)));
+            if (index < 0) continue;
+            const entry = available.splice(index, 1)[0]!;
+            entry.expandedText = text;
+            next.push(entry.input);
+          }
+        }
+        this.deliveryCandidates.push(...this.queuedInputs
+          .filter((input) => !next.some((item) => item.id === input.id)).map((input) => input.id));
+        this.queuedInputs = next;
+        listener({ type: "inputQueueChanged", inputs: next });
+      }
+      if (event.type === "message_start" && event.message.role === "user") {
+        const text = typeof event.message.content === "string" ? event.message.content
+          : event.message.content.filter((part) => part.type === "text").map((part) => part.text).join("");
+        const entry = this.deliveryCandidates.map((id) => this.queuedInputMetadata.get(id))
+          .find((entry) => entry?.expandedText === text)
+          ?? [...this.queuedInputMetadata.values()].find((entry) => entry.expandedText === text)
+          ?? (this.startedInputID ? this.queuedInputMetadata.get(this.startedInputID) : undefined);
+        if (entry) {
+          this.queuedInputMetadata.delete(entry.input.id);
+          if (this.startedInputID === entry.input.id) this.startedInputID = undefined;
+          this.deliveryCandidates = this.deliveryCandidates.filter((id) => id !== entry.input.id);
+          this.queuedInputs = this.queuedInputs.filter((input) => input.id !== entry.input.id);
+          listener({ type: "inputDelivered", input: entry.input });
+        }
+      }
       const normalized = normalizeAgentSessionEvent(event);
       if (normalized) listener(normalized);
     });

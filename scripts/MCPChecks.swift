@@ -19,6 +19,7 @@ struct MCPChecks {
     }
 
     static func run() async throws {
+        try RunningInputChecks.run()
         try checkDrafts()
         try checkACPStream()
         try await checkRequestLifetime()

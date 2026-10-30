@@ -140,6 +140,8 @@ protocol AgentHostServicing: Actor {
         images: [AgentHostPromptImage],
         requestID: String
     ) async throws -> AgentHostSessionPromptResult
+    func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult
+    func clearInputQueue(sessionId: String) async throws -> AgentHostClearInputQueueResult
     func abort(
         sessionId: String,
         requestID: String
@@ -157,6 +159,14 @@ protocol AgentHostServicing: Actor {
 }
 
 extension AgentHostServicing {
+    func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult {
+        throw AgentHostServiceError.missingPiWorkCapability(.sessionEnqueueInput)
+    }
+
+    func clearInputQueue(sessionId: String) async throws -> AgentHostClearInputQueueResult {
+        throw AgentHostServiceError.missingPiWorkCapability(.sessionClearInputQueue)
+    }
+
     func setConfigOption(
         sessionId: String,
         configId: String,
@@ -1308,6 +1318,16 @@ actor AgentHostService: AgentHostServicing,
         )
     }
 
+    func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult {
+        try await request(method: "session.enqueueInput", params: parameters, timeout: nil, as: AgentHostEnqueueInputResult.self)
+    }
+
+    func clearInputQueue(sessionId: String) async throws -> AgentHostClearInputQueueResult {
+        try await request(method: "session.clearInputQueue",
+                          params: AgentHostSessionIdentifierParameters(sessionId: sessionId), timeout: nil,
+                          as: AgentHostClearInputQueueResult.self)
+    }
+
     func abort(
         sessionId: String,
         requestID: String = UUID().uuidString
@@ -1636,6 +1656,14 @@ actor AgentHostService: AgentHostServicing,
                     text: payload.text
                 )
             )
+        case .sessionInputQueueChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionInputQueueChanged(AgentHostInputQueuePayload(
+                sessionId: payload.sessionId, sequence: value.0, inputs: payload.inputs, recoveredInputs: payload.recoveredInputs))
+        case .sessionInputDelivered(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionInputDelivered(AgentHostInputDeliveredPayload(
+                sessionId: payload.sessionId, sequence: value.0, input: payload.input))
         case .sessionExtensionWidgetChanged(let payload):
             let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
             return .sessionExtensionWidgetChanged(

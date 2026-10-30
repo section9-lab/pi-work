@@ -66,6 +66,8 @@ enum AgentHostPiWorkCapability: String, CaseIterable, Decodable, Equatable, Hash
     case gitBranches = "git.branches"
     case sessionExportHTML = "session.exportHtml"
     case sessionSnapshot = "session.snapshot"
+    case sessionEnqueueInput = "session.enqueueInput"
+    case sessionClearInputQueue = "session.clearInputQueue"
     case sessionTranscriptPage = "session.transcriptPage"
     case sessionToolOutput = "session.toolOutput"
     case sessionCommands = "session.commands"
@@ -1374,6 +1376,8 @@ struct AgentHostModelsChangedPayload: Decodable, Equatable {
 enum AgentHostServerEvent: Equatable {
     case hostHello(AgentHostHelloPayload)
     case sessionStateChanged(AgentHostSessionStateChangedPayload)
+    case sessionInputQueueChanged(AgentHostInputQueuePayload)
+    case sessionInputDelivered(AgentHostInputDeliveredPayload)
     case sessionMessageDelta(AgentHostSessionMessageDeltaPayload)
     case sessionUserContent(AgentHostSessionUserContentPayload)
     case sessionAssistantContent(AgentHostSessionAssistantContentPayload)
@@ -1442,6 +1446,10 @@ enum AgentHostServerEvent: Equatable {
                 from: data
             )
             return .hostHello(event.payload)
+        case "session.inputQueueChanged":
+            return .sessionInputQueueChanged(try decoder.decode(AgentHostEvent<AgentHostInputQueuePayload>.self, from: data).payload)
+        case "session.inputDelivered":
+            return .sessionInputDelivered(try decoder.decode(AgentHostEvent<AgentHostInputDeliveredPayload>.self, from: data).payload)
         case "session.stateChanged":
             let event = try decoder.decode(
                 AgentHostEvent<AgentHostSessionStateChangedPayload>.self,
@@ -1933,6 +1941,8 @@ private func agentHostACPMethod(for method: String) -> String {
     case "git.branches": return "_piWork/git/branches"
     case "session.exportHtml": return "_piWork/session/exportHtml"
     case "session.snapshot": return "_piWork/session/snapshot"
+    case "session.enqueueInput": return "_piWork/session/enqueueInput"
+    case "session.clearInputQueue": return "_piWork/session/clearInputQueue"
     case "session.transcriptPage": return "_piWork/session/transcriptPage"
     case "session.toolOutput": return "_piWork/session/toolOutput"
     case "session.commands": return "_piWork/session/commands"
@@ -2471,7 +2481,52 @@ struct AgentHostSessionRenameParameters: Encodable, Equatable {
     let title: String
 }
 
-struct AgentHostPromptImage: Encodable, Equatable {
+enum RunningMessageBehavior: String, Codable, CaseIterable {
+    case followUp
+    case steer
+
+    static let preferenceKey = "agent.runningMessageBehavior"
+    static func resolve(_ value: String) -> Self { Self(rawValue: value) ?? .followUp }
+
+}
+
+struct AgentHostQueuedInput: Decodable, Equatable, Identifiable {
+    let id: String
+    let text: String
+    let images: [AgentHostPromptImage]
+    let behavior: RunningMessageBehavior
+}
+
+struct AgentHostInputQueuePayload: Decodable, Equatable {
+    let sessionId: String
+    let sequence: Int
+    let inputs: [AgentHostQueuedInput]
+    var recoveredInputs: [AgentHostQueuedInput]? = nil
+}
+
+struct AgentHostInputDeliveredPayload: Decodable, Equatable {
+    let sessionId: String
+    let sequence: Int
+    let input: AgentHostQueuedInput
+}
+
+struct AgentHostEnqueueInputParameters: Encodable {
+    let sessionId: String
+    let inputId: String
+    let text: String
+    let images: [AgentHostPromptImage]
+    let runningBehavior: RunningMessageBehavior
+}
+
+struct AgentHostEnqueueInputResult: Decodable {
+    let disposition: String
+}
+
+struct AgentHostClearInputQueueResult: Decodable {
+    let inputs: [AgentHostQueuedInput]
+}
+
+struct AgentHostPromptImage: Codable, Equatable {
     let mimeType: String
     let data: Data
 }
@@ -3073,6 +3128,7 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
     let extensionStatuses: [String: String]?
     let extensionWidgets: [String: AgentHostExtensionWidget]?
     let plan: [AgentHostACPPlanEntry]?
+    let queuedInputs: [AgentHostQueuedInput]?
 
     init(
         session: AgentHostSessionDescriptor,
@@ -3091,8 +3147,10 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
         pendingApprovals: [AgentHostApprovalRequest],
         extensionStatuses: [String: String]? = nil,
         extensionWidgets: [String: AgentHostExtensionWidget]? = nil,
-        plan: [AgentHostACPPlanEntry]? = nil
+        plan: [AgentHostACPPlanEntry]? = nil,
+        queuedInputs: [AgentHostQueuedInput]? = nil
     ) {
+        self.queuedInputs = queuedInputs
         self.session = session
         self.messages = messages
         self.history = history

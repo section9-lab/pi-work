@@ -154,6 +154,8 @@ struct SessionRecord: Equatable, Identifiable {
     var settledTurnIds: Set<String> = []
     var errorMessage: String?
     var acpState: AgentHostACPSessionState
+    var queuedInputs: [AgentHostQueuedInput] = []
+    var recoveredInputs: [AgentHostQueuedInput] = []
 }
 
 enum SessionStoreEffect: Equatable {
@@ -177,7 +179,21 @@ struct SessionStoreReducer {
     }
 
     mutating func apply(_ record: SessionRecord) {
+        var record = record
+        record.recoveredInputs = records[record.id]?.recoveredInputs ?? []
         records[record.id] = record
+    }
+
+    mutating func recoverInputs(_ inputs: [AgentHostQueuedInput], sessionId: String) {
+        guard var record = records[sessionId] else { return }
+        for input in inputs where !record.recoveredInputs.contains(where: { $0.id == input.id }) {
+            record.recoveredInputs.append(input)
+        }
+        records[sessionId] = record
+    }
+
+    mutating func removeRecoveredInput(_ id: String, sessionId: String) {
+        records[sessionId]?.recoveredInputs.removeAll { $0.id == id }
     }
 
     mutating func applyACPState(
@@ -258,7 +274,8 @@ struct SessionStoreReducer {
                 plan: snapshot.plan,
                 extensionStatuses: snapshot.extensionStatuses ?? [:],
                 extensionWidgets: snapshot.extensionWidgets ?? [:]
-            )
+            ),
+            queuedInputs: snapshot.queuedInputs ?? []
         )
     }
 
@@ -625,6 +642,26 @@ struct SessionStoreReducer {
                 record.activeTurnId = payload.turnId
             }
             append(delta: payload.delta, turnId: payload.turnId, timestamp: timestamp, to: &record)
+        case .sessionInputQueueChanged(let payload):
+            record.queuedInputs = payload.inputs
+            for input in payload.recoveredInputs ?? [] where !record.recoveredInputs.contains(where: { $0.id == input.id }) {
+                record.recoveredInputs.append(input)
+            }
+        case .sessionInputDelivered(let payload):
+            let input = payload.input
+            record.recoveredInputs.removeAll { $0.id == input.id }
+            record.queuedInputs.removeAll { $0.id == input.id }
+            let message = AgentHostSessionMessage(
+                id: "input:\(input.id):user", role: .user,
+                content: (input.text.isEmpty ? [] : [.text(input.text)]) + input.images.map {
+                    .image(mimeType: $0.mimeType, data: $0.data)
+                },
+                timestamp: timestamp, provider: nil, model: nil, stopReason: nil,
+                errorMessage: nil, toolCallId: nil, toolName: nil, isError: nil)
+            if !record.messages.contains(where: { $0.id == message.id }) {
+                record.messages.append(message)
+                record.transcript += Self.makeTranscript(from: [message], pendingApprovals: [], sessionState: .running)
+            }
         case .sessionUserContent(let payload):
             appendUserContent(payload, timestamp: timestamp, to: &record)
         case .sessionAssistantContent(let payload):
@@ -800,6 +837,10 @@ struct SessionStoreReducer {
         case .sessionStateChanged(let payload):
             return (payload.sessionId, payload.sequence)
         case .sessionMessageDelta(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionInputQueueChanged(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionInputDelivered(let payload):
             return (payload.sessionId, payload.sequence)
         case .sessionUserContent(let payload):
             return (payload.sessionId, payload.sequence)
@@ -1986,16 +2027,49 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    func enqueueInput(
+        sessionId: String, text: String, images: [AgentHostPromptImage],
+        behavior: RunningMessageBehavior
+    ) async throws {
+        guard let record = records[sessionId] else { throw SessionStoreError.sessionNotOpen(sessionId) }
+        guard record.runState == .running else { throw SessionStoreError.sessionBusy(sessionId) }
+        _ = try await service.enqueueInput(AgentHostEnqueueInputParameters(
+            sessionId: sessionId, inputId: UUID().uuidString, text: text,
+            images: images, runningBehavior: behavior))
+    }
+
+    func recoverDraft(sessionId: String, text: String, images: [AgentHostPromptImage], behavior: RunningMessageBehavior) {
+        reducer.recoverInputs([AgentHostQueuedInput(id: UUID().uuidString, text: text, images: images, behavior: behavior)], sessionId: sessionId)
+        publishReducerState()
+    }
+
+    func clearInputQueue(sessionId: String) async throws {
+        let result = try await service.clearInputQueue(sessionId: sessionId)
+        reducer.recoverInputs(result.inputs, sessionId: sessionId)
+        publishReducerState()
+    }
+
+    func removeRecoveredInput(_ id: String, sessionId: String) {
+        reducer.removeRecoveredInput(id, sessionId: sessionId)
+        publishReducerState()
+    }
+
     func abortSession(sessionId: String) async throws {
         guard records[sessionId] != nil else {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
+        reducer.recoverInputs(records[sessionId]?.queuedInputs ?? [], sessionId: sessionId)
         reducer.requestAbort(sessionId: sessionId)
         guard reducer.records[sessionId]?.runState == .stopping else {
             throw SessionStoreError.sessionBusy(sessionId)
         }
         publishReducerState()
         do {
+            // Input extensions may be awaiting a form during preflight. Release those
+            // requests before stopping, otherwise the pending enqueue cannot drain.
+            for request in records[sessionId]?.pendingElicitations ?? [] {
+                try await resolveElicitation(sessionId: sessionId, requestId: request.id, response: .cancel)
+            }
             _ = try await service.abort(
                 sessionId: sessionId,
                 requestID: UUID().uuidString
@@ -2571,6 +2645,8 @@ final class SessionStore: ObservableObject {
             supportsFastMode: model.supportsFastMode
         )
     }
+
+    var supportsRunningInput: Bool { supportsPiWorkCapability(.sessionEnqueueInput) }
 
     private func supportsPiWorkCapability(_ capability: AgentHostPiWorkCapability) -> Bool {
         piWorkCapabilities.contains(capability)

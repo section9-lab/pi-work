@@ -2,6 +2,44 @@ import XCTest
 @testable import PiWork
 
 final class SessionStoreReducerTests: XCTestCase {
+    func testQueuedInputsStaySeparateUntilDeliveredAndPreserveImages() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        _ = reducer.submitPrompt(sessionId: "session-one", turnId: "run", text: "initial", timestamp: "now")
+        let input = AgentHostQueuedInput(id: "input", text: "next", images: [
+            AgentHostPromptImage(mimeType: "image/png", data: Data([1, 2, 3]))
+        ], behavior: .followUp)
+        _ = reducer.receive(.sessionInputQueueChanged(AgentHostInputQueuePayload(
+            sessionId: "session-one", sequence: 1, inputs: [input])), timestamp: "now")
+        XCTAssertEqual(reducer.records["session-one"]?.queuedInputs, [input])
+        XCTAssertEqual(reducer.records["session-one"]?.messages.count, 1)
+        XCTAssertEqual(reducer.records["session-one"]?.activeTurnId, "run")
+
+        let delivered = AgentHostServerEvent.sessionInputDelivered(AgentHostInputDeliveredPayload(
+            sessionId: "session-one", sequence: 2, input: input))
+        _ = reducer.receive(delivered, timestamp: "later")
+        _ = reducer.receive(delivered, timestamp: "later")
+        XCTAssertEqual(reducer.records["session-one"]?.queuedInputs, [])
+        XCTAssertEqual(reducer.records["session-one"]?.messages.count, 2)
+        XCTAssertEqual(reducer.records["session-one"]?.messages.last?.content, [
+            .text("next"), .image(mimeType: "image/png", data: Data([1, 2, 3]))
+        ])
+        XCTAssertEqual(reducer.records["session-one"]?.activeTurnId, "run")
+    }
+
+    func testCancelledInputsCanBeRecoveredOnceAndSurviveSnapshotRepair() {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        let input = AgentHostQueuedInput(id: "cancelled", text: "restore me", images: [], behavior: .steer)
+        reducer.recoverInputs([input], sessionId: "session-one")
+        _ = reducer.receive(.sessionInputQueueChanged(AgentHostInputQueuePayload(
+            sessionId: "session-one", sequence: 1, inputs: [], recoveredInputs: [input])), timestamp: "now")
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        XCTAssertEqual(reducer.records["session-one"]?.recoveredInputs, [input])
+        reducer.removeRecoveredInput(input.id, sessionId: "session-one")
+        XCTAssertEqual(reducer.records["session-one"]?.recoveredInputs, [])
+    }
+
     func testSnapshotCanBeProjectedAwayFromTheMainActor() async {
         let snapshot = makeSnapshot(sessionId: "session-one")
 

@@ -1,3 +1,14 @@
+/* Running input */
+"settings.agent.running_input.title" = "実行中に送信するメッセージ";
+"settings.agent.running_input.follow_up" = "Follow-up · 完了後に実行";
+"settings.agent.running_input.steer" = "Steer · 追加指示";
+"settings.agent.running_input.description" = "Follow-up は現在のタスクの完了を待ちます。Steer は次の受付可能な時点で指示を渡し、実行中のツールを直ちに中断しません。変更は次のメッセージから適用されます。";
+"chat.input_queue.pending" = "待機中のメッセージ";
+"chat.input_queue.clear" = "すべてキャンセル";
+"chat.input_queue.images" = "添付画像";
+"chat.input_queue.cancelled" = "未送信";
+"chat.input_queue.restore" = "入力欄に戻す";
+
 /* 共通 */
 "common.back" = "戻る";
 "common.cancel" = "キャンセル";

@@ -1,3 +1,14 @@
+/* Running input */
+"settings.agent.running_input.title" = "실행 중 메시지 전송";
+"settings.agent.running_input.follow_up" = "Follow-up · 완료 후 실행";
+"settings.agent.running_input.steer" = "Steer · 추가 지시";
+"settings.agent.running_input.description" = "Follow-up은 현재 작업이 끝난 후 처리합니다. Steer는 다음 수신 가능한 시점에 지시를 전달하며 실행 중인 도구를 즉시 중단하지 않습니다. 변경 사항은 다음 메시지부터 적용됩니다.";
+"chat.input_queue.pending" = "대기 중인 메시지";
+"chat.input_queue.clear" = "모두 취소";
+"chat.input_queue.images" = "첨부 이미지";
+"chat.input_queue.cancelled" = "미전송";
+"chat.input_queue.restore" = "입력창으로 복원";
+
 /* 공통 */
 "common.back" = "뒤로";
 "common.cancel" = "취소";

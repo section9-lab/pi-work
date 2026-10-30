@@ -154,6 +154,8 @@ describe("ACP v1 JSON-RPC protocol", () => {
             "git.branches",
             "session.exportHtml",
             "session.snapshot",
+            "session.enqueueInput",
+            "session.clearInputQueue",
             "session.transcriptPage",
             "session.toolOutput",
             "session.commands",

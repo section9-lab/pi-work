@@ -7,6 +7,16 @@ import XCTest
 @testable import PiWork
 
 final class SessionComposerTests: XCTestCase {
+    func testRunningMessageBehaviorDefaultsToFollowUpAndPersistsSelection() {
+        XCTAssertEqual(RunningMessageBehavior.resolve(""), .followUp)
+        XCTAssertEqual(RunningMessageBehavior.resolve("unknown"), .followUp)
+        let defaults = UserDefaults(suiteName: "running-input-test-\(UUID().uuidString)")!
+        XCTAssertNil(defaults.string(forKey: RunningMessageBehavior.preferenceKey))
+        defaults.set(RunningMessageBehavior.steer.rawValue, forKey: RunningMessageBehavior.preferenceKey)
+        XCTAssertEqual(RunningMessageBehavior.resolve(defaults.string(forKey: RunningMessageBehavior.preferenceKey)!), .steer)
+        defaults.removeObject(forKey: RunningMessageBehavior.preferenceKey)
+    }
+
     func testACPFormStateBuildsTypedContentAndRejectsInvalidNumbers() {
         let request = AgentHostACPElicitationRequest(
             id: "form-one",
@@ -871,14 +881,14 @@ final class SessionComposerTests: XCTestCase {
             .send
         )
         XCTAssertEqual(SessionComposerState.primaryAction(draft: "", isExecuting: true), .stop)
-        XCTAssertEqual(SessionComposerState.primaryAction(draft: "后续消息", isExecuting: true), .stop)
+        XCTAssertEqual(SessionComposerState.primaryAction(draft: "后续消息", isExecuting: true), .send)
         XCTAssertEqual(
             SessionComposerState.primaryAction(
                 draft: "",
                 hasAttachments: true,
                 isExecuting: true
             ),
-            .stop
+            .send
         )
     }
 

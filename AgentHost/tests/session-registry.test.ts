@@ -5,6 +5,7 @@ import {
   SessionRegistry,
   SessionRegistryError,
   type SessionHandle,
+  type QueuedInput,
   type SessionHandleEvent,
   type SessionExtensionWidget,
   type SessionModelOption,
@@ -17,6 +18,24 @@ class ControllableSession implements SessionHandle {
   readonly prompts: string[] = [];
   readonly promptImages: ImageContent[][] = [];
   abortCount = 0;
+  queuedInputs: QueuedInput[] = [];
+  nativeIdle: Promise<void> = Promise.resolve();
+  enqueueBarrier: Promise<void> = Promise.resolve();
+
+  async enqueueInput(input: QueuedInput): Promise<"queued"> {
+    await this.enqueueBarrier;
+    this.queuedInputs.push(input);
+    for (const listener of this.listeners) listener({ type: "inputQueueChanged", inputs: [...this.queuedInputs] });
+    return "queued";
+  }
+
+  clearInputQueue(): QueuedInput[] {
+    const inputs = this.queuedInputs;
+    this.queuedInputs = [];
+    return inputs;
+  }
+
+  waitForIdle(): Promise<void> { return this.nativeIdle; }
   disposeCount = 0;
   reloadCount = 0;
   title = "New Session";
@@ -319,6 +338,62 @@ class ControllableSession implements SessionHandle {
 }
 
 describe("SessionRegistry", () => {
+  test("enqueues idempotently without replacing the active turn or starting another prompt", async () => {
+    const session = new ControllableSession("session-one");
+    const events: SessionRegistryEvent[] = [];
+    const registry = new SessionRegistry((event) => events.push(event));
+    registry.register(session);
+    registry.prompt(session.sessionId, "turn-one", "initial");
+    const completion = registry.promptCompletion(session.sessionId, "turn-one");
+    const input: QueuedInput = { id: "input-one", text: "next", images: [], behavior: "followUp" };
+    await Promise.all([registry.enqueueInput(session.sessionId, input), registry.enqueueInput(session.sessionId, input)]);
+    expect(session.queuedInputs).toEqual([input]);
+    expect(session.prompts).toEqual(["initial"]);
+    expect(registry.snapshot(session.sessionId).turnId).toBe("turn-one");
+    expect(events.some((event) => event.event === "session.inputQueueChanged")).toBe(true);
+    session.settle();
+    await completion;
+  });
+
+  test("does not publish idle until native follow-up work settles", async () => {
+    const session = new ControllableSession("session-one");
+    let settleNative!: () => void;
+    session.nativeIdle = new Promise((resolve) => { settleNative = resolve; });
+    const registry = new SessionRegistry(() => {});
+    registry.register(session);
+    registry.prompt(session.sessionId, "turn-one", "initial");
+    const completion = registry.promptCompletion(session.sessionId, "turn-one");
+    await registry.enqueueInput(session.sessionId, { id: "next", text: "follow", images: [], behavior: "followUp" });
+    session.settle();
+    await Bun.sleep(0);
+    expect(registry.snapshot(session.sessionId).state).toBe("running");
+    settleNative();
+    await completion;
+    expect(registry.snapshot(session.sessionId).state).toBe("idle");
+  });
+
+  test("abort drains in-flight input preflight and rejects new submissions", async () => {
+    const session = new ControllableSession("session-one");
+    let finishInput!: () => void;
+    session.enqueueBarrier = new Promise((resolve) => { finishInput = resolve; });
+    const registry = new SessionRegistry(() => {});
+    registry.register(session);
+    registry.prompt(session.sessionId, "turn-one", "initial");
+    const completion = registry.promptCompletion(session.sessionId, "turn-one");
+    const input: QueuedInput = { id: "next", text: "follow", images: [], behavior: "steer" };
+    const accepted = registry.enqueueInput(session.sessionId, input);
+    await Bun.sleep(0);
+    const abort = registry.abort(session.sessionId);
+    await expect(registry.enqueueInput(session.sessionId, { ...input, id: "late" })).rejects.toThrow("no longer accepting");
+    finishInput();
+    await accepted;
+    await abort;
+    expect(session.queuedInputs).toEqual([]);
+    expect(session.abortCount).toBe(2);
+    session.settle();
+    expect(await completion).toBe("cancelled");
+  });
+
   test("returns slash commands for the requested live session", () => {
     const session = new ControllableSession("session-one");
     const registry = new SessionRegistry(() => {});
@@ -533,8 +608,9 @@ describe("SessionRegistry", () => {
       },
     });
 
+    const completion = registry.promptCompletion("session-one", "turn-one");
     session.settle();
-    await Promise.resolve();
+    await completion;
 
     expect(events.at(-1)).toEqual({
       event: "session.stateChanged",

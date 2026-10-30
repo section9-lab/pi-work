@@ -1,5 +1,11 @@
 import Foundation
 
+extension RunningMessageBehavior {
+    var title: String {
+        L10n.string(self == .followUp ? "settings.agent.running_input.follow_up" : "settings.agent.running_input.steer")
+    }
+}
+
 enum SessionComposerPrimaryAction: Equatable {
     case none
     case send
@@ -86,10 +92,9 @@ enum SessionComposerState {
         hasAttachments: Bool = false,
         isExecuting: Bool
     ) -> SessionComposerPrimaryAction {
-        if isExecuting { return .stop }
-        return draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasAttachments
-            ? .none
-            : .send
+        let hasContent = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasAttachments
+        if hasContent { return .send }
+        return isExecuting ? .stop : .none
     }
 
     static func canSend(

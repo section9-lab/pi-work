@@ -337,6 +337,7 @@ private struct AppUpdateSettingsRow: View {
 
 private struct AgentGeneralSettingsView: View {
     @ObservedObject var store: AgentSettingsStore
+    @AppStorage(RunningMessageBehavior.preferenceKey) private var runningMessageBehavior = RunningMessageBehavior.followUp.rawValue
 
     var body: some View {
         Form {
@@ -346,6 +347,21 @@ private struct AgentGeneralSettingsView: View {
                         .textSelection(.enabled)
                     Button(L10n.string("common.retry")) { Task { await store.reload() } }
                 }
+            }
+
+            Section {
+                Picker(L10n.string("settings.agent.running_input.title"), selection: Binding(
+                    get: { RunningMessageBehavior.resolve(runningMessageBehavior).rawValue },
+                    set: { runningMessageBehavior = $0 }
+                )) {
+                    ForEach(RunningMessageBehavior.allCases, id: \.rawValue) { behavior in
+                        Text(behavior.title).tag(behavior.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("running-message-behavior")
+            } footer: {
+                Text(L10n.string("settings.agent.running_input.description"))
             }
 
             if store.isLoading && store.settings == nil {

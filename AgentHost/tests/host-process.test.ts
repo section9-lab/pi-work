@@ -147,6 +147,77 @@ describe("ACP agent host process", () => {
 
 });
 
+for (const scenario of ["followUp", "steer", "stop"] as const) {
+  test(`native running input end-to-end: ${scenario}`, async () => {
+    let releaseFirst!: () => void;
+    let modelStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const requested = new Promise<void>((resolve) => { modelStarted = resolve; });
+    const requests: unknown[] = [];
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      if (request.method === "GET") return Response.json({ data: [] });
+      requests.push(await request.json());
+      if (requests.length === 1) { modelStarted(); await firstGate; }
+      const chunks = [
+        { id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta: { content: "Done" }, finish_reason: null }] },
+        { id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+      ];
+      return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n",
+        { headers: { "Content-Type": "text/event-stream" } });
+    } });
+    const { child, lines, root } = await startHost();
+    const send = async (id: string | undefined, method: string, params: Record<string, unknown>) => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...(id ? { id } : {}), method, params })}\n`);
+      await child.stdin.flush();
+    };
+    try {
+      writeFileSync(join(root, "models.json"), JSON.stringify({ providers: { fixture: {
+        baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "synthetic-key",
+        models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 1024 }],
+      } } }));
+      writeFileSync(join(root, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+      await send("new", "session/new", { cwd: root, mcpServers: [] });
+      let created;
+      do { created = await lines.read(); } while (created.id !== "new");
+      const sessionId = created.result.sessionId;
+      await send("run", "session/prompt", { sessionId, prompt: [{ type: "text", text: "initial" }] });
+      await requested;
+      const behavior = scenario === "steer" ? "steer" : "followUp";
+      await send("enqueue", "_piWork/session/enqueueInput", {
+        sessionId, inputId: "queued-one", text: "additional instruction", images: [], runningBehavior: behavior,
+      });
+      const events: any[] = [];
+      let record;
+      do { record = await lines.read(); events.push(record); } while (record.id !== "enqueue");
+      expect(record.result).toEqual({ disposition: "queued" });
+      expect(events.some((event) => event.method === "_piWork/session.inputQueueChanged"
+        && event.params.inputs.some((input: any) => input.id === "queued-one" && input.behavior === behavior))).toBe(true);
+      if (scenario === "stop") {
+        await send(undefined, "session/cancel", { sessionId });
+        do { record = await lines.read(); events.push(record); }
+        while (!record.params?.recoveredInputs?.length);
+        expect(record.params.recoveredInputs[0].text).toBe("additional instruction");
+      }
+      releaseFirst();
+      do { record = await lines.read(); events.push(record); } while (record.id !== "run");
+      expect(record.error).toBeUndefined();
+      const idleEvents = events.filter((event) => event.method === "_piWork/session.stateChanged" && event.params.state === "idle");
+      expect(idleEvents).toHaveLength(1);
+      if (scenario === "stop") {
+        expect(record.result.stopReason).toBe("cancelled");
+        expect(requests).toHaveLength(1);
+      } else {
+        expect(record.result.stopReason).toBe("end_turn");
+        expect(requests).toHaveLength(2);
+        expect(JSON.stringify(requests[1])).toContain("additional instruction");
+        const delivered = events.filter((event) => event.method === "_piWork/session.inputDelivered");
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0].params.input.id).toBe("queued-one");
+      }
+    } finally { releaseFirst(); server.stop(true); await stopHost(child, root); }
+  }, 15000);
+}
+
 test("ACP MCP approval responses are processed while session/prompt waits for completion", async () => {
   const modelServer = Bun.serve({
     hostname: "127.0.0.1", port: 0,

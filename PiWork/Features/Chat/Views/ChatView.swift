@@ -18,6 +18,8 @@ struct ChatView: View {
     let onAddFolder: () -> Void
     private let computerUseStore: ComputerUseStore?
 
+    @AppStorage(RunningMessageBehavior.preferenceKey) private var runningMessageBehavior = RunningMessageBehavior.followUp.rawValue
+    @State private var pendingInputSessionIDs: Set<String> = []
     @State private var draft = ""
     @State private var selectedSlashCommand: AgentHostSlashCommand?
     @State private var slashCommands: [AgentHostSlashCommand] = []
@@ -105,6 +107,10 @@ struct ChatView: View {
                     .padding(.bottom, 6)
             }
 
+            inputQueue
+                .frame(maxWidth: 900)
+                .padding(.horizontal, 28)
+
             SessionComposer(
                 sessionIdentity: sessionPresentationID,
                 mode: mode,
@@ -118,6 +124,8 @@ struct ChatView: View {
                 isProcessingImageAttachments: isProcessingImageAttachments,
                 selectedModelSupportsImages: selectedModelSupportsImages,
                 isExecuting: isExecuting,
+                isSubmittingInput: activeSessionId.map { pendingInputSessionIDs.contains($0) } ?? false,
+                runningMessageBehavior: RunningMessageBehavior.resolve(runningMessageBehavior),
                 canSend: canSend,
                 availableModels: availableModels,
                 selectedModel: selectedModel,
@@ -661,25 +669,115 @@ struct ChatView: View {
             canSend
         else { return }
 
-        let promptImages = imageAttachments.map(\.promptImage)
-        draft = ""
-        selectedSlashCommand = nil
-        imageAttachments = []
         guard let sessionId = activeSessionId else { return }
+        let queued = isExecuting
+        let submittedDraft = draft
+        let submittedCommand = selectedSlashCommand
+        let submittedAttachments = imageAttachments
+        let promptImages = submittedAttachments.map(\.promptImage)
+        let behavior = RunningMessageBehavior.resolve(runningMessageBehavior)
+        if queued {
+            pendingInputSessionIDs.insert(sessionId)
+        } else {
+            draft = ""
+            selectedSlashCommand = nil
+            imageAttachments = []
+        }
         isTranscriptAutoFollowPaused = false
         isFollowingTranscriptTail = true
         transcriptScrollRequest &+= 1
         actionError = nil
         Task {
             do {
-                try await sessionStore.submitPrompt(
-                    sessionId: sessionId,
-                    text: text,
-                    images: promptImages
-                )
+                if queued {
+                    try await sessionStore.enqueueInput(sessionId: sessionId, text: text,
+                                                        images: promptImages, behavior: behavior)
+                    if activeSessionId == sessionId, draft == submittedDraft,
+                       selectedSlashCommand == submittedCommand, imageAttachments == submittedAttachments {
+                        draft = ""
+                        selectedSlashCommand = nil
+                        imageAttachments = []
+                    }
+                } else {
+                    try await sessionStore.submitPrompt(sessionId: sessionId, text: text, images: promptImages)
+                }
             } catch {
-                actionError = String(describing: error)
+                if activeSessionId == sessionId {
+                    actionError = String(describing: error)
+                }
+                if queued && activeSessionId != sessionId {
+                    sessionStore.recoverDraft(sessionId: sessionId, text: text, images: promptImages, behavior: behavior)
+                }
+                if !queued {
+                    if activeSessionId == sessionId, draft.isEmpty, imageAttachments.isEmpty, selectedSlashCommand == nil {
+                        draft = submittedDraft
+                        selectedSlashCommand = submittedCommand
+                        imageAttachments = submittedAttachments
+                    } else {
+                        sessionStore.recoverDraft(sessionId: sessionId, text: text, images: promptImages, behavior: behavior)
+                    }
+                }
             }
+            pendingInputSessionIDs.remove(sessionId)
+        }
+    }
+
+    @ViewBuilder
+    private var inputQueue: some View {
+        if let record = activeRecord, !record.queuedInputs.isEmpty || !record.recoveredInputs.isEmpty {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !record.queuedInputs.isEmpty {
+                        HStack {
+                            Text(L10n.string("chat.input_queue.pending"))
+                            Spacer()
+                            Button(L10n.string("chat.input_queue.clear")) {
+                                Task {
+                                    do { try await sessionStore.clearInputQueue(sessionId: record.id) }
+                                    catch { actionError = String(describing: error) }
+                                }
+                            }
+                            .disabled(pendingInputSessionIDs.contains(record.id))
+                        }
+                        ForEach(record.queuedInputs) { input in
+                            HStack {
+                                Text(input.behavior.title).foregroundStyle(.secondary)
+                                Text(input.text.isEmpty ? L10n.string("chat.input_queue.images") : input.text)
+                                    .lineLimit(2)
+                                if !input.images.isEmpty {
+                                    Image(systemName: "photo")
+                                    Text("\(input.images.count)")
+                                }
+                            }
+                        }
+                    }
+                    ForEach(record.recoveredInputs) { input in
+                        HStack {
+                            Text(L10n.string("chat.input_queue.cancelled")).foregroundStyle(.secondary)
+                            Text(input.text.isEmpty ? L10n.string("chat.input_queue.images") : input.text).lineLimit(1)
+                            Spacer()
+                            Button(L10n.string("chat.input_queue.restore")) {
+                                do {
+                                    let attachments = try ComposerImageProcessor.process(
+                                        input.images.map { ComposerImageSource(data: $0.data) }, existingAttachments: [])
+                                    draft = input.text
+                                    selectedSlashCommand = nil
+                                    imageAttachments = attachments
+                                    sessionStore.removeRecoveredInput(input.id, sessionId: record.id)
+                                } catch { actionError = String(describing: error) }
+                            }
+                            .disabled(!draft.isEmpty || !imageAttachments.isEmpty || selectedSlashCommand != nil
+                                      || pendingInputSessionIDs.contains(record.id))
+                        }
+                    }
+                }
+                .font(.system(size: 12))
+                .padding(10)
+            }
+            .frame(height: min(180, CGFloat(record.queuedInputs.count + record.recoveredInputs.count) * 36 + (record.queuedInputs.isEmpty ? 20 : 48)))
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("session-input-queue")
         }
     }
 
@@ -1054,7 +1152,10 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        guard let model = activeRecord?.model else { return false }
+        guard let record = activeRecord, let model = record.model,
+              record.runState == .idle || record.runState == .failed || record.runState == .running,
+              !pendingInputSessionIDs.contains(record.id) else { return false }
+        if record.runState == .running && !sessionStore.supportsRunningInput { return false }
         let baseCanSend = sessionStore.availableModels.contains {
             $0.provider == model.provider && $0.id == model.id
         }
@@ -1259,6 +1360,8 @@ private struct SessionComposer: View {
     let isProcessingImageAttachments: Bool
     let selectedModelSupportsImages: Bool
     let isExecuting: Bool
+    let isSubmittingInput: Bool
+    let runningMessageBehavior: RunningMessageBehavior
     let canSend: Bool
     let availableModels: [PiModelOption]
     let selectedModel: PiModelOption?
@@ -1843,6 +1946,7 @@ private struct SessionComposer: View {
         VStack(alignment: .leading, spacing: 8) {
             if !imageAttachments.isEmpty || isProcessingImageAttachments {
                 imageAttachmentStrip
+                    .disabled(isSubmittingInput)
             }
 
             if !imageAttachments.isEmpty, !selectedModelSupportsImages {
@@ -1881,6 +1985,7 @@ private struct SessionComposer: View {
                 }
             }
             .frame(height: editorHeight)
+            .disabled(isSubmittingInput)
 
             HStack(spacing: 10) {
                 if mode == .work, let selectedAccessMode {
@@ -1901,6 +2006,11 @@ private struct SessionComposer: View {
                     }
                 }
 
+                if isExecuting && primaryAction != .stop {
+                    primaryButton(icon: "stop.fill", accessibilityLabel: L10n.string("chat.stop"),
+                                  isActive: true, action: onStop)
+                        .accessibilityIdentifier("stop-session")
+                }
                 primaryActionButton
             }
             .frame(height: 42)
@@ -2452,6 +2562,7 @@ private struct SessionComposer: View {
                 action: submitPrompt
             )
                 .disabled(!canSend)
+                .help(isExecuting ? runningMessageBehavior.title : L10n.string("chat.send"))
                 .accessibilityIdentifier("send-session")
         case .stop:
             primaryButton(

@@ -34,6 +34,8 @@ export const PI_WORK_CAPABILITIES = [
   "git.branches",
   "session.exportHtml",
   "session.snapshot",
+  "session.enqueueInput",
+  "session.clearInputQueue",
   "session.transcriptPage",
   "session.toolOutput",
   "session.commands",

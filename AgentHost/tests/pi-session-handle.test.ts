@@ -567,6 +567,90 @@ describe("PiSessionHandle", () => {
     expect(handle.toolOutput("tool-image")).toBe("[image: image/png]");
   });
 
+  test("queues native inputs with stable IDs, transformed text, images and duplicate text across modes", async () => {
+    let emit!: (event: AgentSessionEvent) => void;
+    const nativeQueues = { steering: [] as string[], followUp: [] as string[] };
+    const update = () => emit({ type: "queue_update", ...nativeQueues });
+    const piSession = makePiSession({
+      subscribe: (listener: typeof emit) => { emit = listener; return () => {}; },
+      prompt: async (_text: string, options: NonNullable<Parameters<AgentSession["prompt"]>[1]>) => {
+        // Simulate extension transformation, including identical visible input in both modes.
+        (options.streamingBehavior === "steer" ? nativeQueues.steering : nativeQueues.followUp).push("expanded");
+        update();
+        options.preflightResult?.("queued");
+      },
+      clearQueue: () => {
+        nativeQueues.steering = [];
+        nativeQueues.followUp = [];
+        update();
+      },
+    });
+    const handle = new PiSessionHandle(piSession as never, SessionManager.inMemory("/tmp/project"));
+    const events: SessionHandleEvent[] = [];
+    handle.subscribe((event) => events.push(event));
+    const image = { type: "image" as const, mimeType: "image/png", data: "aGVsbG8=" };
+    const first = { id: "one", text: "same", behavior: "followUp" as const, images: [image] };
+    const second = { id: "two", text: "same", behavior: "steer" as const, images: [] };
+    expect(await handle.enqueueInput(first)).toBe("queued");
+    expect(await handle.enqueueInput(second)).toBe("queued");
+    expect(handle.snapshot().queuedInputs?.map((input) => input.id)).toEqual(["two", "one"]);
+    nativeQueues.steering = [];
+    update();
+    emit({ type: "message_start", message: { role: "user", content: "expanded", timestamp: 1 } });
+    expect(events.filter((event) => event.type === "inputDelivered")).toEqual([
+      { type: "inputDelivered", input: second },
+    ]);
+    expect(handle.clearInputQueue()).toEqual([first]);
+    expect(events.at(-1)).toEqual({ type: "inputQueueChanged", inputs: [], recoveredInputs: [first] });
+    expect(handle.snapshot().queuedInputs).toEqual([]);
+  });
+
+  test("waits for the initial prompt preflight before accepting another native prompt", async () => {
+    let releasePreflight!: () => void;
+    let finishRun!: () => void;
+    let calls = 0;
+    const handle = new PiSessionHandle(makePiSession({
+      prompt: (_text: string, options: NonNullable<Parameters<AgentSession["prompt"]>[1]>) => {
+        calls += 1;
+        if (calls === 1) {
+          releasePreflight = () => options.preflightResult?.("started");
+          return new Promise<void>((resolve) => { finishRun = resolve; });
+        }
+        options.preflightResult?.("queued");
+        return Promise.resolve();
+      },
+    }) as never, SessionManager.inMemory("/tmp/project"));
+    const run = handle.prompt("initial");
+    const enqueue = handle.enqueueInput({ id: "next", text: "follow", behavior: "followUp", images: [] });
+    await Bun.sleep(0);
+    expect(calls).toBe(1);
+    releasePreflight();
+    expect(await enqueue).toBe("queued");
+    expect(calls).toBe(2);
+    finishRun();
+    await run;
+  });
+
+  test("does not poison the active run when queued input preflight rejects", async () => {
+    const handle = new PiSessionHandle(makePiSession({
+      prompt: async () => { throw new Error("input rejected"); },
+    }) as never, SessionManager.inMemory("/tmp/project"));
+    await expect(handle.enqueueInput({ id: "bad", text: "test", behavior: "followUp", images: [] }))
+      .rejects.toThrow("input rejected");
+    await handle.waitForIdle();
+    expect(handle.snapshot().queuedInputs).toEqual([]);
+  });
+
+  test("handles extension-consumed inputs without showing a phantom queue item", async () => {
+    const handle = new PiSessionHandle(makePiSession({
+      prompt: async (_text: string, options: NonNullable<Parameters<AgentSession["prompt"]>[1]>) => {
+        options.preflightResult?.("handled");
+      },
+    }) as never, SessionManager.inMemory("/tmp/project"));
+    expect(await handle.enqueueInput({ id: "handled", text: "/command", behavior: "steer", images: [] })).toBe("handled");
+    expect(handle.snapshot().queuedInputs).toEqual([]);
+  });
+
   test("snapshots return only the most recent transcript page", () => {
     const manager = SessionManager.inMemory("/tmp/project");
     const piSession = makePiSession({
@@ -766,6 +850,7 @@ describe("PiSessionHandle", () => {
         oneMillionContext: { supported: false, enabled: false },
       },
       pendingApprovals: [],
+      queuedInputs: [],
     });
   });
 

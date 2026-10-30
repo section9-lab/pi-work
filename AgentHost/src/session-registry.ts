@@ -6,7 +6,18 @@ import type {
   AccessMode,
 } from "./access-policy.ts";
 
+export type RunningMessageBehavior = "followUp" | "steer";
+
+export type QueuedInput = {
+  id: string;
+  text: string;
+  images: ImageContent[];
+  behavior: RunningMessageBehavior;
+};
+
 export type SessionHandleEvent =
+  | { type: "inputQueueChanged"; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] }
+  | { type: "inputDelivered"; input: QueuedInput }
   | {
       type: "assistantMessageStarted";
     }
@@ -183,6 +194,7 @@ export type SessionHandleSnapshot = {
   plan?: SessionPlanEntry[];
   extensionStatuses?: Record<string, string>;
   extensionWidgets?: Record<string, SessionExtensionWidget>;
+  queuedInputs?: QueuedInput[];
 };
 
 export type SessionTranscriptPage = {
@@ -219,6 +231,9 @@ export interface SessionHandle {
   setAccessMode(mode: AccessMode): AccessMode;
   resolveApproval(requestId: string, decision: AccessApprovalDecision): void;
   prompt(text: string, images?: ImageContent[]): Promise<void>;
+  enqueueInput?(input: QueuedInput): Promise<"queued" | "handled">;
+  clearInputQueue?(): QueuedInput[];
+  waitForIdle?(): Promise<void>;
   abort(): Promise<void>;
   reload(): Promise<void>;
   dispose(): void;
@@ -226,6 +241,8 @@ export interface SessionHandle {
 }
 
 export type SessionRegistryEvent =
+  | { event: "session.inputQueueChanged"; payload: { sessionId: string; sequence: number; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] } }
+  | { event: "session.inputDelivered"; payload: { sessionId: string; sequence: number; input: QueuedInput } }
   | {
       event: "session.stateChanged";
       payload: {
@@ -381,6 +398,8 @@ type ManagedSession = {
   reloading: boolean;
   unsubscribe: () => void;
   closed: boolean;
+  inputRequests: Map<string, Promise<{ disposition: "queued" | "handled" }>>;
+  inputTail: Promise<unknown>;
 };
 
 export class SessionRegistry {
@@ -405,6 +424,8 @@ export class SessionRegistry {
       reloading: false,
       unsubscribe: () => {},
       closed: false,
+      inputRequests: new Map(),
+      inputTail: Promise.resolve(),
     };
     managed.unsubscribe = handle.subscribe((event) => this.consume(managed, event));
     this.sessions.set(handle.sessionId, managed);
@@ -539,10 +560,19 @@ export class SessionRegistry {
     }
 
     managed.activeTurnId = turnId;
+    managed.inputRequests.clear();
     managed.activeTurnCancelled = false;
     managed.assistantGenerationIndex = -1;
     this.emitState(managed, turnId, "running");
     const completion = managed.handle.prompt(text, images).then(async (): Promise<"end_turn" | "cancelled"> => {
+      // Input handlers may still be awaiting extensions when the initial run ends.
+      // Keep the run owned until all accepted submissions and native queued work settle.
+      while (true) {
+        const tail = managed.inputTail;
+        await tail.catch(() => {});
+        await managed.handle.waitForIdle?.();
+        if (tail === managed.inputTail) break;
+      }
       const stopReason = managed.activeTurnCancelled ? "cancelled" : "end_turn";
       if (managed.closed) return stopReason;
       managed.activeTurnId = undefined;
@@ -585,11 +615,46 @@ export class SessionRegistry {
     return managed.activeTurnCompletion;
   }
 
+  async enqueueInput(sessionId: string, input: QueuedInput): Promise<{ disposition: "queued" | "handled" }> {
+    const managed = this.requireSession(sessionId);
+    const existing = managed.inputRequests.get(input.id);
+    if (existing) return existing;
+    if (!managed.activeTurnId || managed.activeTurnCancelled || managed.reloading) {
+      throw new SessionRegistryError("session_busy", "Session is no longer accepting queued input; retry when idle");
+    }
+    if (input.images.length > 0 && managed.handle.snapshot().model?.supportsImages !== true) {
+      throw new SessionRegistryError("model_does_not_support_images", "Selected model does not support images");
+    }
+    const request = managed.inputTail.catch(() => {}).then(async () => {
+      if (managed.activeTurnCancelled || managed.closed || !managed.handle.enqueueInput) {
+        throw new SessionRegistryError("session_busy", "Session is stopping or does not support queued input");
+      }
+      return { disposition: await managed.handle.enqueueInput(input) };
+    });
+    managed.inputRequests.set(input.id, request);
+    managed.inputTail = request;
+    // Bound idempotency history without evicting requests from the active run.
+    return request;
+  }
+
+  async clearInputQueue(sessionId: string): Promise<{ inputs: QueuedInput[] }> {
+    const managed = this.requireSession(sessionId);
+    await managed.inputTail.catch(() => {});
+    return { inputs: managed.handle.clearInputQueue?.() ?? [] };
+  }
+
   async abort(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId);
     if (!managed) throw new Error(`Session not found: ${sessionId}`);
     if (managed.activeTurnId) managed.activeTurnCancelled = true;
-    await managed.handle.abort();
+    // Clear both before and after in-flight input handlers to prevent queued work restarting.
+    managed.handle.clearInputQueue?.();
+    const abort = managed.handle.abort();
+    await managed.inputTail.catch(() => {});
+    managed.handle.clearInputQueue?.();
+    await abort;
+    // A preflight that was already awaiting an extension can start a run after the first abort.
+    if (managed.inputRequests.size > 0) await managed.handle.abort();
   }
 
   async reloadExtensions(): Promise<{ reloaded: string[]; deferred: string[] }> {
@@ -651,6 +716,16 @@ export class SessionRegistry {
 
   private consume(managed: ManagedSession, event: SessionHandleEvent): void {
     const turnId = managed.activeTurnId;
+    if (event.type === "inputQueueChanged" || event.type === "inputDelivered") {
+      managed.sequence += 1;
+      const common = { sessionId: managed.handle.sessionId, sequence: managed.sequence };
+      if (event.type === "inputQueueChanged") {
+        this.emit({ event: "session.inputQueueChanged", payload: { ...common, inputs: event.inputs, recoveredInputs: event.recoveredInputs } });
+      } else {
+        this.emit({ event: "session.inputDelivered", payload: { ...common, input: event.input } });
+      }
+      return;
+    }
     if (event.type === "planChanged") {
       managed.sequence += 1;
       this.emit({

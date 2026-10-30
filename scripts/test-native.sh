@@ -49,7 +49,7 @@ if ! xcrun --find xctest >/dev/null 2>&1; then
     PiWork/Features/MCP/*.swift PiWork/Features/MCP/Views/*.swift \
     PiWork/Features/ComputerUse/*.swift PiWork/Features/ComputerUse/Views/*.swift \
     PiWork/Features/RTK/*.swift PiWork/Features/RTK/Views/*.swift \
-    scripts/ComputerUseChecks.swift scripts/RTKChecks.swift scripts/MCPChecks.swift -o "$NATIVE_CHECK_ROOT/mcp-checks"
+    scripts/ComputerUseChecks.swift scripts/RTKChecks.swift scripts/RunningInputChecks.swift scripts/MCPChecks.swift -o "$NATIVE_CHECK_ROOT/mcp-checks"
   # Bundle native resources so icon, localization and layout checks match the app.
   NATIVE_CHECK_APP="$NATIVE_CHECK_ROOT/MCPChecks.app"
   mkdir -p "$NATIVE_CHECK_APP/Contents/MacOS" "$NATIVE_CHECK_APP/Contents/Resources"

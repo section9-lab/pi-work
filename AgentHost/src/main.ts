@@ -1021,6 +1021,27 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     };
   }
 
+  if (request.method === "session.enqueueInput") {
+    const { sessionId, inputId, text, runningBehavior } = request.params ?? {};
+    if (typeof sessionId !== "string" || typeof inputId !== "string" || !inputId
+      || typeof text !== "string" || (runningBehavior !== "steer" && runningBehavior !== "followUp")) {
+      throw new Error("session.enqueueInput requires sessionId, inputId, text and runningBehavior");
+    }
+    const images = parsePromptImages(request.params?.images);
+    if (!text.trim() && images.length === 0) throw new Error("Input cannot be empty");
+    const result = await sessionRegistry.enqueueInput(sessionId, {
+      id: inputId, text, images, behavior: runningBehavior,
+    });
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result };
+  }
+
+  if (request.method === "session.clearInputQueue") {
+    const sessionId = request.params?.sessionId;
+    if (typeof sessionId !== "string") throw new Error("session.clearInputQueue requires sessionId");
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true,
+      result: await sessionRegistry.clearInputQueue(sessionId) };
+  }
+
   if (request.method === "session.abort") {
     const sessionId = request.params?.sessionId;
     if (typeof sessionId !== "string") {
@@ -1427,6 +1448,8 @@ function normalizeACPRequest(request: ACPRequest): HostRequest {
     "_piWork/git/branches": "git.branches",
     "_piWork/session/exportHtml": "session.exportHtml",
     "_piWork/session/snapshot": "session.snapshot",
+    "_piWork/session/enqueueInput": "session.enqueueInput",
+    "_piWork/session/clearInputQueue": "session.clearInputQueue",
     "_piWork/session/transcriptPage": "session.transcriptPage",
     "_piWork/session/toolOutput": "session.toolOutput",
     "_piWork/session/commands": "session.commands",
@@ -1509,12 +1532,14 @@ const pendingPrompts = new Set<Promise<void>>();
 async function dispatchLine(line: string): Promise<void> {
   let method: unknown;
   try { method = (JSON.parse(line) as { method?: unknown }).method; } catch { /* handleLine reports malformed JSON */ }
-  if (method !== "session/prompt" && method !== "_piWork/computerUse/verify") {
+  if (method !== "session/prompt" && method !== "_piWork/computerUse/verify"
+    && method !== "_piWork/session/enqueueInput" && method !== "_piWork/session/clearInputQueue"
+    && method !== "session/cancel") {
     await handleLine(line);
     return;
   }
-  // Prompts and desktop verification wait for work to finish. Keep reading stdin
-  // so approvals, cancellation, and the global computer-use stop still work.
+  // Runs and input preflights may await tools, extensions or UI responses. Keep
+  // reading stdin so elicitation, approvals, cancellation and stop still work.
   const prompt = handleLine(line);
   pendingPrompts.add(prompt);
   void prompt.then(() => pendingPrompts.delete(prompt), () => pendingPrompts.delete(prompt));
