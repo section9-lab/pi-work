@@ -80,6 +80,9 @@ struct ContentView: View {
             ProjectChangesWorkspace(project: changesProject, isPresented: $showsProjectChanges) {
                 primaryContent
             }
+            .background {
+                AppBackgroundGradient()
+            }
         }
     }
 

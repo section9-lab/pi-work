@@ -80,7 +80,7 @@ Legacy channel manifests without WASM remain parseable, but this app does not
 select or launch them. An installed legacy runtime falls back through the normal
 rollback path to the fixed bundled host. Apps through 0.1.18 reject this new
 payload filename. Fixed runtime **1.1.1** therefore sets `minimumAppVersion` to
-**0.1.19**, the first app release containing the updated resource whitelist.
+**0.1.20**, the first published app release containing the updated resource whitelist.
 Ship that app update first; do not replace runtime 1.1.0 or
 advertise the new payload as compatible with older apps.
 

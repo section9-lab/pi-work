@@ -11,7 +11,6 @@ struct ProjectChangesWorkspace<Content: View>: View {
         HSplitView {
             content()
                 .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
-                .background { AppPalette.windowGradient.ignoresSafeArea() }
             if isPresented, let project {
                 ProjectChangesView(project: project) { isPresented = false }
                     .id(project.path)

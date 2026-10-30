@@ -137,6 +137,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "The Agent Host lockfile must use a registry available to clean CI runners.",
         )
 
+    def test_workspace_keeps_the_native_single_background_contract(self):
+        # Mirror the native regression's key invariant on CLT-only machines too,
+        # where scripts/test-native.sh cannot execute the hosted XCTest suite.
+        content = (REPOSITORY_ROOT / "PiWork/App/Root/ContentView.swift").read_text()
+        review = (REPOSITORY_ROOT / "PiWork/Features/Changes/ProjectChangesView.swift").read_text()
+        self.assertEqual(content.count("AppBackgroundGradient()"), 1)
+        self.assertIn(".background {\n                AppBackgroundGradient()", content)
+        self.assertNotIn(".containerBackground(", content)
+        self.assertNotIn(".backgroundExtensionEffect()", content)
+        self.assertNotIn("AppPalette.windowGradient", review)
+
     def test_app_stages_photon_wasm_and_checks_packaged_images(self):
         project = PROJECT_PATH.read_text()
         self.assertIn("node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm", project)
