@@ -803,4 +803,18 @@
 
 "update.automatic_checks" = "自動檢查更新";
 
-"update.restart_note" = "升級完成後會自動重新啟動 PiWork，執行中的工作將停止。";
+"update.restart_note" = "升級會重新啟動 PiWork；有工作執行時，請等工作結束後再按升級或重新啟動。";
+
+"update.tasks_running" = "有工作正在執行。請等所有工作結束後，再按升級或重新啟動。";
+
+"update.ready_to_restart" = "更新已準備就緒，重新啟動 PiWork 即可完成升級。";
+
+"update.restart" = "重新啟動";
+
+"update.sidebar.checking" = "檢查中";
+
+"update.sidebar.downloading" = "下載中";
+
+"update.sidebar.preparing" = "準備中";
+
+"update.sidebar.restarting" = "重新啟動中";

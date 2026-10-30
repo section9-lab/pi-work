@@ -7,7 +7,8 @@ APP_UPDATE_CHECK_APP="$APP_UPDATE_CHECK_ROOT/build/AppUpdateChecks.app"
 mkdir -p "$APP_UPDATE_CHECK_APP/Contents/MacOS" "$APP_UPDATE_CHECK_APP/Contents/Resources" "$APP_UPDATE_CHECK_APP/Contents/Frameworks"
 swiftc -target "$(uname -m)-apple-macosx13.0" -swift-version 5 -parse-as-library \
   -F build/Sparkle-2.10.1 -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
-  PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppPalette.swift PiWork/Core/Update/ReleaseVersion.swift \
+  PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppPalette.swift PiWork/Core/UI/AppTheme.swift \
+  PiWork/Core/UI/AdaptiveCornerShape.swift PiWork/Core/Update/ReleaseVersion.swift \
   PiWork/Features/Updates/*.swift scripts/AppUpdateChecks.swift -o "$APP_UPDATE_CHECK_APP/Contents/MacOS/AppUpdateChecks"
 ditto build/Sparkle-2.10.1/Sparkle.framework "$APP_UPDATE_CHECK_APP/Contents/Frameworks/Sparkle.framework"
 cp -R PiWork/Resources/*.lproj "$APP_UPDATE_CHECK_APP/Contents/Resources/"

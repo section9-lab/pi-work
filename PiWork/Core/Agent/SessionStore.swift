@@ -9,6 +9,13 @@ enum SessionRecordRunState: Equatable {
     case stopping
     case failed
 
+    var preventsAppUpdate: Bool {
+        switch self {
+        case .opening, .submitting, .running, .stopping: return true
+        case .idle, .failed: return false
+        }
+    }
+
     var showsSidebarActivity: Bool {
         switch self {
         case .submitting, .running, .stopping:

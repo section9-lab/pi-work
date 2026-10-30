@@ -7,6 +7,7 @@ struct ContentView: View {
     @ObservedObject private var scheduleStore: ScheduleStore
     private let scheduleRunner: ScheduleRunner
     private let computerUseStore: ComputerUseStore?
+    private let updateController: AppUpdateController?
     @StateObject private var projectStore = ProjectStore()
     @State private var workSession = WorkSessionSelection()
     @State private var selectedTab: SidebarTab = .work
@@ -25,13 +26,15 @@ struct ContentView: View {
         computerUseStore: ComputerUseStore? = nil,
         installedExtensionsStore: InstalledExtensionsStore,
         scheduleStore: ScheduleStore,
-        scheduleRunner: ScheduleRunner
+        scheduleRunner: ScheduleRunner,
+        updateController: AppUpdateController? = nil
     ) {
         _sessionStore = ObservedObject(wrappedValue: sessionStore)
         _installedExtensionsStore = ObservedObject(wrappedValue: installedExtensionsStore)
         _scheduleStore = ObservedObject(wrappedValue: scheduleStore)
         self.scheduleRunner = scheduleRunner
         self.computerUseStore = computerUseStore
+        self.updateController = updateController
     }
 
     var body: some View {
@@ -68,7 +71,8 @@ struct ContentView: View {
                 onSelectCustomDestination: {
                     if $0 != nil { cancelSessionOpening() }
                     selectedCustomDestination = $0
-                }
+                },
+                updateController: updateController
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {

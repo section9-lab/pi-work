@@ -9,6 +9,7 @@ enum AppUpdateState: Equatable {
     case available(version: String)
     case downloading(progress: Double?)
     case extracting(progress: Double?)
+    case readyToInstall
     case installing
     case failed
 }
@@ -23,6 +24,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     @Published private(set) var canCancel = false
     @Published private(set) var canRetryRelaunch = false
     @Published private(set) var failureDescription = ""
+    @Published private(set) var hasActiveTasks = false
     let currentVersion: String
 
     private let bundle: Bundle
@@ -36,6 +38,9 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     private var receivedBytes: UInt64 = 0
     private var expectedBytes: UInt64 = 0
     private var retryRelaunch: (() -> Void)?
+    private var preparedInstallation: (() -> Void)?
+    private var taskActivityObservation: AnyCancellable?
+    private var currentTaskActivity: () -> Bool = { false }
 
     init(bundle: Bundle = .main, architecture: AppArchitecture = .current, feedURL: URL? = nil) {
         self.bundle = bundle
@@ -48,14 +53,23 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     var isChecking: Bool { state == .checking }
     var isInstalling: Bool {
         switch state {
-        case .downloading, .extracting, .installing: return true
+        case .downloading, .extracting, .readyToInstall, .installing: return true
         default: return false
         }
     }
-    var showsBanner: Bool {
-        switch state {
-        case .checking, .available, .downloading, .extracting, .installing, .failed: return true
-        default: return false
+    // Read the source again at every consequential action, including Sparkle's
+    // relaunch callback. The published value also keeps all update surfaces current.
+    private var tasksPreventInstallation: Bool { currentTaskActivity() }
+
+    var installationHelp: String {
+        hasActiveTasks ? L10n.string("update.tasks_running") : statusDescription
+    }
+
+    func observeTaskActivity(_ activity: AnyPublisher<Bool, Never>, current: @escaping () -> Bool) {
+        currentTaskActivity = current
+        hasActiveTasks = current()
+        taskActivityObservation = activity.removeDuplicates().sink { [weak self] active in
+            self?.hasActiveTasks = active
         }
     }
 
@@ -67,6 +81,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
         case let .available(version): return L10n.format("update.status.available", version)
         case .downloading: return L10n.string("update.downloading")
         case .extracting: return L10n.string("update.extracting")
+        case .readyToInstall: return L10n.string("update.ready_to_restart")
         case .installing: return L10n.string("update.installing")
         case .failed: return failureDescription
         }
@@ -96,7 +111,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     }
 
     func installAvailableUpdate() {
-        guard case .available = state, let reply = updateChoice else { return }
+        guard !tasksPreventInstallation, case .available = state, let reply = updateChoice else { return }
         authorizedInstallation = true
         updateChoice = nil
         state = .downloading(progress: nil)
@@ -120,7 +135,33 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
         reply?(.dismiss)
     }
 
-    func retryInstallationRelaunch() { retryRelaunch?() }
+    func installPreparedUpdate() {
+        guard !tasksPreventInstallation, state == .readyToInstall, let install = preparedInstallation else { return }
+        preparedInstallation = nil
+        state = .installing
+        install()
+    }
+
+    func retryInstallationRelaunch() {
+        guard !tasksPreventInstallation else { return }
+        retryRelaunch?()
+    }
+
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        postponeRelaunchIfNeeded(installHandler)
+    }
+
+    func postponeRelaunchIfNeeded(_ install: @escaping () -> Void) -> Bool {
+        guard tasksPreventInstallation else { return false }
+        authorizedInstallation = false
+        updateChoice = nil
+        preparedInstallation = install
+        retryRelaunch = nil
+        canRetryRelaunch = false
+        state = .readyToInstall
+        return true
+    }
 
     static func feedURL(architecture: AppArchitecture) -> URL {
         URL(string: "https://github.com/section9-lab/pi-work/releases/latest/download/appcast-\(architecture.rawValue).xml")!
@@ -131,11 +172,20 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     }
 
     // Kept separate from Sparkle's opaque update-state object for lifecycle checks.
-    func offerUpdate(version: String, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+    func offerUpdate(version: String, stage: SPUUserUpdateStage = .notDownloaded,
+                     reply: @escaping (SPUUserUpdateChoice) -> Void) {
         cancellation = nil
         canCancel = false
-        updateChoice = reply
-        state = .available(version: version)
+        authorizedInstallation = false
+        if stage == .installing {
+            updateChoice = nil
+            preparedInstallation = { reply(.install) }
+            self.state = .readyToInstall
+        } else {
+            preparedInstallation = nil
+            updateChoice = reply
+            self.state = .available(version: version)
+        }
     }
 
     func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
@@ -156,8 +206,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
                          userInfo: [NSLocalizedDescriptionKey: L10n.string("update.error.asset")]))
             return
         }
-        offerUpdate(version: appcastItem.displayVersionString, reply: reply)
-        if manualCheck { presentAvailableUpdate() }
+        offerUpdate(version: appcastItem.displayVersionString, stage: state.stage, reply: reply)
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {}
@@ -224,10 +273,13 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
         guard authorizedInstallation else { reply(.skip); return }
         authorizedInstallation = false
-        state = .installing
+        preparedInstallation = { reply(.install) }
+        state = .readyToInstall
         // Sparkle sends a normal quit event. The Host cleans up on stdin EOF;
         // keep it available if installation or app termination is cancelled.
-        reply(.install)
+        // A task started during the download requires another explicit click,
+        // even after that task finishes. Never queue a restart for idle time.
+        installPreparedUpdate()
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool,
@@ -247,6 +299,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
         canCancel = false
         authorizedInstallation = false
         retryRelaunch = nil
+        preparedInstallation = nil
         canRetryRelaunch = false
         manualCheck = false
         if isChecking || isInstalling { state = .idle }
@@ -254,20 +307,12 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
 
     private func fail(_ error: Error) {
         authorizedInstallation = false
+        cancellation = nil
+        canCancel = false
+        preparedInstallation = nil
+        retryRelaunch = nil
+        canRetryRelaunch = false
         failureDescription = error.localizedDescription
         state = .failed
-    }
-
-    private func presentAvailableUpdate() {
-        guard case let .available(version) = state else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = L10n.string("update.alert.available.title")
-        alert.informativeText = L10n.format("update.alert.available.message", version, currentVersion)
-            + "\n\n" + L10n.string("update.restart_note")
-        alert.addButton(withTitle: L10n.string("update.install"))
-        alert.addButton(withTitle: L10n.string("update.later"))
-        if alert.runModal() == .alertFirstButtonReturn { installAvailableUpdate() }
-        else { dismissOffer() }
     }
 }

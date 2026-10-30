@@ -10,7 +10,8 @@ UPDATE_QA_ROOT="$UPDATE_QA_REPOSITORY/build/app-update-qa"
 mkdir -p "$UPDATE_QA_ROOT/public/v1.0.1"
 swiftc -target "$(uname -m)-apple-macosx13.0" -swift-version 5 -parse-as-library \
   -F "$UPDATE_QA_FRAMEWORK" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
-  PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppPalette.swift \
+  PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppPalette.swift PiWork/Core/UI/AppTheme.swift \
+  PiWork/Core/UI/AdaptiveCornerShape.swift \
   PiWork/Core/Update/ReleaseVersion.swift PiWork/Features/Updates/*.swift \
   scripts/AppUpdatePreview.swift -o "$UPDATE_QA_ROOT/UpdateQA"
 python3 - "$UPDATE_QA_ROOT" "$UPDATE_QA_FRAMEWORK" <<'PY'

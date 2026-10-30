@@ -331,7 +331,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         )
         let headerOffset = try XCTUnwrap(sidebarBody.range(of: "SidebarTabHeader(")).lowerBound
         let listOffset = try XCTUnwrap(sidebarBody.range(of: "List(selection:")).lowerBound
-        let footerOffset = try XCTUnwrap(sidebarBody.range(of: "UserFooterView()")).lowerBound
+        let footerOffset = try XCTUnwrap(sidebarBody.range(of: "UserFooterView(")).lowerBound
 
         XCTAssertTrue(sidebarBody.contains("VStack(spacing: 0) {"))
         XCTAssertLessThan(headerOffset, listOffset)
@@ -349,7 +349,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         )
         let workBranch = try XCTUnwrap(
             sidebarBody.components(separatedBy: "            case .work:").last?
-                .components(separatedBy: "\n            UserFooterView()").first
+                .components(separatedBy: "\n            UserFooterView(").first
         )
         let navigationOffset = try XCTUnwrap(
             workBranch.range(of: "navigationRow(.schedule)")
@@ -370,7 +370,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         let source = try sidebarSource()
         let workBranch = try XCTUnwrap(
             source.components(separatedBy: "            case .work:").last?
-                .components(separatedBy: "\n            UserFooterView()").first
+                .components(separatedBy: "\n            UserFooterView(").first
         )
 
         XCTAssertTrue(workBranch.contains("List {"))

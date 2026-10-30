@@ -803,4 +803,18 @@
 
 "update.automatic_checks" = "자동으로 업데이트 확인";
 
-"update.restart_note" = "업데이트 후 PiWork가 자동으로 재시작됩니다. 실행 중인 작업은 중지됩니다.";
+"update.restart_note" = "업데이트하면 PiWork가 재시작됩니다. 실행 중인 작업이 끝난 후 업데이트 또는 재시작을 클릭하세요.";
+
+"update.tasks_running" = "작업이 실행 중입니다. 모든 작업이 끝난 후 업데이트 또는 재시작을 다시 클릭하세요.";
+
+"update.ready_to_restart" = "업데이트가 준비되었습니다. PiWork를 재시작하면 업데이트가 완료됩니다.";
+
+"update.restart" = "재시작";
+
+"update.sidebar.checking" = "확인 중";
+
+"update.sidebar.downloading" = "다운로드 중";
+
+"update.sidebar.preparing" = "준비 중";
+
+"update.sidebar.restarting" = "재시작 중";

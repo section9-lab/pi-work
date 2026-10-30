@@ -1,4 +1,6 @@
 import XCTest
+import Combine
+import Sparkle
 @testable import PiWork
 
 @MainActor
@@ -118,6 +120,31 @@ final class ScheduleRunnerTests: XCTestCase {
         XCTAssertEqual(executor.executedTaskIDs, [task.id])
         XCTAssertNil(store.records.first?.scheduledAt)
         XCTAssertEqual(store.records.first?.resultText, "Scheduled task completed.")
+    }
+
+    func testUpdateGuardUsesLiveRunsAndDuplicateRunDoesNotClearActivity() async throws {
+        let store = ScheduleStore(storeURL: storeURL)
+        let task = try store.save(validDraft())
+        store.beginRun(for: task.id) // An interrupted run persisted by an earlier launch.
+        let runner = ScheduleRunner(store: store, executor: FakeScheduleExecutor())
+        let updates = AppUpdateController()
+        updates.observeTaskActivity(runner.$runningTaskIDs.map { !$0.isEmpty }.eraseToAnyPublisher(),
+                                    current: { !runner.runningTaskIDs.isEmpty })
+        var choices: [SPUUserUpdateChoice] = []
+        updates.offerUpdate(version: "0.2.0") { choices.append($0) }
+        XCTAssertFalse(updates.hasActiveTasks)
+        runner.runNow(task.id)
+        runner.runNow(task.id)
+        XCTAssertEqual(runner.runningTaskIDs, [task.id])
+        XCTAssertTrue(updates.hasActiveTasks)
+        updates.installAvailableUpdate()
+        XCTAssertTrue(choices.isEmpty)
+        try await waitUntil { runner.runningTaskIDs.isEmpty }
+        XCTAssertTrue(store.records.contains { $0.status == .running })
+        XCTAssertFalse(updates.hasActiveTasks)
+        XCTAssertTrue(choices.isEmpty, "A completed scheduled task must not queue an update")
+        updates.installAvailableUpdate()
+        XCTAssertEqual(choices, [.install])
     }
 
     func testStartedRunnerExecutesWhenClockPassesScheduledTime() async throws {

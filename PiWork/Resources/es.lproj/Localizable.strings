@@ -803,4 +803,18 @@
 
 "update.automatic_checks" = "Buscar actualizaciones automáticamente";
 
-"update.restart_note" = "PiWork se reiniciará al terminar. Las tareas en curso se detendrán.";
+"update.restart_note" = "La actualización reiniciará PiWork. Espera a que terminen las tareas antes de pulsar Actualizar o Reiniciar.";
+
+"update.tasks_running" = "Hay tareas en curso. Espera a que terminen todas y vuelve a pulsar Actualizar o Reiniciar.";
+
+"update.ready_to_restart" = "La actualización está lista. Reinicia PiWork para terminar.";
+
+"update.restart" = "Reiniciar";
+
+"update.sidebar.checking" = "Buscando…";
+
+"update.sidebar.downloading" = "Descargando…";
+
+"update.sidebar.preparing" = "Preparando…";
+
+"update.sidebar.restarting" = "Reiniciando…";

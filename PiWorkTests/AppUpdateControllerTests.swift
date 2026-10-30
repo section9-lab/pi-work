@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import Sparkle
 import SwiftUI
 @testable import PiWork
@@ -100,12 +101,106 @@ final class AppUpdateControllerTests: XCTestCase {
         XCTAssertEqual(AppUpdateController.feedURL(architecture: .x86_64).lastPathComponent, "appcast-x86_64.xml")
     }
 
-    func testUpdateBannerFitsNarrowWindowsAndBothAppearances() throws {
+    func testRunningTaskBlocksDownloadWithoutQueuingIt() {
+        let controller = AppUpdateController()
+        let activity = CurrentValueSubject<Bool, Never>(true)
+        controller.observeTaskActivity(activity.eraseToAnyPublisher(), current: { activity.value })
+        var choices: [SPUUserUpdateChoice] = []
+        controller.offerUpdate(version: "0.2.0") { choices.append($0) }
+        controller.installAvailableUpdate()
+        XCTAssertTrue(choices.isEmpty)
+        XCTAssertEqual(controller.state, .available(version: "0.2.0"))
+        activity.send(false)
+        XCTAssertTrue(choices.isEmpty, "Finishing a task must not start an update")
+        controller.installAvailableUpdate()
+        XCTAssertEqual(choices, [.install])
+    }
+
+    func testAllActiveSessionPhasesBlockUpdatesIncludingApprovalWaitAndStopping() {
+        for phase in [SessionRecordRunState.opening, .submitting, .running, .stopping] {
+            XCTAssertTrue(phase.preventsAppUpdate)
+        }
+        for phase in [SessionRecordRunState.idle, .failed] {
+            XCTAssertFalse(phase.preventsAppUpdate)
+        }
+    }
+
+    func testTaskStartedDuringDownloadRequiresExplicitRestartAfterItFinishes() {
+        let controller = AppUpdateController()
+        let activity = CurrentValueSubject<Bool, Never>(false)
+        controller.observeTaskActivity(activity.eraseToAnyPublisher(), current: { activity.value })
+        controller.offerUpdate(version: "0.2.0") { _ in }
+        controller.installAvailableUpdate()
+        activity.send(true)
+        var choices: [SPUUserUpdateChoice] = []
+        controller.showReady(toInstallAndRelaunch: { choices.append($0) })
+        XCTAssertEqual(controller.state, .readyToInstall)
+        controller.installPreparedUpdate()
+        XCTAssertTrue(choices.isEmpty)
+        activity.send(false)
+        XCTAssertTrue(choices.isEmpty)
+        controller.installPreparedUpdate()
+        controller.installPreparedUpdate()
+        XCTAssertEqual(choices, [.install])
+    }
+
+    func testRelaunchDelegateRechecksLiveActivityAndNeverSchedulesAnAutomaticRestart() {
+        let controller = AppUpdateController()
+        var active = false
+        controller.observeTaskActivity(Just(false).eraseToAnyPublisher(), current: { active })
+        active = true // The source changed before its UI publisher delivered.
+        var relaunches = 0
+        XCTAssertTrue(controller.postponeRelaunchIfNeeded { relaunches += 1 })
+        controller.installPreparedUpdate()
+        XCTAssertEqual(relaunches, 0)
+        active = false
+        XCTAssertEqual(relaunches, 0)
+        controller.installPreparedUpdate()
+        controller.installPreparedUpdate()
+        XCTAssertEqual(relaunches, 1)
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString(
+            "updater:shouldPostponeRelaunchForUpdate:untilInvokingBlock:")))
+    }
+
+    func testRestoredPreparedUpdateShowsRestartAndRespectsRunningTasks() {
+        let controller = AppUpdateController()
+        let activity = CurrentValueSubject<Bool, Never>(true)
+        controller.observeTaskActivity(activity.eraseToAnyPublisher(), current: { activity.value })
+        var choices: [SPUUserUpdateChoice] = []
+        controller.offerUpdate(version: "0.2.0", stage: .installing) { choices.append($0) }
+        XCTAssertEqual(controller.state, .readyToInstall)
+        controller.installPreparedUpdate()
+        XCTAssertTrue(choices.isEmpty)
+        activity.send(false)
+        controller.installPreparedUpdate()
+        XCTAssertEqual(choices, [.install])
+    }
+
+    func testRetryRelaunchIsBlockedAndDismissalDropsThePreparedCallback() {
+        let controller = AppUpdateController()
+        let activity = CurrentValueSubject<Bool, Never>(true)
+        controller.observeTaskActivity(activity.eraseToAnyPublisher(), current: { activity.value })
+        var relaunches = 0
+        controller.showInstallingUpdate(withApplicationTerminated: false) { relaunches += 1 }
+        controller.retryInstallationRelaunch()
+        XCTAssertEqual(relaunches, 0)
+        activity.send(false)
+        controller.retryInstallationRelaunch()
+        XCTAssertEqual(relaunches, 1)
+        activity.send(true)
+        XCTAssertTrue(controller.postponeRelaunchIfNeeded { relaunches += 1 })
+        controller.dismissUpdateInstallation()
+        activity.send(false)
+        controller.installPreparedUpdate()
+        XCTAssertEqual(relaunches, 1)
+    }
+
+    func testSidebarUpdateFitsTheNarrowestSidebarInBothAppearances() throws {
         let controller = AppUpdateController()
         controller.offerUpdate(version: "0.2.0") { _ in }
-        for width: CGFloat in [436, 620, 900] {
+        for width: CGFloat in [190, 230, 390] {
             for scheme in [ColorScheme.light, .dark] {
-                let view = NSHostingController(rootView: AppUpdateBanner(controller: controller)
+                let view = NSHostingController(rootView: AppUpdateSidebarAccessory(controller: controller)
                     .environment(\.colorScheme, scheme))
                 XCTAssertLessThanOrEqual(view.sizeThatFits(in: CGSize(width: width, height: 400)).width, width)
             }

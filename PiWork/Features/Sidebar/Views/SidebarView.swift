@@ -66,6 +66,7 @@ struct SidebarView: View {
     var onDeleteWorkSession: (PiProject, AgentHostSessionSummary) -> Void = { _, _ in }
     var onDeleteWorkProject: (PiProject) -> Void = { _ in }
     var onSelectCustomDestination: (SidebarCustomDestination?) -> Void = { _ in }
+    var updateController: AppUpdateController? = nil
 
     @State private var selectedCustomDestination: SidebarCustomDestination?
     @State private var projectDisclosureState = ProjectDisclosureState()
@@ -181,7 +182,7 @@ struct SidebarView: View {
                 }
             }
 
-            UserFooterView()
+            UserFooterView(updateController: updateController)
                 .padding(.horizontal, 15)
                 .padding(.top, 8)
                 .padding(.bottom, 18)
@@ -730,6 +731,7 @@ private struct LinkedFoldersHeader: View {
 private struct UserFooterView: View {
     @ObservedObject private var authSession = AuthSession.shared
     @State private var isPopoverPresented = false
+    var updateController: AppUpdateController?
 
     private var displayName: String {
         authSession.user?.displayName ?? "pi-work"
@@ -740,6 +742,10 @@ private struct UserFooterView: View {
     }
 
     var body: some View {
+        AppUpdateAccountRow(controller: updateController) { accountButton }
+    }
+
+    private var accountButton: some View {
         Button {
             isPopoverPresented.toggle()
         } label: {

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
 
@@ -15,17 +16,18 @@ struct PiWorkApp: App {
             RootView(
                 authSession: authSession,
                 agentRuntime: agentRuntime,
-                languageStore: languageStore
+                languageStore: languageStore,
+                updateController: updateController
             )
                 .onAppear { ForegroundUsageTracker.shared.start() }
                 .task {
 #if DEBUG
                     guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
 #endif
+                    updateController.observeTaskActivity(agentRuntime.updateTaskActivity) {
+                        agentRuntime.hasTasksPreventingAppUpdate
+                    }
                     updateController.start()
-                }
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    AppUpdateBanner(controller: updateController)
                 }
                 .environment(\.locale, languageStore.language.locale)
         }
@@ -104,6 +106,7 @@ private struct RootView: View {
     @ObservedObject var authSession: AuthSession
     @ObservedObject var agentRuntime: AppAgentRuntime
     @ObservedObject var languageStore: LanguageStore
+    @ObservedObject var updateController: AppUpdateController
     @ObservedObject private var themeStore = ThemeStore.shared
     @State private var didRestore = false
 
@@ -118,7 +121,8 @@ private struct RootView: View {
                         computerUseStore: agentRuntime.computerUseStore,
                         installedExtensionsStore: installedExtensionsStore,
                         scheduleStore: agentRuntime.scheduleStore,
-                        scheduleRunner: scheduleRunner
+                        scheduleRunner: scheduleRunner,
+                        updateController: updateController
                     )
                 } else {
                     AgentRuntimeUnavailableView(
@@ -178,6 +182,22 @@ final class AppAgentRuntime: ObservableObject {
     let scheduleStore: ScheduleStore
     let scheduleRunner: ScheduleRunner?
     let errorMessage: String?
+
+    var hasTasksPreventingAppUpdate: Bool {
+        sessionStore?.records.values.contains { $0.runState.preventsAppUpdate } == true
+            || scheduleRunner?.runningTaskIDs.isEmpty == false
+    }
+
+    var updateTaskActivity: AnyPublisher<Bool, Never> {
+        let sessions = sessionStore?.$records
+            .map { $0.values.contains { $0.runState.preventsAppUpdate } }
+            .eraseToAnyPublisher() ?? Just(false).eraseToAnyPublisher()
+        let schedules = scheduleRunner?.$runningTaskIDs.map { !$0.isEmpty }
+            .eraseToAnyPublisher() ?? Just(false).eraseToAnyPublisher()
+        return Publishers.CombineLatest(sessions, schedules)
+        .map { $0 || $1 }
+        .eraseToAnyPublisher()
+    }
 
     init() {
         let scheduleStore = ScheduleStore()

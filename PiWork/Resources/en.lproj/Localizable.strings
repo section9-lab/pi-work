@@ -803,4 +803,18 @@
 
 "update.automatic_checks" = "Automatically check for updates";
 
-"update.restart_note" = "PiWork will restart automatically after upgrading. Running tasks will stop.";
+"update.restart_note" = "Updating restarts PiWork. Finish running tasks before clicking Update or Restart.";
+
+"update.tasks_running" = "Tasks are running. Wait for all tasks to finish, then click Update or Restart again.";
+
+"update.ready_to_restart" = "The update is ready. Restart PiWork to finish updating.";
+
+"update.restart" = "Restart";
+
+"update.sidebar.checking" = "Checking…";
+
+"update.sidebar.downloading" = "Downloading…";
+
+"update.sidebar.preparing" = "Preparing…";
+
+"update.sidebar.restarting" = "Restarting…";

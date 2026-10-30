@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 enum SchedulePreferences {
     static let keepAwakeKey = "schedule.keepMacAwake"
@@ -216,7 +217,7 @@ final class ScheduleWakeController: ScheduleWakeControlling {
 }
 
 @MainActor
-final class ScheduleRunner {
+final class ScheduleRunner: ObservableObject {
     private let store: ScheduleStore
     private let executor: any ScheduleTaskExecuting
     private let planner: SchedulePlanner
@@ -226,7 +227,7 @@ final class ScheduleRunner {
 
     private var pollingTask: Task<Void, Never>?
     private var lastCheck: Date?
-    private var runningTaskIDs: Set<UUID> = []
+    @Published private(set) var runningTaskIDs: Set<UUID> = []
 
     init(
         store: ScheduleStore,
@@ -309,8 +310,9 @@ final class ScheduleRunner {
     }
 
     private func launch(_ task: ScheduledTask, scheduledAt: Date?) {
-        guard runningTaskIDs.insert(task.id).inserted,
-              let record = store.beginRun(
+        guard !runningTaskIDs.contains(task.id) else { return }
+        runningTaskIDs.insert(task.id)
+        guard let record = store.beginRun(
                 for: task.id,
                 scheduledAt: scheduledAt,
                 at: now()

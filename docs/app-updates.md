@@ -8,11 +8,22 @@ flow. The separately updated Pi agent runtime keeps its existing installer.
 
 - Check on launch and daily while running, respecting Sparkle's saved automatic
   check preference. Settings → General exposes this preference and manual checks.
-- Show the available version in a main-window banner and Software Update settings.
-- Clicking **Install Update** authorizes download, signature verification,
-  replacement, and normal macOS quit/relaunch. No second install click is needed.
+- Show **Update** beside the account at the bottom of the sidebar when a new
+  version is available. Keep manual checks in Software Update settings and the
+  app menu. There is no main-window update banner or modal update offer.
+- Clicking **Update** while idle authorizes download, signature verification,
+  replacement, and normal macOS quit/relaunch. No second install click is needed
+  unless a task starts before the update can safely restart.
+- While any Chat, Work, or scheduled task is opening, submitting, running,
+  awaiting approval, or stopping, Update and Restart clicks do nothing. Their
+  hover/accessibility hint asks the user to finish all tasks and click again.
+  Finishing tasks never starts a queued update or restart.
+- If a task starts during download/preparation, keep the update prepared and show
+  **Restart**. Check live task activity again before relaunching, including
+  Sparkle's relaunch delegate and retry callback. Use the scheduler's live runs,
+  rather than persisted run history, so an old interrupted run cannot block updates.
 - Show download/extraction progress. Downloads can be cancelled before extraction;
-  failed checks and downloads can be retried. Running tasks stop on app restart.
+  failed checks and downloads can be retried. Show compact progress in the sidebar.
 - Keep conversations, configuration, and agent runtimes in Application Support.
   Sparkle manages replacement and installation recovery; the Host handles normal
   stdin EOF when the application quits.
@@ -49,8 +60,9 @@ bash scripts/test-native.sh
 ```
 
 The standalone checks cover consent, cancellation, download progress, error
-retention, architecture routing, and six-language light/dark layouts at
-436/620/900 points. XCTest adds controller tests in the existing application
+retention, architecture routing, active-task guards, and explicit restart after
+tasks finish. They render six-language light/dark account rows at sidebar widths
+220/260/420 points. XCTest adds controller tests in the existing application
 test target. Full XCTest requires Xcode.
 
 For a real local installation test:
@@ -67,3 +79,9 @@ feed, and writable app directory. On macOS 26.6, one click upgraded 1.0.0 to
 rejected before extraction while 1.0.0 stayed running; restoring the original
 DMG and retrying upgraded and relaunched successfully. The installed PiWork
 application and user conversations were not involved in these checks.
+
+The fixture's **Task running** toggle also exercises the production task gate:
+clicking Update while busy does not download anything, clearing the toggle does
+not queue an upgrade, and a task started during a throttled download leaves 1.0.0
+running with Restart visible. Restart is inert while busy; after clearing the
+toggle, only another explicit click installs and relaunches 1.0.1.
