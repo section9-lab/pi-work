@@ -805,6 +805,8 @@
 
 /* Project changes */
 "changes.title" = "코드 변경";
+"changes.project_menu" = "프로젝트 메뉴";
+"changes.resize" = "변경 패널 너비 조절";
 "changes.refresh" = "변경 새로 고침";
 "changes.done" = "완료";
 "changes.filter" = "파일 필터…";

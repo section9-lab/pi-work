@@ -1,33 +1,165 @@
 import SwiftUI
 
-/// Workspace chrome shared by the conversation and its trailing review pane.
-/// Keeping the content in a stable split-view child preserves editor focus/drafts.
+/// Project-session chrome lives inside the detail column, not NSToolbar. Adding
+/// a global toolbar item changes NavigationSplitView's sidebar/titlebar layout.
 struct ProjectChangesWorkspace<Content: View>: View {
     let project: PiProject?
+    var sessionTitle: String? = nil
     @Binding var isPresented: Bool
     @ViewBuilder var content: () -> Content
+    @State private var showsProjectMenu = false
+    @State private var preferredReviewWidth: CGFloat = 420
+    @State private var dragStartWidth: CGFloat?
 
     var body: some View {
-        HSplitView {
-            content()
-                .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
-            if isPresented, let project {
-                ProjectChangesView(project: project) { isPresented = false }
-                    .id(project.path)
-                    .frame(minWidth: 340, idealWidth: 520, maxWidth: 800)
+        GeometryReader { geometry in
+            let layout = ProjectReviewLayout(
+                availableWidth: geometry.size.width,
+                preferredWidth: preferredReviewWidth,
+                isPresented: isPresented && project != nil
+            )
+            VStack(spacing: 0) {
+                if let project { sessionHeader(project) }
+                ZStack(alignment: .trailing) {
+                    // Stable identity while opening menus/panes preserves the draft.
+                    content()
+                        .frame(width: layout.contentWidth)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    if isPresented, let project {
+                        ProjectChangesView(project: project) { isPresented = false }
+                            .id(project.path)
+                            .frame(width: layout.reviewWidth)
+                            .overlay(alignment: .leading) { resizeHandle(layout) }
+                            .shadow(color: .black.opacity(layout.overlaysContent ? 0.12 : 0), radius: 12, x: -4)
+                    }
+                }
+                .clipped()
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                if project != nil {
-                    Button { isPresented.toggle() } label: {
-                        Label(L10n.string("changes.title"), systemImage: "sidebar.right")
-                    }
-                    .help(L10n.string("changes.title"))
-                    .accessibilityIdentifier("project-changes-toggle")
-                    .accessibilityAddTraits(isPresented ? .isSelected : [])
-                    .tint(isPresented ? .accentColor : .primary)
+        .onChange(of: project?.path) { _ in showsProjectMenu = false }
+    }
+
+    private func sessionHeader(_ project: PiProject) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder").foregroundStyle(.secondary)
+            Text(sessionTitle ?? project.name)
+                .font(.system(size: 13, weight: .medium)).lineLimit(1)
+            Spacer(minLength: 12)
+            Button { showsProjectMenu.toggle() } label: {
+                ProjectSessionMenuIcon().frame(width: 32, height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.primary.opacity(showsProjectMenu || isPresented ? 0.08 : 0))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("changes.project_menu"))
+            .accessibilityLabel(L10n.string("changes.project_menu"))
+            .accessibilityIdentifier("project-session-menu-toggle")
+            .background(WindowTitlebarControlRegion())
+            .popover(isPresented: $showsProjectMenu, arrowEdge: .top) {
+                ProjectSessionReviewMenu(project: project) {
+                    showsProjectMenu = false
+                    isPresented.toggle()
                 }
+                .id(project.path)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .accessibilityIdentifier("project-session-header")
+    }
+
+    private func resizeHandle(_ layout: ProjectReviewLayout) -> some View {
+        Rectangle().fill(Color.primary.opacity(0.12))
+            .frame(width: 1)
+            .overlay {
+                Color.clear.frame(width: 10).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            let start = dragStartWidth ?? layout.reviewWidth
+                            dragStartWidth = start
+                            preferredReviewWidth = min(ProjectReviewLayout.maximumReviewWidth,
+                                max(ProjectReviewLayout.minimumReviewWidth, start - value.translation.width))
+                        }
+                        .onEnded { _ in dragStartWidth = nil })
+            }
+            .accessibilityLabel(L10n.string("changes.resize"))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    preferredReviewWidth = min(ProjectReviewLayout.maximumReviewWidth, preferredReviewWidth + 40)
+                case .decrement:
+                    preferredReviewWidth = max(ProjectReviewLayout.minimumReviewWidth, preferredReviewWidth - 40)
+                @unknown default: break
+                }
+            }
+    }
+}
+
+private struct ProjectSessionMenuIcon: View {
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(0..<2) { _ in
+                HStack(spacing: 4) {
+                    Circle().stroke(lineWidth: 1.2).frame(width: 4, height: 4)
+                    Capsule().frame(width: 9, height: 1.2)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct ProjectSessionReviewMenu: View {
+    let project: PiProject
+    let onReview: () -> Void
+    @State private var snapshot: ProjectChangesSnapshot?
+    @State private var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(project.name).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                if let snapshot {
+                    Text(snapshot.branch)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Color.primary, in: Capsule())
+                        .foregroundStyle(AppPalette.raisedSurface)
+                }
+            }
+            Button(action: onReview) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                    Text(L10n.string("changes.title")).fontWeight(.medium)
+                    Spacer()
+                    if let snapshot { Text(String(snapshot.files.count)).foregroundStyle(.secondary) }
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                }
+                .padding(10).contentShape(Rectangle())
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("project-changes-toggle")
+            if failed {
+                Text(L10n.string("changes.unavailable")).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16).frame(width: 300)
+        .accessibilityIdentifier("project-session-menu")
+        .task(id: project.path) {
+            do {
+                let path = project.path
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try ProjectChangesService.snapshot(at: path)
+                }.value
+                guard !Task.isCancelled else { return }
+                snapshot = result
+            } catch {
+                guard !Task.isCancelled else { return }
+                failed = true
             }
         }
     }

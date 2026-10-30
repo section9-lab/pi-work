@@ -7,5 +7,6 @@ trap 'rm -rf "$CHECK_ROOT"' EXIT
 swiftc -swift-version 5 -parse-as-library \
   PiWork/Core/UI/AppLanguage.swift \
   PiWork/Features/Changes/ProjectChangesService.swift \
+  PiWork/Features/Changes/ProjectReviewLayout.swift \
   scripts/ProjectChangesChecks.swift -o "$CHECK_ROOT/project-changes-checks"
 "$CHECK_ROOT/project-changes-checks"

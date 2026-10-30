@@ -805,6 +805,8 @@
 
 /* 專案程式碼變更 */
 "changes.title" = "程式碼變更";
+"changes.project_menu" = "專案選單";
+"changes.resize" = "調整變更面板寬度";
 "changes.refresh" = "重新整理變更";
 "changes.done" = "完成";
 "changes.filter" = "篩選檔案…";

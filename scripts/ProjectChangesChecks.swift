@@ -3,6 +3,16 @@ import Foundation
 @main
 struct ProjectChangesChecks {
     static func main() throws {
+        for width: CGFloat in [0, 180, 480, 640, 700, 701, 900, 1200] {
+            for preferred: CGFloat in [200, 420, 900] {
+                let closed = ProjectReviewLayout(availableWidth: width, preferredWidth: preferred, isPresented: false)
+                precondition(closed.contentWidth == width && closed.reviewWidth == 0)
+                let open = ProjectReviewLayout(availableWidth: width, preferredWidth: preferred, isPresented: true)
+                precondition(open.contentWidth >= 0 && open.contentWidth <= width && open.reviewWidth <= width)
+                if open.overlaysContent { precondition(open.contentWidth == width) }
+                else { precondition(open.contentWidth + open.reviewWidth + 1 == width && open.contentWidth >= 400) }
+            }
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -69,6 +79,6 @@ struct ProjectChangesChecks {
         precondition(FileDiff.parse("").lines.isEmpty)
         diff = FileDiff.parse("diff --git a/old b/old\n--- a/old\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\ndiff --git a/new b/new\n--- /dev/null\n+++ b/new\n@@ -0,0 +1 @@\n+new\n")
         precondition(diff.additions == 1 && diff.deletions == 1)
-        print("Project changes checks passed: clean, staged + unstaged, untracked, rename, deletion, binary, unborn, invalid repository, path and line parsing.")
+        print("Project changes checks passed: clean, staged + unstaged, untracked, rename, deletion, binary, unborn, invalid repository, path and line parsing, compact/wide review layouts.")
     }
 }

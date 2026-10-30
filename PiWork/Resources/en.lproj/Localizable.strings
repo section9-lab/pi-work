@@ -805,6 +805,8 @@
 
 /* Project changes */
 "changes.title" = "Code Changes";
+"changes.project_menu" = "Project menu";
+"changes.resize" = "Resize changes panel";
 "changes.refresh" = "Refresh changes";
 "changes.done" = "Done";
 "changes.filter" = "Filter files…";

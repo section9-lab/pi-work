@@ -805,6 +805,8 @@
 
 /* 项目代码变更 */
 "changes.title" = "代码变更";
+"changes.project_menu" = "项目菜单";
+"changes.resize" = "调整变更面板宽度";
 "changes.refresh" = "刷新变更";
 "changes.done" = "完成";
 "changes.filter" = "筛选文件…";

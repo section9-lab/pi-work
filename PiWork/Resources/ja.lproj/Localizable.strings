@@ -805,6 +805,8 @@
 
 /* Project changes */
 "changes.title" = "コードの変更";
+"changes.project_menu" = "プロジェクトメニュー";
+"changes.resize" = "変更パネルの幅を調整";
 "changes.refresh" = "変更を更新";
 "changes.done" = "完了";
 "changes.filter" = "ファイルを絞り込み…";

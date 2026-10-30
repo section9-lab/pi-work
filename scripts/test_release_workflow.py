@@ -148,6 +148,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn(".backgroundExtensionEffect()", content)
         self.assertNotIn("AppPalette.windowGradient", review)
 
+    def test_project_menu_is_detail_scoped_without_window_growth(self):
+        content = (REPOSITORY_ROOT / "PiWork/App/Root/ContentView.swift").read_text()
+        review = (REPOSITORY_ROOT / "PiWork/Features/Changes/ProjectChangesView.swift").read_text()
+        self.assertIn(".frame(minWidth: 900, minHeight: 600)", content)
+        self.assertNotIn("? 1100 : 900", content)
+        self.assertNotIn(".toolbar", review)
+        self.assertNotIn("ToolbarItem", review)
+        self.assertNotIn("HSplitView", review)
+        self.assertIn("project-session-header", review)
+        self.assertIn(".popover(isPresented: $showsProjectMenu", review)
+        self.assertIn(".background(WindowTitlebarControlRegion())", review)
+
     def test_app_stages_photon_wasm_and_checks_packaged_images(self):
         project = PROJECT_PATH.read_text()
         self.assertIn("node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm", project)

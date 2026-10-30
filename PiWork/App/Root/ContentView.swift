@@ -40,7 +40,7 @@ struct ContentView: View {
 
     var body: some View {
         splitView
-            .frame(minWidth: showsProjectChanges && changesProject != nil ? 1100 : 900, minHeight: 600)
+            .frame(minWidth: 900, minHeight: 600)
             .task {
                 await bootstrapChatIfNeeded()
                 await bootstrapWorkProjects()
@@ -77,7 +77,7 @@ struct ContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
-            ProjectChangesWorkspace(project: changesProject, isPresented: $showsProjectChanges) {
+            ProjectChangesWorkspace(project: changesProject, sessionTitle: workSessionTitle, isPresented: $showsProjectChanges) {
                 primaryContent
             }
             .background {
@@ -90,6 +90,13 @@ struct ContentView: View {
     // selected project and does not replace or recreate the conversation.
     private var changesProject: PiProject? {
         selectedTab == .work && selectedCustomDestination == nil ? workSession.selectedProject : nil
+    }
+
+    private var workSessionTitle: String? {
+        guard let project = changesProject,
+              let sessionID = sessionStore.selectedWorkSessionIdByProjectPath[project.path]
+        else { return nil }
+        return sessionStore.records[sessionID]?.descriptor.title
     }
 
     @ViewBuilder private var primaryContent: some View {

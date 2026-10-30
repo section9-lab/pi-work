@@ -1,8 +1,10 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PiWork
 
 final class ProjectChangesTests: XCTestCase {
-    func testReviewIsWorkspaceToolbarAndTrailingPaneNotSidebarOrSessionSheet() throws {
+    func testReviewIsInsideSessionHeaderNotGlobalToolbarOrSidebar() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         func source(_ path: String) throws -> String {
             try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
@@ -12,9 +14,15 @@ final class ProjectChangesTests: XCTestCase {
         let chat = try source("PiWork/Features/Chat/Views/ChatView.swift")
         let panel = try source("PiWork/Features/Changes/ProjectChangesView.swift")
         XCTAssertTrue(content.contains("ProjectChangesWorkspace(project: changesProject"))
-        XCTAssertTrue(panel.contains("ToolbarItem(placement: .primaryAction)"))
+        XCTAssertTrue(panel.contains("project-session-header"))
+        XCTAssertTrue(panel.contains("project-session-menu-toggle"))
         XCTAssertTrue(panel.contains("project-changes-toggle"))
-        XCTAssertTrue(panel.contains("HSplitView"))
+        XCTAssertTrue(panel.contains(".popover(isPresented: $showsProjectMenu"))
+        XCTAssertFalse(panel.contains(".toolbar"))
+        XCTAssertFalse(panel.contains("ToolbarItem"))
+        XCTAssertFalse(panel.contains("HSplitView"))
+        XCTAssertFalse(content.contains("? 1100 : 900"))
+        XCTAssertTrue(content.contains(".frame(minWidth: 900, minHeight: 600)"))
         XCTAssertTrue(panel.contains("ProjectChangesView(project: project)"))
         XCTAssertTrue(panel.contains(".id(project.path)"))
         XCTAssertFalse(sidebar.contains("changesProject"))
@@ -23,6 +31,79 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertTrue(panel.contains("VSplitView"))
         XCTAssertTrue(panel.contains("Button(action: onClose)"))
         XCTAssertFalse(panel.contains("dismiss()"))
+    }
+
+    func testReviewLayoutNeverExceedsDetailWidthOrResizesSidebar() {
+        for width: CGFloat in [0, 180, 480, 640, 700, 701, 900, 1200] {
+            for preferred: CGFloat in [200, 420, 900] {
+                let closed = ProjectReviewLayout(availableWidth: width, preferredWidth: preferred, isPresented: false)
+                XCTAssertEqual(closed.contentWidth, width)
+                XCTAssertEqual(closed.reviewWidth, 0)
+                let open = ProjectReviewLayout(availableWidth: width, preferredWidth: preferred, isPresented: true)
+                XCTAssertLessThanOrEqual(open.contentWidth, width)
+                XCTAssertLessThanOrEqual(open.reviewWidth, width)
+                XCTAssertGreaterThanOrEqual(open.contentWidth, 0)
+                if open.overlaysContent {
+                    XCTAssertEqual(open.contentWidth, width)
+                } else {
+                    XCTAssertEqual(open.contentWidth + open.reviewWidth + 1, width)
+                    XCTAssertGreaterThanOrEqual(open.contentWidth, 400)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testOpeningReviewPreservesNativeSidebarWindowAndConversationIdentity() async throws {
+        let state = ProjectReviewLayoutHarness()
+        let host = NSHostingView(rootView: ProjectReviewLayoutHarnessView(state: state))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
+            styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        for width: CGFloat in [900, 1400] {
+            state.isPresented = false
+            window.setContentSize(NSSize(width: width, height: 680))
+            try await Task.sleep(nanoseconds: 300_000_000)
+            host.layoutSubtreeIfNeeded()
+            let sidebar = state.sidebarFrame
+            let frame = window.frame
+            let minimum = window.contentMinSize
+            let appearances = state.contentAppearances
+            XCTAssertGreaterThan(sidebar.width, 0)
+            state.isPresented = true
+            try await Task.sleep(nanoseconds: 300_000_000)
+            host.layoutSubtreeIfNeeded()
+            XCTAssertEqual(state.sidebarFrame, sidebar, "Review must not move or resize the left menu")
+            XCTAssertEqual(window.frame, frame, "Review must not grow the window off-screen")
+            XCTAssertEqual(window.contentMinSize, minimum)
+            XCTAssertEqual(state.contentAppearances, appearances, "Conversation/draft identity must be stable")
+        }
+    }
+
+    @MainActor
+    func testSessionMenuControlIsExcludedFromTitlebarDragging() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 52),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: Color.clear
+            .overlay(alignment: .topTrailing) {
+                Button("Project") {}.frame(width: 32, height: 30)
+                    .background(WindowTitlebarControlRegion())
+            }
+            .overlay { WindowTitlebarDragRegion() })
+        window.contentView = host
+        host.frame = NSRect(x: 0, y: 0, width: 240, height: 52)
+        host.layoutSubtreeIfNeeded()
+        func find(_ name: String, in view: NSView) -> NSView? {
+            if String(describing: type(of: view)).contains(name) { return view }
+            return view.subviews.lazy.compactMap { find(name, in: $0) }.first
+        }
+        let drag = try XCTUnwrap(find("WindowTitlebarDragView", in: host))
+        let control = try XCTUnwrap(find("WindowTitlebarControlView", in: host))
+        XCTAssertGreaterThan(control.bounds.width, 0)
+        let controlCenter = control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: drag)
+        XCTAssertNil(drag.hitTest(controlCenter), "Project menu must receive clicks instead of moving the window")
+        XCTAssertNotNil(drag.hitTest(NSPoint(x: 8, y: 8)), "Empty titlebar must remain draggable")
     }
 
     func testStatusPreservesUnusualPathsAndRenamePairs() {
@@ -121,5 +202,45 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertFalse(snapshot.hasHEAD)
         let file = try XCTUnwrap(snapshot.files.first)
         XCTAssertEqual(try ProjectChangesService.diff(for: file, in: snapshot).additions, 1)
+    }
+}
+
+@MainActor
+private final class ProjectReviewLayoutHarness: ObservableObject {
+    @Published var isPresented = false
+    var sidebarFrame = CGRect.zero
+    var contentAppearances = 0
+}
+
+private struct ProjectReviewSidebarFrameKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+private struct ProjectReviewLayoutHarnessView: View {
+    @ObservedObject var state: ProjectReviewLayoutHarness
+    private let project = PiProject(name: "Layout Test", path: NSTemporaryDirectory())
+
+    var body: some View {
+        NavigationSplitView {
+            Text("Sidebar").frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: ProjectReviewSidebarFrameKey.self,
+                        value: geometry.frame(in: .named("review-layout-test")))
+                })
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
+        } detail: {
+            ProjectChangesWorkspace(project: project, isPresented: $state.isPresented) {
+                Text("Conversation and draft")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onAppear { state.contentAppearances += 1 }
+            }
+        }
+        .coordinateSpace(name: "review-layout-test")
+        .onPreferenceChange(ProjectReviewSidebarFrameKey.self) {
+            if let frame = $0 { state.sidebarFrame = frame }
+        }
     }
 }

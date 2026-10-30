@@ -1,10 +1,15 @@
 # Project code changes
 
-Select a project under Work, then click **Code Changes** in the window's top-right
-toolbar. A resizable review pane opens to the right of the conversation, not as a
-session/sidebar destination or modal sheet. Its file list shows staged, unstaged,
-and untracked files; select a file to inspect its diff, line numbers, and
-addition/deletion counts below. Filter or refresh the snapshot as needed.
+Select a project under Work, then open the project menu in the **session header's
+top-right corner**. It shows the project, current Git branch, and **Code Changes**.
+Choosing Code Changes opens a resizable review pane to the right of the
+conversation, not as a sidebar destination or modal sheet. The control is inside
+the detail column, not the native window toolbar, so it does not reposition the
+left navigation. Opening it never increases the window's minimum width: wide
+detail columns split the available space; narrow columns show an overlaid review
+pane without squeezing or clipping the sidebar. Its file list shows staged,
+unstaged, and untracked files; select a file to inspect its diff, line numbers,
+and addition/deletion counts below. Filter or refresh the snapshot as needed.
 Closing or toggling the pane leaves the conversation and draft intact. Switching
 projects updates the pane; switching sessions in the same project keeps the review
 project-scoped. Chat and non-project destinations do not show the review control.

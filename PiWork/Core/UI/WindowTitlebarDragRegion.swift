@@ -14,8 +14,40 @@ struct WindowTitlebarDragRegion: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// Marks custom controls that can overlap the hidden titlebar's drag surface.
+/// The marker never handles input; it only lets the control underneath receive it.
+struct WindowTitlebarControlRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { WindowTitlebarControlView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class WindowTitlebarControlView: NSView {
+    private static let controls = NSHashTable<WindowTitlebarControlView>.weakObjects()
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { Self.controls.add(self) } else { Self.controls.remove(self) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    static func contains(_ point: NSPoint, in window: NSWindow) -> Bool {
+        controls.allObjects.contains {
+            $0.window === window && !$0.isHiddenOrHasHiddenAncestor
+                && $0.convert($0.bounds, to: nil).contains(point)
+        }
+    }
+}
+
 private final class WindowTitlebarDragView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let window, WindowTitlebarControlView.contains(convert(point, to: nil), in: window) {
+            return nil
+        }
+        return super.hitTest(point)
+    }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount >= 2 {
