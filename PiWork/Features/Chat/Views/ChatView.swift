@@ -3842,7 +3842,7 @@ private struct AssistantToolStepRow: View {
             )
 
             if showsDetails {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
                     if let edit = editPresentation {
                         ForEach(edit.changes.indices, id: \.self) { index in
                             let change = edit.changes[index]
@@ -3850,13 +3850,13 @@ private struct AssistantToolStepRow: View {
                         }
                     } else if tool.rawInput != nil || !tool.summary.isEmpty {
                         ToolDetailBlock(
-                            title: L10n.string("chat.tool.input"),
+                            title: nil,
                             text: presentation.formattedInput
                         )
                     }
                     if hasOutputDetails {
                         ToolDetailBlock(
-                            title: L10n.string("chat.tool.output"),
+                            title: nil,
                             text: loadedOutput ?? outputForDisplay
                         )
                     }
@@ -3944,29 +3944,21 @@ private struct AssistantToolStepRow: View {
 }
 
 private struct ToolDetailBlock: View {
-    let title: String
+    let title: String?
     let text: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
-                    .textCase(.uppercase)
+            if let title {
+                HStack {
+                    Text(title)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.secondary)
+                        .textCase(.uppercase)
 
-                Spacer(minLength: 8)
-
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .medium))
+                    Spacer(minLength: 8)
+                    copyButton
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.secondary)
-                .accessibilityLabel(L10n.string("chat.tool.copy"))
             }
 
             ScrollView([.horizontal, .vertical], showsIndicators: true) {
@@ -3975,12 +3967,38 @@ private struct ToolDetailBlock: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(9)
+                    .padding(.trailing, title == nil ? 22 : 0)
             }
-            .frame(maxHeight: 220)
+            .frame(height: contentHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(0.045))
             .adaptiveCornerRadius(8)
+            .overlay(alignment: .topTrailing) {
+                if title == nil {
+                    copyButton.padding(7)
+                }
+            }
         }
+    }
+
+    private var contentHeight: CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let lineCount = text.components(separatedBy: .newlines).count
+        return min(220, CGFloat(lineCount) * lineHeight + 18)
+    }
+
+    private var copyButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 10, weight: .medium))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.secondary)
+        .accessibilityLabel(L10n.string("chat.tool.copy"))
     }
 }
 
@@ -3988,7 +4006,7 @@ private struct ToolStructuredContentView: View {
     let contents: [AgentHostACPToolCallContent]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(contents.indices, id: \.self) { index in
                 contentView(contents[index])
             }
@@ -4122,48 +4140,68 @@ private struct ToolDiffBlock: View {
     let newText: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label(path, systemImage: "square.and.pencil")
-                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.secondary)
-                .textSelection(.enabled)
-
-            HStack(alignment: .top, spacing: 8) {
-                if let oldText {
-                    diffColumn(
-                        title: L10n.string("chat.tool.diff_before"),
-                        text: oldText,
-                        color: .red
-                    )
+        let diff = ToolDiffPresentation(oldText: oldText, newText: newText)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text((path as NSString).lastPathComponent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
+                Text("+\(diff.additions)")
+                    .foregroundStyle(Color.green)
+                Text("−\(diff.deletions)")
+                    .foregroundStyle(Color.red)
+                Spacer(minLength: 4)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(newText, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
                 }
-                diffColumn(
-                    title: L10n.string("chat.tool.diff_after"),
-                    text: newText,
-                    color: .green
-                )
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.string("chat.tool.copy"))
             }
-        }
-    }
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(Color.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.035))
 
-    private func diffColumn(title: String, text: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(color.opacity(0.8))
-                .textCase(.uppercase)
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                Text(text)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(8)
+            Divider()
+            GeometryReader { geometry in
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(diff.lines.indices, id: \.self) { index in
+                            let line = diff.lines[index]
+                            let color: Color = line.kind == .removed ? .red : .green
+                            HStack(alignment: .top, spacing: 0) {
+                                Rectangle()
+                                    .fill(line.kind == .context ? Color.clear : color)
+                                    .frame(width: 3)
+                                Text(line.kind == .context ? " " : line.kind == .removed ? "−" : "+")
+                                    .foregroundStyle(color)
+                                    .frame(width: 25)
+                                Text(line.text.isEmpty ? " " : line.text)
+                                    .textSelection(.enabled)
+                                    .padding(.trailing, 12)
+                            }
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .frame(height: 19, alignment: .leading)
+                            .frame(minWidth: geometry.size.width, alignment: .leading)
+                            .background(line.kind == .context ? Color.clear : color.opacity(0.10))
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
             }
-            .frame(maxHeight: 240)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(color.opacity(0.06))
-            .adaptiveCornerRadius(8)
+            .frame(height: min(300, CGFloat(max(1, diff.lines.count)) * 19))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.65))
+        .adaptiveCornerRadius(9)
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
+        }
     }
 }
 
@@ -4499,8 +4537,10 @@ private struct InlineApprovalActions: View {
     }
 }
 
-private struct ToolCallPresentation {
+struct ToolCallPresentation {
     let tool: SessionToolRecord
+
+    var isBash: Bool { tool.name.lowercased() == "bash" }
 
     var title: String {
         tool.name.replacingOccurrences(of: "_", with: " ")
@@ -4538,20 +4578,37 @@ private struct ToolCallPresentation {
     }
 
     var formattedInput: String {
-        if let rawInput = tool.rawInput?.prettyPrinted {
-            return rawInput
+        let input = tool.rawInput ?? tool.summary.data(using: .utf8).flatMap {
+            try? JSONDecoder().decode(AgentHostJSONValue.self, from: $0)
         }
-        guard let data = tool.summary.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              JSONSerialization.isValidJSONObject(object),
-              let formatted = try? JSONSerialization.data(
-                withJSONObject: object,
-                options: [.prettyPrinted, .sortedKeys]
-              ),
-              let string = String(data: formatted, encoding: .utf8) else {
-            return tool.summary
+        if isBash, let command = input?.objectValue?["command"]?.stringValue {
+            return command
         }
-        return string
+        if tool.name.lowercased() == "read",
+           let object = input?.objectValue,
+           let path = object["path"]?.stringValue {
+            let range = ["offset", "limit"].compactMap { key -> String? in
+                guard let value = object[key]?.intValue else { return nil }
+                return "\(key): \(value)"
+            }
+            return ([path] + range).joined(separator: "  ·  ")
+        }
+        if let object = input?.objectValue, !object.isEmpty {
+            // Keep every argument for unfamiliar tools, without JSON wrapper noise.
+            let preferredKeys = ["path", "command", "query", "url", "pattern", "content"]
+            let keys = preferredKeys.filter { object[$0] != nil }
+                + object.keys.filter { !preferredKeys.contains($0) }.sorted()
+            return keys.compactMap { key -> String? in
+                guard let value = object[key] else { return nil }
+                let encoded = try? JSONSerialization.data(
+                    withJSONObject: value.foundationValue,
+                    options: [.fragmentsAllowed, .prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                )
+                let text = value.stringValue ?? encoded.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+                return keys.count == 1 ? text : "\(key): \(text)"
+            }.joined(separator: "\n")
+        }
+        return input?.stringValue ?? input?.prettyPrinted ?? tool.summary
     }
 
 }
