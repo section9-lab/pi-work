@@ -109,13 +109,9 @@ class AgentRuntimePackageTests(unittest.TestCase):
         previous = {"schemaVersion": 1, "releases": [manifest]}
         self.assertEqual(publisher.merge(previous, [manifest]), previous)
 
-    def test_runtime_release_does_not_replace_latest_app_release(self):
-        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/release-agent-runtime.yml").read_text()
-        self.assertIn('"runtime-v*"', workflow)
-        self.assertIn("--latest=false", workflow)
-        self.assertIn("Smoke test packaged runtime", workflow)
-        self.assertIn("bun run typecheck", workflow)
-        self.assertIn("bun test", workflow)
+    def test_runtime_has_no_independent_release_workflow(self):
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/release-agent-runtime.yml"
+        self.assertFalse(workflow.exists(), "The agent must be released with PiWork.")
 
 
 if __name__ == "__main__":

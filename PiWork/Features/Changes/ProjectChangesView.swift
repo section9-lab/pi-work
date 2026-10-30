@@ -1,13 +1,12 @@
+import AppKit
 import SwiftUI
 
-/// Project-session chrome lives inside the detail column, not NSToolbar. Adding
-/// a global toolbar item changes NavigationSplitView's sidebar/titlebar layout.
+/// Conversation/review layout only. Custom window-chrome controls are separate
+/// overlays, so neither a title row nor a native toolbar changes navigation.
 struct ProjectChangesWorkspace<Content: View>: View {
     let project: PiProject?
-    var sessionTitle: String? = nil
     @Binding var isPresented: Bool
     @ViewBuilder var content: () -> Content
-    @State private var showsProjectMenu = false
     @State private var preferredReviewWidth: CGFloat = 420
     @State private var dragStartWidth: CGFloat?
 
@@ -18,56 +17,23 @@ struct ProjectChangesWorkspace<Content: View>: View {
                 preferredWidth: preferredReviewWidth,
                 isPresented: isPresented && project != nil
             )
-            VStack(spacing: 0) {
-                if let project { sessionHeader(project) }
-                ZStack(alignment: .trailing) {
-                    // Stable identity while opening menus/panes preserves the draft.
-                    content()
-                        .frame(width: layout.contentWidth)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    if isPresented, let project {
-                        ProjectChangesView(project: project) { isPresented = false }
-                            .id(project.path)
-                            .frame(width: layout.reviewWidth)
-                            .overlay(alignment: .leading) { resizeHandle(layout) }
-                            .shadow(color: .black.opacity(layout.overlaysContent ? 0.12 : 0), radius: 12, x: -4)
-                    }
+            ZStack(alignment: .trailing) {
+                // Stable identity while opening menus/panes preserves the draft.
+                content()
+                    .frame(width: layout.contentWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                if isPresented, let project {
+                    ProjectChangesView(project: project) { isPresented = false }
+                        .id(project.path)
+                        .frame(width: layout.reviewWidth)
+                        .overlay(alignment: .leading) { resizeHandle(layout) }
+                        .shadow(color: .black.opacity(layout.overlaysContent ? 0.12 : 0), radius: 12, x: -4)
                 }
-                .clipped()
             }
+            .clipped()
+            .preference(key: ProjectReviewControlInsetKey.self,
+                value: layout.overlaysContent || layout.reviewWidth == 0 ? 0 : layout.reviewWidth + 1)
         }
-        .onChange(of: project?.path) { _ in showsProjectMenu = false }
-    }
-
-    private func sessionHeader(_ project: PiProject) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "folder").foregroundStyle(.secondary)
-            Text(sessionTitle ?? project.name)
-                .font(.system(size: 13, weight: .medium)).lineLimit(1)
-            Spacer(minLength: 12)
-            Button { showsProjectMenu.toggle() } label: {
-                ProjectSessionMenuIcon().frame(width: 32, height: 30)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.primary.opacity(showsProjectMenu || isPresented ? 0.08 : 0))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(L10n.string("changes.project_menu"))
-            .accessibilityLabel(L10n.string("changes.project_menu"))
-            .accessibilityIdentifier("project-session-menu-toggle")
-            .background(WindowTitlebarControlRegion())
-            .popover(isPresented: $showsProjectMenu, arrowEdge: .top) {
-                ProjectSessionReviewMenu(project: project) {
-                    showsProjectMenu = false
-                    isPresented.toggle()
-                }
-                .id(project.path)
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .accessibilityIdentifier("project-session-header")
     }
 
     private func resizeHandle(_ layout: ProjectReviewLayout) -> some View {
@@ -97,6 +63,63 @@ struct ProjectChangesWorkspace<Content: View>: View {
     }
 }
 
+struct ProjectReviewControlInsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct ProjectSessionMenuAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Custom window chrome: no native toolbar, title row, or NSPopover. The card
+/// stays below the button and within this window, including on small displays.
+struct ProjectSessionMenuOverlay: View {
+    let project: PiProject
+    var reviewTrailingInset: CGFloat = 0
+    @Binding var isReviewPresented: Bool
+    @State private var showsProjectMenu = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.clear.allowsHitTesting(false)
+            Button { showsProjectMenu.toggle() } label: {
+                ProjectSessionMenuIcon().frame(width: 32, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(showsProjectMenu || isReviewPresented ? 0.08 : 0)))
+            }
+            .buttonStyle(.plain)
+            .help(showsProjectMenu ? "" : L10n.string("changes.project_menu"))
+            .accessibilityLabel(L10n.string("changes.project_menu"))
+            .accessibilityIdentifier("project-session-menu-toggle")
+            .background(WindowTitlebarControlRegion())
+            .anchorPreference(key: ProjectSessionMenuAnchorKey.self, value: .bounds) { $0 }
+            .padding(.top, 10)
+            .padding(.trailing, 16 + reviewTrailingInset)
+        }
+        .overlayPreferenceValue(ProjectSessionMenuAnchorKey.self) { anchor in
+            GeometryReader { geometry in
+                InWindowFloatingPanel(
+                    isPresented: $showsProjectMenu,
+                    layout: BoundedFloatingPanelLayout(idealWidth: 320, idealMaximumHeight: 180,
+                        inset: 12, anchorGap: 8, pointerTrailingInset: 16),
+                    anchorFrame: anchor.map { geometry[$0] },
+                    showsPointer: false,
+                    fillsHeight: false
+                ) {
+                    ProjectSessionReviewMenu(project: project) { isReviewPresented = true }
+                        .id(project.path)
+                }
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+        .onChange(of: project.path) { _ in showsProjectMenu = false }
+    }
+}
+
 private struct ProjectSessionMenuIcon: View {
     var body: some View {
         VStack(spacing: 4) {
@@ -115,39 +138,57 @@ struct ProjectSessionReviewMenu: View {
     let project: PiProject
     let onReview: () -> Void
     @State private var snapshot: ProjectChangesSnapshot?
+    @State private var summary: ProjectChangesSummary?
     @State private var failed = false
+    @State private var isHoveringReview = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(project.name).foregroundStyle(.secondary).lineLimit(1)
+                Text(project.name).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                if let snapshot {
-                    Text(snapshot.branch)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color.primary, in: Capsule())
-                        .foregroundStyle(AppPalette.raisedSurface)
+                Menu {
+                    if let snapshot { Text(snapshot.branch) }
+                    Button(L10n.string("changes.copy_path")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(project.path, forType: .string)
+                    }
+                    Button(L10n.string("changes.reveal_project")) {
+                        NSWorkspace.shared.activateFileViewerSelecting([project.folderURL])
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").foregroundStyle(.secondary)
                 }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel(L10n.string("changes.project_menu"))
             }
+            .padding(.horizontal, 8)
             Button(action: onReview) {
-                HStack(spacing: 10) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                    Text(L10n.string("changes.title")).fontWeight(.medium)
+                HStack(spacing: 12) {
+                    Image(systemName: "plus.forwardslash.minus").frame(width: 18)
+                    Text(L10n.string("changes.menu_changes")).fontWeight(.medium)
                     Spacer()
-                    if let snapshot { Text(String(snapshot.files.count)).foregroundStyle(.secondary) }
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                    if let summary {
+                        HStack(spacing: 5) {
+                            Text("+\(summary.additions)").foregroundStyle(.green)
+                            Text("−\(summary.deletions)").foregroundStyle(.red)
+                        }.font(.system(size: 12, design: .monospaced))
+                    } else if let snapshot {
+                        Text(L10n.format("changes.file_count", snapshot.files.count))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                .padding(10).contentShape(Rectangle())
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 8).padding(.vertical, 10).contentShape(Rectangle())
+                .background(Color.primary.opacity(isHoveringReview ? 0.05 : 0), in: RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .onHover { isHoveringReview = $0 }
             .accessibilityIdentifier("project-changes-toggle")
             if failed {
                 Text(L10n.string("changes.unavailable")).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(16).frame(width: 300)
+        .padding(16)
         .accessibilityIdentifier("project-session-menu")
         .task(id: project.path) {
             do {
@@ -157,6 +198,11 @@ struct ProjectSessionReviewMenu: View {
                 }.value
                 guard !Task.isCancelled else { return }
                 snapshot = result
+                let totals = await Task.detached(priority: .utility) {
+                    ProjectChangesService.summary(in: result)
+                }.value
+                guard !Task.isCancelled else { return }
+                summary = totals
             } catch {
                 guard !Task.isCancelled else { return }
                 failed = true

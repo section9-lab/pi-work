@@ -71,7 +71,7 @@
 "update.agent.checking" = "pi-coding-agent 업데이트 확인 중…";
 "update.agent.version_unavailable" = "내장 pi-coding-agent 버전을 확인할 수 없습니다.";
 "runtime.current" = "Pi %@ · 런타임 %@";
-"runtime.description" = "PiWork를 업데이트하지 않고 호환되는 Agent 업데이트를 설치합니다.";
+"runtime.description" = "PiWork에 포함되어 앱과 함께만 업데이트됩니다.";
 "runtime.available" = "Pi %@ (런타임 %@)을 설치할 수 있습니다.";
 "runtime.pending" = "Pi %@이(가) 설치되었습니다. 다음 PiWork 실행 시 적용됩니다.";
 "runtime.downloading" = "런타임 다운로드 중…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "확인 안 됨";
 
 "update.install" = "업데이트";
+"update.install_version" = "v%@로 업데이트";
 
 "update.downloading" = "업데이트 다운로드 중…";
 
@@ -806,6 +807,9 @@
 /* Project changes */
 "changes.title" = "코드 변경";
 "changes.project_menu" = "프로젝트 메뉴";
+"changes.menu_changes" = "변경";
+"changes.copy_path" = "프로젝트 경로 복사";
+"changes.reveal_project" = "Finder에서 프로젝트 표시";
 "changes.resize" = "변경 패널 너비 조절";
 "changes.refresh" = "변경 새로 고침";
 "changes.done" = "완료";

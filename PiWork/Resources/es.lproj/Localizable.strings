@@ -71,7 +71,7 @@
 "update.agent.checking" = "Buscando actualizaciones de pi-coding-agent…";
 "update.agent.version_unavailable" = "No se pudo obtener la versión integrada de pi-coding-agent.";
 "runtime.current" = "Pi %@ · Entorno %@";
-"runtime.description" = "Instala actualizaciones compatibles del agente sin actualizar PiWork.";
+"runtime.description" = "Incluido en PiWork y actualizado solo junto con la aplicación.";
 "runtime.available" = "Pi %@ (entorno %@) está disponible.";
 "runtime.pending" = "Pi %@ está instalado y se activará al volver a abrir PiWork.";
 "runtime.downloading" = "Descargando el entorno…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "Sin comprobar";
 
 "update.install" = "Actualizar";
+"update.install_version" = "Actualizar a v%@";
 
 "update.downloading" = "Descargando actualización…";
 
@@ -806,6 +807,9 @@
 /* Project changes */
 "changes.title" = "Cambios de código";
 "changes.project_menu" = "Menú del proyecto";
+"changes.menu_changes" = "Cambios";
+"changes.copy_path" = "Copiar ruta del proyecto";
+"changes.reveal_project" = "Mostrar proyecto en Finder";
 "changes.resize" = "Ajustar el ancho del panel de cambios";
 "changes.refresh" = "Actualizar cambios";
 "changes.done" = "Listo";

@@ -1,118 +1,17 @@
-# Independent agent runtime updates
+# Bundled agent runtime
 
-PiWork can update its Agent Host, embedded Pi SDK, Bun package manager, Photon
-image-processing WASM, themes, and HTML export assets without replacing the
-application. Settings → General → pi-coding-agent offers
-the newest **compatible PiWork runtime**, not an untested upstream npm release.
-Installation leaves running tasks alone. The update activates on the next launch;
-a pending update can be cancelled, and an active downloaded runtime can be restored
-to its previous version from the same settings section.
+Pi Coding Agent and PiWork are developed and released together. The agent is not
+an independently updatable component.
 
-## Compatibility and integrity boundary
+- Settings → General and About show the bundled agent version.
+- There is no agent update check, download, install, pending update, or rollback UI.
+- Production startup always uses `AgentHostService.bundled()`. Previously downloaded
+  runtimes and pending runtime selections in Application Support are ignored.
+- Updating PiWork updates its bundled agent host, SDK, Bun, and runtime resources
+  together. See [app updates](app-updates.md) for the application update flow.
+- The standalone `runtime-v*` release workflow has been removed. Publish changes to
+  the agent through the normal PiWork application release workflow.
 
-- Schema v1 describes an immutable runtime version, Pi version, CPU architecture,
-  minimum macOS version, minimum/optional maximum app version, runtime API v1,
-  and ACP v1. The channel retains older releases for older compatible apps.
-- Downloads must come from the fixed `section9-lab/pi-work` GitHub release path.
-  HTTPS redirects are limited to GitHub's release asset hosts. The manifest and
-  archive are size bounded; archives are downloaded to disk.
-- The archive's SHA-256 and every extracted file's SHA-256 must match the manifest.
-  USTAR extraction accepts only declared regular files: no links, special files,
-  duplicate entries, absolute paths, traversal, or unexpected files. Expanded
-  content is bounded. Both Mach-O executables must contain the declared CPU
-  architecture and their code signatures must verify before execution.
-- A temporary configuration directory is used for the pre-install process probe.
-  The process must report the exact adapter/Pi versions, API contract, ACP session
-  capabilities, all supported PiWork capabilities, and successfully answer
-  settings and model-catalog requests. Its bundled Bun must also start within
-  a bounded timeout. Provider credentials and existing project configuration are
-  not used by this probe.
-- Version folders are immutable. `selection.json` is replaced atomically. A trial
-  marker is written before first activation and cleared after the real startup
-  handshake and settings check. An interrupted trial, failed startup, changed
-  executable/resource, or unexpected runtime exit selects the previous verified
-  runtime, ultimately falling back to the bundled runtime. A read-only or damaged
-  runtime store also leaves the bundled host usable.
-- A corrupted inactive cache can be replaced with a fully verified copy of the
-  same release, so a failed candidate can be retried. The running runtime and
-  its rollback copy are never overwritten by installation.
-- Existing service restart events reload session projections. Interrupted prompts
-  fail through the existing disconnect path; tool actions are never replayed by
-  the updater. Rollback changes the runtime selection, not completed user work.
-
-The release repository over HTTPS is the publisher trust root. SHA-256 detects
-corruption; the current ad-hoc code signature checks executable integrity and is
-not a Developer ID attestation. No application-bundle files are rewritten.
-
-## Publish a runtime without an app release
-
-1. Adapt `AgentHost` to the intended upstream Pi SDK. Keep its three Pi dependencies
-   aligned, update `bun.lock`, and run type checking and adapter tests. This does
-   not require changing the app marketing version.
-2. Bump `AgentHost/package.json` → `piWorkRuntime.version`. Set honest app/macOS
-   compatibility bounds. Bump the runtime API contract for incompatible changes;
-   existing apps will reject that API until they implement it. Preserve on-disk
-   session/settings compatibility with rollback versions.
-3. Push a matching tag, for example `runtime-v1.0.1`. The dedicated workflow tests
-   both native architectures, builds/packages the hosts, verifies signatures, and
-   runs a real process smoke test on each package before publishing.
-4. Immutable assets live on `runtime-vVERSION` releases. The stable channel is
-   `agent-runtime-stable/runtime-index.json`; publishing merges compatibility
-   history. Runtime releases use `--latest=false`, so app update checks continue
-   to use the latest ordinary app release.
-
-### Photon resource compatibility
-
-Like Pi's upstream `copy-binary-assets`, both packagers copy `photon_rs_bg.wasm`
-from the locked `@silvia-odwyer/photon-node` dependency beside the compiled host.
-It is a required, hashed runtime resource, not an executable. Keep Pi's default
-`images.autoResize` behavior and model-specific `inputLimits.images.resize`;
-do not work around missing resources by disabling SDK image processing.
-
-The composer passes PNG/JPEG/GIF/WebP bytes through unchanged. TIFF/HEIC clipboard
-sources are converted to PNG at their original resolution for compatibility, not
-resized or encoded as lossy JPEG by the app. Raw inputs retain local safety bounds
-of five attachments, 50 MiB per image/combined, and 50 million pixels per source;
-these are not model payload limits. Pi alone applies the selected model's image
-encoding and resize profile before storing the images in conversation history.
-
-Legacy channel manifests without WASM remain parseable, but this app does not
-select or launch them. An installed legacy runtime falls back through the normal
-rollback path to the fixed bundled host. Apps through 0.1.18 reject this new
-payload filename. Fixed runtime **1.1.1** therefore sets `minimumAppVersion` to
-**0.1.20**, the first published app release containing the updated resource whitelist.
-Ship that app update first; do not replace runtime 1.1.0 or
-advertise the new payload as compatible with older apps.
-
-Both release workflows test small and large user attachments and `read` image
-results against a local synthetic model, including a model-specific resize
-profile. They hide build-time `node_modules` before running the actual packaged
-host, so missing WASM cannot be masked by the build machine's original path.
-These checks do not use real credentials or send images to an external provider.
-
-The channel must be published once before online runtime checks can succeed. No
-upstream latest-version endpoint or terminal installation is used as a substitute.
-
-Both release workflows support a manual `workflow_dispatch` build without
-publishing. App releases run the adapter checks, installer/recovery checks, and
-the complete Xcode application test suite on both architectures before packaging.
-Only matching version tags enable the publication jobs.
-
-Local verification (requires macOS Command Line Tools and the existing pinned Bun):
-
-```sh
-python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py
-bash scripts/test-agent-runtime.sh
-python3 scripts/package-agent-runtime.py --architecture arm64 --output build/AgentRuntime
-bash scripts/test-agent-runtime.sh build/AgentRuntime/runtime-arm64.json
-```
-
-After the channel is published, add `PI_WORK_TEST_LIVE_CHANNEL=1` to the last
-command to download through the production HTTPS channel, install into an
-isolated store, activate the real service, read settings/models/sessions, and
-stage and apply rollback. This does not send model prompts or use production
-session storage.
-
-Use `--architecture x86_64` on Intel. The runtime checks use production Swift
-sources and do not require an XCTest host app. The normal Xcode application/test
-build remains the check for app-bundle integration and UI behavior.
+Legacy runtime archive/store utilities and their fixtures remain for compatibility
+checks and development tests; they are not connected to production startup or the
+settings UI. Existing user conversations and configuration are not removed.

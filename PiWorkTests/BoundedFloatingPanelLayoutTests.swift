@@ -54,6 +54,19 @@ final class BoundedFloatingPanelLayoutTests: XCTestCase {
         )
     }
 
+    func testProjectMenuStaysBelowUpperRightButtonInsideWindow() {
+        let layout = BoundedFloatingPanelLayout(idealWidth: 320, idealMaximumHeight: 180,
+            inset: 12, anchorGap: 8, pointerTrailingInset: 16)
+        for width: CGFloat in [200, 360, 900, 1400] {
+            let anchor = CGRect(x: width - 48, y: 10, width: 32, height: 30)
+            let placement = layout.placement(in: CGSize(width: width, height: 600), anchoredTo: anchor)
+            XCTAssertEqual(placement.origin.y, anchor.maxY + 8)
+            XCTAssertGreaterThanOrEqual(placement.origin.x, 0)
+            XCTAssertLessThanOrEqual(placement.origin.x + placement.size.width, width)
+            XCTAssertLessThanOrEqual(placement.origin.y + placement.size.height, 600)
+        }
+    }
+
     func testPanelKeepsIdealSizeWhenContentBoundsAreLargeEnough() {
         let layout = BoundedFloatingPanelLayout(
             idealWidth: 420,

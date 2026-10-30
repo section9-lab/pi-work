@@ -156,19 +156,41 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn(".toolbar", review)
         self.assertNotIn("ToolbarItem", review)
         self.assertNotIn("HSplitView", review)
-        self.assertIn("project-session-header", review)
-        self.assertIn(".popover(isPresented: $showsProjectMenu", review)
+        self.assertNotIn("project-session-header", review)
+        self.assertNotIn("sessionTitle", review)
+        self.assertIn("ProjectSessionMenuOverlay(project: project", content)
+        self.assertNotIn(".popover(", review)
+        self.assertIn("showsPointer: false", review)
+        self.assertIn(".padding(.top, 10)", review)
         self.assertIn(".background(WindowTitlebarControlRegion())", review)
 
     def test_app_stages_photon_wasm_and_checks_packaged_images(self):
         project = PROJECT_PATH.read_text()
         self.assertIn("node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm", project)
         self.assertIn('cp "$HOST_PHOTON_SOURCE" "$HOST_DESTINATION_DIR/photon_rs_bg.wasm"', project)
-        for workflow in [self.workflow_text(),
-                         (REPOSITORY_ROOT / ".github/workflows/release-agent-runtime.yml").read_text()]:
-            self.assertIn("scripts/test-runtime-images.ts", workflow)
-            self.assertIn('mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"', workflow)
-            self.assertIn("trap '", workflow)
+        workflow = self.workflow_text()
+        self.assertIn("scripts/test-runtime-images.ts", workflow)
+        self.assertIn('mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"', workflow)
+        self.assertIn("trap '", workflow)
+
+    def test_agent_is_only_released_and_updated_with_the_app(self):
+        self.assertFalse(
+            (REPOSITORY_ROOT / ".github/workflows/release-agent-runtime.yml").exists()
+        )
+        app = (REPOSITORY_ROOT / "PiWork/App/PiWorkApp.swift").read_text()
+        self.assertIn("let service = try AgentHostService.bundled()", app)
+        self.assertNotIn("AgentRuntimeStore.applicationDefault()", app)
+        service = (REPOSITORY_ROOT / "PiWork/Core/Agent/AgentHostService.swift").read_text()
+        bundled_factory = service.split("static func bundled()", 1)[1].split("private let executableURL", 1)[0]
+        self.assertNotIn("runtimeStore", bundled_factory)
+        controller = (REPOSITORY_ROOT / "PiWork/Core/Update/AgentRuntimeUpdateController.swift").read_text()
+        self.assertNotIn("AgentRuntimeInstaller", controller)
+        for action in ["checkForUpdates", "installUpdate", "cancelPending", "rollback"]:
+            self.assertNotIn("func " + action, controller)
+        settings = (REPOSITORY_ROOT / "PiWork/Features/Auth/Views/ModelProviderSettingsView.swift").read_text()
+        version_row = settings.split("private struct PiCodingAgentVersionSettingsRow", 1)[1].split("private struct AppUpdateSettingsRow", 1)[0]
+        self.assertIn("currentPiVersion", version_row)
+        self.assertNotIn("Button(", version_row)
 
     def test_compiled_agent_host_does_not_autoload_project_bunfig(self):
         project = PROJECT_PATH.read_text()

@@ -97,17 +97,23 @@ struct InWindowFloatingPanel<Panel: View>: View {
     @Binding private var isPresented: Bool
     private let layout: BoundedFloatingPanelLayout
     private let anchorFrame: CGRect?
+    private let showsPointer: Bool
+    private let fillsHeight: Bool
     private let panel: () -> Panel
 
     init(
         isPresented: Binding<Bool>,
         layout: BoundedFloatingPanelLayout,
         anchorFrame: CGRect?,
+        showsPointer: Bool = true,
+        fillsHeight: Bool = true,
         @ViewBuilder panel: @escaping () -> Panel
     ) {
         _isPresented = isPresented
         self.layout = layout
         self.anchorFrame = anchorFrame
+        self.showsPointer = showsPointer
+        self.fillsHeight = fillsHeight
         self.panel = panel
     }
 
@@ -128,7 +134,7 @@ struct InWindowFloatingPanel<Panel: View>: View {
                     panel()
                         .frame(
                             width: placement.size.width,
-                            height: placement.size.height,
+                            height: fillsHeight ? placement.size.height : nil,
                             alignment: .top
                         )
                         .containerShape(
@@ -143,7 +149,7 @@ struct InWindowFloatingPanel<Panel: View>: View {
                         .shadow(color: AppPalette.raisedShadow, radius: 18, y: 8)
                         .offset(x: placement.origin.x, y: placement.origin.y)
 
-                    if let pointerX = placement.pointerX {
+                    if showsPointer, let pointerX = placement.pointerX {
                         FloatingPanelPointer()
                             .fill(AppPalette.raisedSurface)
                             .overlay(

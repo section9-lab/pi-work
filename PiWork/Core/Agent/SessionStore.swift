@@ -1457,7 +1457,17 @@ enum SessionCachePolicy {
 
 @MainActor
 final class SessionStore: ObservableObject {
-    @Published private(set) var records: [String: SessionRecord] = [:]
+    // Transcript updates have their own publisher: streaming one session must not
+    // invalidate workspace chrome and every other conversation.
+    private(set) var records: [String: SessionRecord] = [:]
+    private let recordsSubject = CurrentValueSubject<[String: SessionRecord], Never>([:])
+    private let recordUpdatesSubject = PassthroughSubject<Set<String>, Never>()
+    var recordsPublisher: AnyPublisher<[String: SessionRecord], Never> {
+        recordsSubject.eraseToAnyPublisher()
+    }
+    var recordUpdates: AnyPublisher<Set<String>, Never> {
+        recordUpdatesSubject.eraseToAnyPublisher()
+    }
     @Published private(set) var chatSessions: [AgentHostSessionSummary] = []
     @Published private(set) var workSessionsByProjectPath: [String: [AgentHostSessionSummary]] = [:]
     @Published private(set) var availableModels: [AgentHostModel] = []
@@ -1473,6 +1483,8 @@ final class SessionStore: ObservableObject {
     private var reducer = SessionStoreReducer()
     private var eventTask: Task<Void, Never>?
     private var lifecycleTask: Task<Void, Never>?
+    private var streamingPublishTask: Task<Void, Never>?
+    private let streamingPublishDelayNanoseconds: UInt64
     private var didBeginObserving = false
     private var didStart = false
     private var isStopped = false
@@ -1487,12 +1499,14 @@ final class SessionStore: ObservableObject {
         service: any AgentHostServicing,
         now: @escaping () -> Date = Date.init,
         maximumCachedSessionCount: Int = 6,
-        performanceTracer: SessionOpenPerformanceTracer? = nil
+        performanceTracer: SessionOpenPerformanceTracer? = nil,
+        streamingPublishDelayNanoseconds: UInt64 = 80_000_000
     ) {
         self.service = service
         self.now = now
         self.maximumCachedSessionCount = maximumCachedSessionCount
         self.performanceTracer = performanceTracer ?? SessionOpenPerformanceTracer()
+        self.streamingPublishDelayNanoseconds = streamingPublishDelayNanoseconds
     }
 
     func beginSessionOpenPerformanceTrace(
@@ -2220,6 +2234,8 @@ final class SessionStore: ObservableObject {
     func stop() async {
         guard !isStopped else { return }
         isStopped = true
+        // Preserve the last received text, and leave no delayed UI work alive.
+        publishReducerState()
         eventTask?.cancel()
         lifecycleTask?.cancel()
         eventTask = nil
@@ -2274,7 +2290,12 @@ final class SessionStore: ObservableObject {
                 ).availableModels
             )
         }
-        publishReducerState()
+        if event.coalescesTranscriptPresentation {
+            scheduleStreamingPublish()
+        } else {
+            // Completion, errors, approvals and configuration changes are never delayed.
+            publishReducerState()
+        }
         await process(effects)
     }
 
@@ -2425,8 +2446,35 @@ final class SessionStore: ObservableObject {
         workSessionsByProjectPath[cwd] = sessions
     }
 
-    private func publishReducerState() {
-        records = reducer.records
+    private func scheduleStreamingPublish() {
+        guard streamingPublishTask == nil, !isStopped else { return }
+        // A fixed window, not a debounce: continuous output still appears regularly.
+        streamingPublishTask = Task { [weak self, streamingPublishDelayNanoseconds] in
+            do {
+                try await Task.sleep(nanoseconds: streamingPublishDelayNanoseconds)
+            } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.publishReducerState(notifyWorkspace: false)
+        }
+    }
+
+    private func publishReducerState(notifyWorkspace: Bool = true) {
+        streamingPublishTask?.cancel()
+        streamingPublishTask = nil
+        let next = reducer.records
+        let changedIDs = Set(records.keys).union(next.keys).filter { id in
+            // Compare the sequence first, avoiding transcript equality on every delta.
+            records[id]?.lastSequence != next[id]?.lastSequence || records[id] != next[id]
+        }
+        guard !changedIDs.isEmpty else { return }
+        let workspaceChanged = notifyWorkspace || changedIDs.contains { id in
+            records[id]?.runState != next[id]?.runState
+                || records[id]?.descriptor != next[id]?.descriptor
+        }
+        if workspaceChanged { objectWillChange.send() }
+        records = next
+        recordsSubject.send(next)
+        recordUpdatesSubject.send(Set(changedIDs))
     }
 
     private func touchSession(_ sessionId: String) {
@@ -2539,6 +2587,19 @@ final class SessionStore: ObservableObject {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+}
+
+private extension AgentHostServerEvent {
+    var coalescesTranscriptPresentation: Bool {
+        switch self {
+        case .sessionMessageDelta, .sessionToolUpdated, .sessionUsageChanged:
+            return true
+        case .sessionAssistantContent(let payload):
+            return payload.phase == .delta
+        default:
+            return false
+        }
     }
 }
 

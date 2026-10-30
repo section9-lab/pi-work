@@ -24,6 +24,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     @Published private(set) var canCancel = false
     @Published private(set) var canRetryRelaunch = false
     @Published private(set) var failureDescription = ""
+    @Published private(set) var isFailureSilent = false
     @Published private(set) var hasActiveTasks = false
     let currentVersion: String
 
@@ -91,6 +92,10 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
         guard updater == nil else { return }
         let updater = SPUUpdater(hostBundle: bundle, applicationBundle: bundle, userDriver: self, delegate: self)
         do {
+            // Checking is automatic; downloading always requires an explicit click,
+            // including when an older installation saved different Sparkle preferences.
+            updater.automaticallyDownloadsUpdates = false
+            updater.updateCheckInterval = 4 * 60 * 60
             try updater.start()
             self.updater = updater
             updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
@@ -306,6 +311,7 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     }
 
     private func fail(_ error: Error) {
+        isFailureSilent = !manualCheck && !authorizedInstallation && !isInstalling
         authorizedInstallation = false
         cancellation = nil
         canCancel = false

@@ -71,7 +71,7 @@
 "update.agent.checking" = "pi-coding-agent の更新を確認中…";
 "update.agent.version_unavailable" = "同梱の pi-coding-agent のバージョンを取得できません。";
 "runtime.current" = "Pi %@ · ランタイム %@";
-"runtime.description" = "PiWork を更新せずに、互換性のある Agent 更新をインストールできます。";
+"runtime.description" = "PiWork に同梱され、アプリと一緒にのみ更新されます。";
 "runtime.available" = "Pi %@（ランタイム %@）をインストールできます。";
 "runtime.pending" = "Pi %@ をインストールしました。次回の PiWork 起動時に有効になります。";
 "runtime.downloading" = "ランタイムをダウンロード中…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "未確認";
 
 "update.install" = "アップデート";
+"update.install_version" = "v%@ に更新";
 
 "update.downloading" = "アップデートをダウンロード中…";
 
@@ -806,6 +807,9 @@
 /* Project changes */
 "changes.title" = "コードの変更";
 "changes.project_menu" = "プロジェクトメニュー";
+"changes.menu_changes" = "変更";
+"changes.copy_path" = "プロジェクトのパスをコピー";
+"changes.reveal_project" = "Finderでプロジェクトを表示";
 "changes.resize" = "変更パネルの幅を調整";
 "changes.refresh" = "変更を更新";
 "changes.done" = "完了";

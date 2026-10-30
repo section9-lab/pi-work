@@ -71,7 +71,7 @@
 "update.agent.checking" = "正在檢查 pi-coding-agent 更新…";
 "update.agent.version_unavailable" = "無法讀取內建 pi-coding-agent 版本。";
 "runtime.current" = "Pi %@ · 執行環境 %@";
-"runtime.description" = "可獨立安裝相容的 Agent 更新，無需更新 PiWork。";
+"runtime.description" = "隨 PiWork 一起發佈和更新，不單獨升級。";
 "runtime.available" = "Pi %@（執行環境 %@）可供安裝。";
 "runtime.pending" = "Pi %@ 已安裝，下次啟動 PiWork 時生效。";
 "runtime.downloading" = "正在下載執行環境…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "未檢查";
 
 "update.install" = "升級";
+"update.install_version" = "升級至 v%@";
 
 "update.downloading" = "正在下載更新…";
 
@@ -806,6 +807,9 @@
 /* 專案程式碼變更 */
 "changes.title" = "程式碼變更";
 "changes.project_menu" = "專案選單";
+"changes.menu_changes" = "變更";
+"changes.copy_path" = "複製專案路徑";
+"changes.reveal_project" = "在 Finder 中顯示專案";
 "changes.resize" = "調整變更面板寬度";
 "changes.refresh" = "重新整理變更";
 "changes.done" = "完成";

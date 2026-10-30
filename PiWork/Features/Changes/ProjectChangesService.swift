@@ -20,6 +20,11 @@ struct ProjectChangesSnapshot {
     let files: [ChangedFile]
 }
 
+struct ProjectChangesSummary: Equatable {
+    let additions: Int
+    let deletions: Int
+}
+
 struct DiffLine: Identifiable, Equatable {
     enum Kind { case context, addition, deletion, hunk, metadata }
     let id: Int
@@ -121,6 +126,32 @@ enum ProjectChangesService {
             result = try run(arguments, at: snapshot.root)
         }
         return FileDiff.parse(result.text, truncated: result.truncated)
+    }
+
+    /// Exact totals for the menu, never estimates from the file count. If the
+    /// bounded diff or untracked-file budget is exceeded, the UI uses file count.
+    static func summary(in snapshot: ProjectChangesSnapshot) -> ProjectChangesSummary? {
+        guard !snapshot.files.isEmpty else { return .init(additions: 0, deletions: 0) }
+        let untracked = snapshot.files.filter(\.isUntracked)
+        guard untracked.count <= 16 else { return nil }
+        let started = Date()
+        do {
+            let baseline = snapshot.hasHEAD ? "HEAD" : try run(["hash-object", "-t", "tree", "--stdin"], at: snapshot.root)
+                .text.trimmingCharacters(in: .newlines)
+            let output = try run(["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", baseline, "--"], at: snapshot.root)
+            guard !output.truncated else { return nil }
+            let tracked = FileDiff.parse(output.text)
+            var additions = tracked.additions
+            var deletions = tracked.deletions
+            for file in untracked {
+                guard Date().timeIntervalSince(started) < 1 else { return nil }
+                let result = try diff(for: file, in: snapshot)
+                guard !result.truncated else { return nil }
+                additions += result.additions
+                deletions += result.deletions
+            }
+            return .init(additions: additions, deletions: deletions)
+        } catch { return nil }
     }
 
     private struct Output { let text: String; let truncated: Bool }

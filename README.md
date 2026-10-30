@@ -81,10 +81,9 @@ No. The app bundles its agent host and runtime. A separate command-line installa
 
 ### Can the agent update independently of the app?
 
-Yes. In Settings → General, check for a compatible pi-coding-agent runtime and
-install it without replacing PiWork. It activates on the next launch. Packages
-are verified and tested before activation, with automatic fallback if startup
-fails. See [runtime updates](docs/agent-runtime-updates.md) for the release process.
+No. Pi Coding Agent is developed, bundled, and released together with PiWork.
+Settings → General displays its version only. Update PiWork to update the agent;
+there is no separate agent download or upgrade.
 
 ### Does PiWork update itself?
 

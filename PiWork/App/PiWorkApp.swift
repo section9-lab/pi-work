@@ -189,8 +189,9 @@ final class AppAgentRuntime: ObservableObject {
     }
 
     var updateTaskActivity: AnyPublisher<Bool, Never> {
-        let sessions = sessionStore?.$records
+        let sessions = sessionStore?.recordsPublisher
             .map { $0.values.contains { $0.runState.preventsAppUpdate } }
+            .removeDuplicates()
             .eraseToAnyPublisher() ?? Just(false).eraseToAnyPublisher()
         let schedules = scheduleRunner?.$runningTaskIDs.map { !$0.isEmpty }
             .eraseToAnyPublisher() ?? Just(false).eraseToAnyPublisher()
@@ -203,9 +204,9 @@ final class AppAgentRuntime: ObservableObject {
         let scheduleStore = ScheduleStore()
         self.scheduleStore = scheduleStore
         do {
-            let runtimeStore = AgentRuntimeStore.applicationDefault()
-            let service = try AgentHostService.bundled(runtimeStore: runtimeStore)
-            runtimeUpdateController = AgentRuntimeUpdateController(store: runtimeStore, service: service)
+            // The agent is released with PiWork; never select a separately installed runtime.
+            let service = try AgentHostService.bundled()
+            runtimeUpdateController = AgentRuntimeUpdateController(service: service)
             let sessionStore = SessionStore(service: service)
             self.service = service
             self.sessionStore = sessionStore

@@ -71,7 +71,7 @@
 "update.agent.checking" = "正在检查 pi-coding-agent 更新…";
 "update.agent.version_unavailable" = "无法读取内置 pi-coding-agent 版本。";
 "runtime.current" = "Pi %@ · 运行时 %@";
-"runtime.description" = "可独立安装兼容的 Agent 更新，无需更新 PiWork。";
+"runtime.description" = "随 PiWork 一起发布和更新，不单独升级。";
 "runtime.available" = "Pi %@（运行时 %@）可供安装。";
 "runtime.pending" = "Pi %@ 已安装，下次启动 PiWork 时生效。";
 "runtime.downloading" = "正在下载运行时…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "未检测";
 
 "update.install" = "升级";
+"update.install_version" = "升级到 v%@";
 
 "update.downloading" = "正在下载更新…";
 
@@ -806,6 +807,9 @@
 /* 项目代码变更 */
 "changes.title" = "代码变更";
 "changes.project_menu" = "项目菜单";
+"changes.menu_changes" = "变更";
+"changes.copy_path" = "复制项目路径";
+"changes.reveal_project" = "在访达中显示项目";
 "changes.resize" = "调整变更面板宽度";
 "changes.refresh" = "刷新变更";
 "changes.done" = "完成";

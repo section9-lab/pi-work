@@ -291,7 +291,7 @@ private struct GeneralSettingsView: View {
                     set: { updateController.setAutomaticChecks($0) }
                 ))
                 .disabled(updateController.isInstalling)
-                PiCodingAgentUpdateSettingsRow(controller: runtimeUpdateController)
+                PiCodingAgentVersionSettingsRow(controller: runtimeUpdateController)
             }
             .id(languageStore.language)
         }
@@ -299,7 +299,7 @@ private struct GeneralSettingsView: View {
     }
 }
 
-private struct PiCodingAgentUpdateSettingsRow: View {
+private struct PiCodingAgentVersionSettingsRow: View {
     @ObservedObject var controller: AgentRuntimeUpdateController
 
     var body: some View {
@@ -307,69 +307,15 @@ private struct PiCodingAgentUpdateSettingsRow: View {
             title: "pi-coding-agent",
             description: statusDescription
         ) {
-            if controller.isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel(statusDescription)
-            } else {
-                HStack {
-                    if controller.pendingPiVersion != nil {
-                        Button(L10n.string("runtime.cancel_pending")) {
-                            Task { await controller.cancelPending() }
-                        }
-                    } else if controller.availableUpdate != nil {
-                        Button(L10n.string("runtime.install")) {
-                            Task { await controller.installUpdate() }
-                        }
-                    }
-                    Button(L10n.string("update.check")) {
-                        Task { await controller.checkForUpdates() }
-                    }
-                }
-                .accessibilityElement(children: .contain)
-            }
-        }
-        if controller.canRollback && controller.pendingPiVersion == nil {
-            AgentSettingsRow(
-                title: L10n.string("runtime.rollback.title"),
-                description: L10n.string("runtime.rollback.description")
-            ) {
-                Button(L10n.string("runtime.rollback.action")) {
-                    Task { await controller.rollback() }
-                }
-                .disabled(controller.isBusy)
-            }
+            EmptyView()
         }
     }
 
     private var statusDescription: String {
-        guard !controller.currentPiVersion.isEmpty else {
-            return L10n.string("update.agent.version_unavailable")
-        }
-        let installed = L10n.format("runtime.current", controller.currentPiVersion, controller.currentRuntimeVersion)
-        let detail: String
-        if let phase = controller.phase {
-            switch phase {
-            case .downloading: detail = L10n.string("runtime.downloading")
-            case .verifying: detail = L10n.string("runtime.verifying")
-            case .testing: detail = L10n.string("runtime.testing")
-            }
-        } else if controller.isChecking {
-            detail = L10n.string("update.agent.checking")
-        } else if let error = controller.errorMessage {
-            detail = error
-        } else if let pending = controller.pendingPiVersion {
-            detail = L10n.format("runtime.pending", pending)
-        } else if let update = controller.availableUpdate {
-            detail = L10n.format("runtime.available", update.piVersion, update.version)
-        } else if let reason = controller.rollbackMessage {
-            detail = L10n.format("runtime.recovered", reason)
-        } else if controller.didCheck {
-            detail = L10n.string("runtime.up_to_date")
-        } else {
-            detail = L10n.string("runtime.description")
-        }
-        return installed + "\n" + detail
+        let version = controller.currentPiVersion.isEmpty
+            ? L10n.string("update.agent.version_unavailable")
+            : L10n.format("runtime.current", controller.currentPiVersion, controller.currentRuntimeVersion)
+        return version + "\n" + L10n.string("runtime.description")
     }
 }
 

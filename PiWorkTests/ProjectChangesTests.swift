@@ -4,7 +4,7 @@ import XCTest
 @testable import PiWork
 
 final class ProjectChangesTests: XCTestCase {
-    func testReviewIsInsideSessionHeaderNotGlobalToolbarOrSidebar() throws {
+    func testReviewUsesUpperRightOverlayWithoutTitleRowOrSystemPopover() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         func source(_ path: String) throws -> String {
             try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
@@ -14,10 +14,15 @@ final class ProjectChangesTests: XCTestCase {
         let chat = try source("PiWork/Features/Chat/Views/ChatView.swift")
         let panel = try source("PiWork/Features/Changes/ProjectChangesView.swift")
         XCTAssertTrue(content.contains("ProjectChangesWorkspace(project: changesProject"))
-        XCTAssertTrue(panel.contains("project-session-header"))
+        XCTAssertFalse(panel.contains("project-session-header"))
+        XCTAssertFalse(panel.contains("sessionTitle"))
+        XCTAssertTrue(content.contains("ProjectSessionMenuOverlay(project: project"))
+        XCTAssertTrue(panel.contains(".padding(.top, 10)"))
         XCTAssertTrue(panel.contains("project-session-menu-toggle"))
         XCTAssertTrue(panel.contains("project-changes-toggle"))
-        XCTAssertTrue(panel.contains(".popover(isPresented: $showsProjectMenu"))
+        XCTAssertFalse(panel.contains(".popover("))
+        XCTAssertTrue(panel.contains("showsPointer: false"))
+        XCTAssertTrue(panel.contains("InWindowFloatingPanel("))
         XCTAssertFalse(panel.contains(".toolbar"))
         XCTAssertFalse(panel.contains("ToolbarItem"))
         XCTAssertFalse(panel.contains("HSplitView"))
@@ -71,6 +76,14 @@ final class ProjectChangesTests: XCTestCase {
             let minimum = window.contentMinSize
             let appearances = state.contentAppearances
             XCTAssertGreaterThan(sidebar.width, 0)
+            func findControl(in view: NSView) -> NSView? {
+                if String(describing: type(of: view)).contains("WindowTitlebarControlView") { return view }
+                return view.subviews.lazy.compactMap { findControl(in: $0) }.first
+            }
+            let control = try XCTUnwrap(findControl(in: host))
+            let controlFrame = control.convert(control.bounds, to: host)
+            XCTAssertLessThanOrEqual(controlFrame.maxY, 52, "Menu must be in the top window chrome, not a title row")
+            XCTAssertGreaterThan(controlFrame.midX, host.bounds.width - 60)
             state.isPresented = true
             try await Task.sleep(nanoseconds: 300_000_000)
             host.layoutSubtreeIfNeeded()
@@ -163,6 +176,7 @@ final class ProjectChangesTests: XCTestCase {
         try git("mv", "old.txt", "new.txt")
         let snapshot = try ProjectChangesService.snapshot(at: root.path)
         XCTAssertEqual(snapshot.files.count, 5)
+        XCTAssertEqual(ProjectChangesService.summary(in: snapshot), .init(additions: 3, deletions: 2))
         let changed = try XCTUnwrap(snapshot.files.first { $0.path == "a file.txt" })
         XCTAssertEqual(changed.status, "MM")
         let diff = try ProjectChangesService.diff(for: changed, in: snapshot)
@@ -202,6 +216,7 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertFalse(snapshot.hasHEAD)
         let file = try XCTUnwrap(snapshot.files.first)
         XCTAssertEqual(try ProjectChangesService.diff(for: file, in: snapshot).additions, 1)
+        XCTAssertEqual(ProjectChangesService.summary(in: snapshot), .init(additions: 1, deletions: 0))
     }
 }
 
@@ -237,6 +252,10 @@ private struct ProjectReviewLayoutHarnessView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear { state.contentAppearances += 1 }
             }
+        }
+        .overlayPreferenceValue(ProjectReviewControlInsetKey.self) { inset in
+            ProjectSessionMenuOverlay(project: project, reviewTrailingInset: inset,
+                isReviewPresented: $state.isPresented)
         }
         .coordinateSpace(name: "review-layout-test")
         .onPreferenceChange(ProjectReviewSidebarFrameKey.self) {

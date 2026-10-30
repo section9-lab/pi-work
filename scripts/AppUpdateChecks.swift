@@ -14,6 +14,16 @@ enum AppUpdateChecks {
                                                  userInfo: [NSLocalizedDescriptionKey: message]) }
             count += 1
         }
+        let background = AppUpdateController()
+        let networkError = NSError(domain: "Checks", code: 0,
+                                   userInfo: [NSLocalizedDescriptionKey: "Offline"])
+        background.showUpdaterError(networkError) {}
+        try expect(background.isFailureSilent, "Background check failure interrupted the sidebar")
+        background.offerUpdate(version: "1.0.1") { _ in }
+        try expect(background.state == .available(version: "1.0.1"), "Discovery did not recover from a background error")
+        background.installAvailableUpdate()
+        background.showUpdaterError(networkError) {}
+        try expect(!background.isFailureSilent, "Explicit installation failure was hidden")
         let controller = AppUpdateController()
         var choices: [SPUUserUpdateChoice] = []
         controller.offerUpdate(version: "1.0.1") { choices.append($0) }
@@ -141,7 +151,7 @@ enum AppUpdateChecks {
                         .environment(\.colorScheme, scheme))
                         let size = host.sizeThatFits(in: CGSize(width: width, height: 400))
                         try expect(size.width <= width, "Account update row overflows in \(language.rawValue)/\(phase) at \(width)")
-                        try expect(size.height <= 90, "Account update row is too tall")
+                        try expect(size.height <= 130, "Account and separate update row are too tall")
                         if language == .simplifiedChinese && width == 260 {
                             host.view.frame = NSRect(x: 0, y: 0, width: width, height: size.height)
                             host.view.layoutSubtreeIfNeeded()

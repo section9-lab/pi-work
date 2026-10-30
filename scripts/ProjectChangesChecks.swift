@@ -51,6 +51,7 @@ struct ProjectChangesChecks {
         try git("commit", "-m", "initial")
         snapshot = try ProjectChangesService.snapshot(at: root.path)
         precondition(snapshot.files.isEmpty)
+        precondition(ProjectChangesService.summary(in: snapshot) == .init(additions: 0, deletions: 0))
         try put("a file.txt", "one\nstaged\n")
         try git("add", "a file.txt")
         try put("a file.txt", "one\nstaged\nworking\n")
@@ -60,6 +61,7 @@ struct ProjectChangesChecks {
         try git("mv", "old.txt", "new.txt")
         snapshot = try ProjectChangesService.snapshot(at: root.path)
         precondition(snapshot.files.count == 5)
+        precondition(ProjectChangesService.summary(in: snapshot) == .init(additions: 3, deletions: 2))
         for file in snapshot.files {
             diff = try ProjectChangesService.diff(for: file, in: snapshot)
             switch file.path {

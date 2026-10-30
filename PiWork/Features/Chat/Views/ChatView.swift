@@ -30,6 +30,8 @@ struct ChatView: View {
     @State private var isTranscriptAutoFollowPaused = false
     @State private var isAdjustingTranscriptScroll = false
     @State private var transcriptScrollRequest = 0
+    @State private var transcriptScrollTask: Task<Void, Never>?
+    @State private var recordUpdateGeneration = 0
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
     @State private var presentedSessionID: String?
     @State private var readySessionPresentationID: String?
@@ -61,6 +63,8 @@ struct ChatView: View {
     }
 
     var body: some View {
+        // Only updates for this conversation invalidate its transcript.
+        let _ = recordUpdateGeneration
         let messagePresentation = messagePresentation
         let allMessages = messagePresentation.messages
         VStack(spacing: 0) {
@@ -180,7 +184,19 @@ struct ChatView: View {
                     .accessibilityHidden(true)
             }
         }
+        .onReceive(sessionStore.recordUpdates) { changedIDs in
+            if activeSessionId.map(changedIDs.contains) == true
+                || presentedSessionID.map(changedIDs.contains) == true {
+                recordUpdateGeneration &+= 1
+            }
+        }
+        .onDisappear {
+            transcriptScrollTask?.cancel()
+            transcriptScrollTask = nil
+        }
         .task(id: activeSessionId) {
+            transcriptScrollTask?.cancel()
+            transcriptScrollTask = nil
             await loadSlashCommands()
         }
         .task(id: gitBranchLoadID) {
@@ -271,16 +287,17 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(messages) { message in
-                            ChatMessageRow(
-                                message: message,
-                                loadedToolOutputs: loadedToolOutputs,
-                                loadingToolOutputIDs: loadingToolOutputIDs,
-                                onLoadToolOutput: loadToolOutput
-                            ) { approval, decision in
-                                resolve(approval: approval, decision: decision)
+                        // Keep the live tail eagerly measured for stable bottom
+                        // anchoring. Only explicitly expanded history is virtualized.
+                        if messages.count > TranscriptWindow.batchSize {
+                            LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing) {
+                                ForEach(messages.dropLast(TranscriptWindow.batchSize)) { message in
+                                    transcriptRow(message)
+                                }
                             }
-                            .id(message.id)
+                        }
+                        ForEach(messages.suffix(TranscriptWindow.batchSize)) { message in
+                            transcriptRow(message)
                         }
 
                         Color.clear
@@ -348,6 +365,7 @@ struct ChatView: View {
                     value: isFollowingTranscriptTail
                 )
                 .onPreferenceChange(TranscriptBottomPreferenceKey.self) { bottomY in
+                    let shouldFollow = isFollowingTranscriptTail && !isTranscriptAutoFollowPaused
                     let updated = TranscriptScrollPresentation.updatedAutoFollowState(
                         current: TranscriptAutoFollowState(
                             isFollowingTail: isFollowingTranscriptTail,
@@ -360,10 +378,13 @@ struct ChatView: View {
                     )
                     isFollowingTranscriptTail = updated.isFollowingTail
                     isTranscriptAutoFollowPaused = updated.isPaused
+                    if shouldFollow, !isAdjustingTranscriptScroll {
+                        scheduleTranscriptScroll(using: proxy)
+                    }
                 }
                 .onChange(of: transcriptScrollToken(for: messages)) { _ in
                     guard isFollowingTranscriptTail, !isTranscriptAutoFollowPaused else { return }
-                    scrollToTranscriptTail(using: proxy)
+                    scheduleTranscriptScroll(using: proxy)
                 }
                 .onChange(of: transcriptScrollRequest) { _ in
                     scrollToTranscriptTail(using: proxy)
@@ -377,7 +398,36 @@ struct ChatView: View {
         }
     }
 
+    private func transcriptRow(_ message: PiChatMessage) -> some View {
+        ChatMessageRow(
+            message: message,
+            loadedToolOutputs: loadedToolOutputs,
+            loadingToolOutputIDs: loadingToolOutputIDs,
+            onLoadToolOutput: loadToolOutput
+        ) { approval, decision in
+            resolve(approval: approval, decision: decision)
+        }
+        .equatable()
+        .id(message.id)
+    }
+
+    private func scheduleTranscriptScroll(using proxy: ScrollViewProxy) {
+        guard transcriptScrollTask == nil else { return }
+        let sessionID = activeSessionId
+        transcriptScrollTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            } catch { return }
+            transcriptScrollTask = nil
+            guard !Task.isCancelled, activeSessionId == sessionID,
+                  !isTranscriptAutoFollowPaused else { return }
+            scrollToTranscriptTail(using: proxy)
+        }
+    }
+
     private func scrollToTranscriptTail(using proxy: ScrollViewProxy) {
+        transcriptScrollTask?.cancel()
+        transcriptScrollTask = nil
         isTranscriptAutoFollowPaused = false
         isFollowingTranscriptTail = true
         isAdjustingTranscriptScroll = true
@@ -992,7 +1042,8 @@ struct ChatView: View {
     }
 
     private func transcriptScrollToken(for messages: [PiChatMessage]) -> String {
-        "\(messages.last?.id ?? ""):\(activeRecord?.lastSequence ?? 0)"
+        // Content height changes drive streaming follow; metadata/usage events do not.
+        messages.last?.id ?? ""
     }
 
     private var isExecuting: Bool {
@@ -1040,6 +1091,7 @@ struct ChatView: View {
 private enum TranscriptLayout {
     static let coordinateSpace = "transcript-scroll"
     static let tailID = "transcript-tail"
+    static let rowSpacing: CGFloat = 12
     static let historyLoadThreshold: CGFloat = 160
     static let followThreshold: CGFloat = 72
 }
@@ -1834,10 +1886,6 @@ private struct SessionComposer: View {
                 if mode == .work, let selectedAccessMode {
                     accessModeMenu(selectedAccessMode)
                 }
-                if let computerUseStore {
-                    ComputerUseShortcut(store: computerUseStore)
-                }
-
                 Spacer(minLength: 0)
                 if contextUsage != nil || cost != nil {
                     ContextUsageIndicator(usage: contextUsage, cost: cost)
@@ -3169,37 +3217,13 @@ private let assistantMarkdownTheme = Theme.gitHub
             .markdownMargin(top: 14, bottom: 14)
     }
 
-/// Parsing Markdown happens in `MarkdownContent.init`, so an uncached
-/// `Markdown(text)` re-parses on every body pass — including composer
-/// keystrokes and streaming updates, which rebuild the whole transcript.
-/// Caching by text keeps repeated renders of unchanged messages cheap.
-private enum AssistantMarkdownCache {
-    private static let cache: NSCache<NSString, CachedContent> = {
-        let cache = NSCache<NSString, CachedContent>()
-        cache.countLimit = 400
-        return cache
-    }()
-
-    private final class CachedContent {
-        let content: MarkdownContent
-
-        init(_ content: MarkdownContent) {
-            self.content = content
-        }
+private struct ChatMessageRow: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.message == rhs.message
+            && lhs.loadedToolOutputs == rhs.loadedToolOutputs
+            && lhs.loadingToolOutputIDs == rhs.loadingToolOutputIDs
     }
 
-    static func content(for text: String) -> MarkdownContent {
-        let key = text as NSString
-        if let cached = cache.object(forKey: key) {
-            return cached.content
-        }
-        let parsed = MarkdownContent(text)
-        cache.setObject(CachedContent(parsed), forKey: key)
-        return parsed
-    }
-}
-
-private struct ChatMessageRow: View {
     let message: PiChatMessage
     let loadedToolOutputs: [String: String]
     let loadingToolOutputIDs: Set<String>
@@ -3449,7 +3473,7 @@ private struct ChatMessageRow: View {
         switch block {
         case .text(let id, let text):
             VStack(alignment: .leading, spacing: 4) {
-                Markdown(AssistantMarkdownCache.content(for: text))
+                AssistantMarkdownView(text: text, isStreaming: message.isStreaming)
                     .markdownTheme(assistantMarkdownTheme)
                     .textSelection(.enabled)
                 if id == assistantMetadataAnchorID {
@@ -3780,14 +3804,6 @@ private struct AssistantToolStepRow: View {
                             .truncationMode(.middle)
                     }
 
-                    Spacer(minLength: 8)
-
-                    if showsExceptionalStatus {
-                        Text(statusText)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(statusColor)
-                    }
-
                     if hasDetails {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
@@ -3797,6 +3813,14 @@ private struct AssistantToolStepRow: View {
                                 accessibilityReduceMotion ? nil : .easeOut(duration: 0.14),
                                 value: showsDetails
                             )
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if showsExceptionalStatus {
+                        Text(statusText)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(statusColor)
                     }
                 }
                 .padding(.horizontal, 7)
@@ -3819,7 +3843,12 @@ private struct AssistantToolStepRow: View {
 
             if showsDetails {
                 VStack(alignment: .leading, spacing: 10) {
-                    if tool.rawInput != nil || !tool.summary.isEmpty {
+                    if let edit = editPresentation {
+                        ForEach(edit.changes.indices, id: \.self) { index in
+                            let change = edit.changes[index]
+                            ToolDiffBlock(path: change.path, oldText: change.oldText, newText: change.newText)
+                        }
+                    } else if tool.rawInput != nil || !tool.summary.isEmpty {
                         ToolDetailBlock(
                             title: L10n.string("chat.tool.input"),
                             text: presentation.formattedInput
@@ -3903,6 +3932,10 @@ private struct AssistantToolStepRow: View {
         if tool.state == .awaitingApproval { return .orange }
         if tool.isError == true { return .red }
         return Color.primary.opacity(0.34)
+    }
+
+    private var editPresentation: ToolEditPresentation? {
+        ToolEditPresentation(name: tool.name, rawInput: tool.rawInput, summary: tool.summary)
     }
 
     private var presentation: ToolCallPresentation {
@@ -4487,6 +4520,10 @@ private struct ToolCallPresentation {
     }
 
     var summary: String {
+        if let edit = ToolEditPresentation(name: tool.name, rawInput: tool.rawInput, summary: tool.summary),
+           let path = edit.changes.first?.path {
+            return path
+        }
         guard let data = tool.summary.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let dictionary = object as? [String: Any] else {

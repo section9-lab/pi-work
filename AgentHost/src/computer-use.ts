@@ -36,7 +36,8 @@ type Upstream = {
 };
 export interface ComputerUseRuntime {
   prepare(): Promise<void>;
-  start(): Promise<void>;
+  /** Ensure the service is alive; true means it was launched or its identity changed. */
+  start(): Promise<boolean | void>;
   command(name: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>;
   stop(): Promise<void>;
 }
@@ -264,7 +265,49 @@ export class ComputerUseCoordinator {
       return await this.enqueue(async () => {
         call.signal.throwIfAborted();
         this.assertReady();
-        return operation(call.signal);
+        // The ready snapshot is only cached UI state. An external-socket helper
+        // cannot restart itself, so its owner must check it before every call.
+        try {
+          const restarted = await this.runtime.start();
+          call.signal.throwIfAborted();
+          if (restarted) {
+            await this.clearRuntime();
+            const result = await this.runtime.command("checkPermissions");
+            call.signal.throwIfAborted();
+            this.permissions = {
+              accessibility: result.accessibility === true,
+              screenRecording: result.screenRecordingCapturable === true,
+              screenRecordingPreflight: result.screenRecordingPreflight === true,
+              attribution: record(result.source).attribution === "helper-app" ? "helper-app" : "unknown",
+            };
+            this.status = this.permissions.accessibility && this.permissions.screenRecording
+              && this.permissions.attribution === "helper-app" ? "ready" : "setupRequired";
+            this.publish();
+          }
+        } catch (error) {
+          if (call.signal.aborted) throw error;
+          await this.clearRuntime();
+          this.status = "error";
+          this.error = `Computer control service could not be reached: ${errorMessage(error)}`;
+          this.publish();
+          throw new Error(this.error);
+        }
+        call.signal.throwIfAborted();
+        this.assertReady();
+        try {
+          // Never retry this operation: an action may have reached the desktop
+          // even when its response was lost.
+          return await operation(call.signal);
+        } catch (error) {
+          if (!call.signal.aborted && isHelperConnectionError(error)) {
+            await this.clearRuntime();
+            this.status = "error";
+            this.error = `Computer control connection was lost. The operation was not retried; its result may be unknown. ${errorMessage(error)}`;
+            this.publish();
+            throw new Error(this.error);
+          }
+          throw error;
+        }
       });
     } finally {
       signal?.removeEventListener("abort", abort);
@@ -365,6 +408,8 @@ export class ComputerUseCoordinator {
 }
 
 class NativeComputerUseRuntime implements ComputerUseRuntime {
+  private lastPid?: number;
+
   constructor(private readonly helperPath: string, private readonly socketDirectory: string,
     private readonly upstream: () => Promise<Upstream>) {}
 
@@ -390,7 +435,7 @@ class NativeComputerUseRuntime implements ComputerUseRuntime {
     await rm(this.helperPath, { recursive: true, force: true });
     await rename(staged, this.helperPath);
   }
-  async start(): Promise<void> {
+  async start(): Promise<boolean> {
     await mkdir(this.socketDirectory, { recursive: true, mode: 0o700 });
     await chmod(this.socketDirectory, 0o700);
     const { helper } = await this.upstream();
@@ -402,16 +447,19 @@ class NativeComputerUseRuntime implements ComputerUseRuntime {
       try {
         const diagnostics = await helper.daemonCommand<Record<string, unknown>>("diagnostics", {}, 15_000);
         if (diagnostics.protocolVersion !== 6) throw new Error("Computer control service protocol does not match the pinned 0.5.1 package.");
+        if (typeof diagnostics.pid !== "number" || diagnostics.pid <= 0) throw new Error("Computer control service returned an invalid process identity.");
+        this.lastPid = diagnostics.pid;
         return true;
       } catch (error) {
         if (/ENOENT|ECONNREFUSED/.test(errorMessage(error))) return false;
         throw error;
       }
     };
-    if (await isRunning()) return;
+    const previousPid = this.lastPid;
+    if (await isRunning()) return previousPid !== undefined && previousPid !== this.lastPid;
     await runProcess("/usr/bin/open", ["-n", "-g", this.helperPath, "--args", "serve", "--socket", join(this.socketDirectory, "bridge.sock")]);
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      if (await isRunning()) return;
+      if (await isRunning()) return true;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error("The computer control service did not start.");
@@ -439,6 +487,10 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function isHelperConnectionError(error: unknown): boolean {
+  return (error instanceof Error && error.name === "HelperTransportError")
+    || /ENOENT|ECONNREFUSED|ECONNRESET|EPIPE|helper app daemon (?:did not start|is unavailable)/.test(errorMessage(error));
+}
 
 function collectTools(extension: Upstream["extension"]): ToolDefinition[] {
   const tools: ToolDefinition[] = [];

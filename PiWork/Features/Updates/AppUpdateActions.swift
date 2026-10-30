@@ -5,11 +5,12 @@ struct AppUpdateAccountRow<Account: View>: View {
     @ViewBuilder var account: () -> Account
 
     var body: some View {
-        HStack(spacing: 4) {
-            account().frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 4) {
             if let controller {
-                AppUpdateSidebarAccessory(controller: controller).fixedSize()
+                AppUpdateSidebarAccessory(controller: controller)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            account().frame(maxWidth: .infinity)
         }
     }
 }
@@ -21,7 +22,7 @@ struct AppUpdateSidebarAccessory: View {
     var body: some View {
         Group {
             switch controller.state {
-            case .idle, .upToDate:
+            case .idle, .upToDate, .checking:
                 EmptyView()
             case .available:
                 AppUpdateInstallButton(controller: controller, titleKey: "update.install")
@@ -29,7 +30,7 @@ struct AppUpdateSidebarAccessory: View {
                 AppUpdateInstallButton(controller: controller, titleKey: "update.restart")
             case .installing where controller.canRetryRelaunch:
                 AppUpdateInstallButton(controller: controller, titleKey: "update.restart")
-            case .checking, .downloading, .extracting, .installing:
+            case .downloading, .extracting, .installing:
                 HStack(spacing: 6) {
                     AppUpdateProgress(controller: controller)
                     Text(progressLabel).font(.system(size: 12))
@@ -39,6 +40,8 @@ struct AppUpdateSidebarAccessory: View {
                 .help(controller.statusDescription)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(controller.statusDescription)
+            case .failed where controller.isFailureSilent:
+                EmptyView()
             case .failed:
                 Button { controller.checkForUpdatesAndPresent() } label: {
                     Text(L10n.string("common.retry"))
@@ -68,6 +71,13 @@ private struct AppUpdateInstallButton: View {
     @ObservedObject var controller: AppUpdateController
     let titleKey: String
 
+    private var title: String {
+        if case let .available(version) = controller.state {
+            return L10n.format("update.install_version", version)
+        }
+        return L10n.string(titleKey)
+    }
+
     var body: some View {
         Button {
             switch controller.state {
@@ -77,7 +87,9 @@ private struct AppUpdateInstallButton: View {
             default: break
             }
         } label: {
-            Text(L10n.string(titleKey))
+            Label(title, systemImage: "arrow.up.circle")
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .foregroundStyle(controller.hasActiveTasks ? Color.secondary : Color.accentColor)

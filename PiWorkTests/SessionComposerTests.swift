@@ -1601,7 +1601,8 @@ final class SessionComposerTests: XCTestCase {
         )
         let transcriptSource = source[transcriptStart.lowerBound..<transcriptEnd.lowerBound]
         XCTAssertTrue(transcriptSource.contains("VStack(alignment: .leading, spacing: 12)"))
-        XCTAssertFalse(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: 12)"))
+        XCTAssertTrue(transcriptSource.contains("messages.suffix(TranscriptWindow.batchSize)"))
+        XCTAssertTrue(transcriptSource.contains("if messages.count > TranscriptWindow.batchSize"))
     }
 
     func testChatViewSlicesTranscriptBeforeMappingChatMessages() throws {

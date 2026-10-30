@@ -12,9 +12,17 @@ class Runtime implements ComputerUseRuntime {
   prepared = 0;
   granted = true;
   attribution = "helper-app";
+  running = false;
+  startError?: string;
   async prepare() { this.prepared += 1; }
-  async start() { this.starts += 1; }
-  async stop() { this.stops += 1; }
+  async start() {
+    this.starts += 1;
+    if (this.startError) throw new Error(this.startError);
+    const restarted = !this.running;
+    this.running = true;
+    return restarted;
+  }
+  async stop() { this.stops += 1; this.running = false; }
   async command(): Promise<Record<string, unknown>> {
     return { accessibility: this.granted, screenRecordingCapturable: this.granted,
       screenRecordingPreflight: this.granted, source: { attribution: this.attribution } };
@@ -137,6 +145,102 @@ describe("Computer use lifecycle and access", () => {
       }
       expect(f.runtime.stops).toBe(stops + 1);
     } finally { finish.resolve(); await f.cleanup(); }
+  });
+
+  test("a missing helper is recovered before execution and invalidates old observations", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      const generation = f.coordinator.snapshot().generation;
+      f.runtime.running = false; // process exit or deleted socket
+      let executions = 0;
+      await f.coordinator.run(undefined, async () => {
+        expect(f.runtime.running).toBe(true);
+        expect(f.coordinator.snapshot().generation).toBe(generation + 1);
+        executions += 1;
+      });
+      expect(executions).toBe(1);
+      expect(f.runtime.starts).toBe(2);
+      await f.coordinator.run(undefined, async () => {});
+      expect(f.coordinator.snapshot().generation).toBe(generation + 1);
+      expect(f.coordinator.snapshot().status).toBe("ready");
+    } finally { await f.cleanup(); }
+  });
+
+  test("a recovered helper must still have live permissions before executing", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      f.runtime.running = false;
+      f.runtime.granted = false;
+      let executed = false;
+      await expect(f.coordinator.run(undefined, async () => { executed = true; })).rejects.toThrow("not ready");
+      expect(executed).toBe(false);
+      expect(f.coordinator.snapshot().status).toBe("setupRequired");
+    } finally { await f.cleanup(); }
+  });
+
+  test("startup failure exposes its cause and revokes cached readiness without executing", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      f.runtime.startError = "LaunchServices refused to launch helper";
+      let executed = false;
+      await expect(f.coordinator.run(undefined, async () => { executed = true; })).rejects.toThrow(f.runtime.startError);
+      expect(executed).toBe(false);
+      expect(f.runtime.starts).toBe(2);
+      expect(f.coordinator.snapshot()).toMatchObject({ status: "error", activeCalls: 0 });
+      expect(f.coordinator.snapshot().error).toContain(f.runtime.startError);
+      expect(f.coordinator.available("observe_ui", "full")).toBe(false);
+    } finally { await f.cleanup(); }
+  });
+
+  test("a delivered action is never replayed when the connection fails", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      let delivered = 0;
+      await expect(f.coordinator.run(undefined, async () => {
+        delivered += 1;
+        throw Object.assign(new Error("Daemon command 'act' timed out"), { name: "HelperTransportError" });
+      })).rejects.toThrow("result may be unknown");
+      expect(delivered).toBe(1);
+      expect(f.coordinator.snapshot().status).toBe("error");
+      expect(f.runtime.starts).toBe(2);
+      await expect(f.coordinator.run(undefined, async () => { delivered += 1; })).rejects.toThrow("not ready");
+      expect(delivered).toBe(1);
+      await f.coordinator.recheck();
+      expect(f.coordinator.snapshot().status).toBe("ready");
+    } finally { await f.cleanup(); }
+  });
+
+  test("disabling during the liveness check cannot resurrect ready state or execute", async () => {
+    const f = fixture();
+    const started = deferred();
+    const finish = deferred();
+    try {
+      await f.coordinator.setEnabled(true);
+      f.runtime.start = async () => { started.resolve(); await finish.promise; return true; };
+      let executed = false;
+      const operation = f.coordinator.run(undefined, async () => { executed = true; });
+      const rejected = operation.then(() => false, () => true);
+      await started.promise;
+      const disabling = f.coordinator.setEnabled(false);
+      finish.resolve();
+      expect(await rejected).toBe(true);
+      await disabling;
+      expect(executed).toBe(false);
+      expect(f.coordinator.snapshot()).toMatchObject({ enabled: false, status: "disabled", activeCalls: 0 });
+    } finally { finish.resolve(); await f.cleanup(); }
+  });
+
+  test("ordinary tool errors do not incorrectly mark the helper offline", async () => {
+    const f = fixture();
+    try {
+      await f.coordinator.setEnabled(true);
+      await expect(f.coordinator.run(undefined, async () => { throw new Error("Target not found"); })).rejects.toThrow("Target not found");
+      expect(f.coordinator.snapshot().status).toBe("ready");
+    } finally { await f.cleanup(); }
   });
 
   test("read-only rejects actions, and Chat asks without widening file access", async () => {

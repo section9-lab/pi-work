@@ -71,7 +71,7 @@
 "update.agent.checking" = "Checking pi-coding-agent updates…";
 "update.agent.version_unavailable" = "The bundled pi-coding-agent version is unavailable.";
 "runtime.current" = "Pi %@ · Runtime %@";
-"runtime.description" = "Install compatible agent updates independently of PiWork.";
+"runtime.description" = "Bundled with PiWork and updated only with the app.";
 "runtime.available" = "Pi %@ (runtime %@) is available.";
 "runtime.pending" = "Pi %@ is installed and will activate when you next launch PiWork.";
 "runtime.downloading" = "Downloading runtime…";
@@ -794,6 +794,7 @@
 "computer_use.permission_unknown" = "Not checked";
 
 "update.install" = "Install Update";
+"update.install_version" = "Update to v%@";
 
 "update.downloading" = "Downloading update…";
 
@@ -806,6 +807,9 @@
 /* Project changes */
 "changes.title" = "Code Changes";
 "changes.project_menu" = "Project menu";
+"changes.menu_changes" = "Changes";
+"changes.copy_path" = "Copy project path";
+"changes.reveal_project" = "Show project in Finder";
 "changes.resize" = "Resize changes panel";
 "changes.refresh" = "Refresh changes";
 "changes.done" = "Done";

@@ -387,7 +387,7 @@ actor AgentHostService: AgentHostServicing,
     MCPServicing {
     static let coreCapabilities: Set<String> = []
 
-    static func bundled(runtimeStore: AgentRuntimeStore? = nil) throws -> AgentHostService {
+    static func bundled() throws -> AgentHostService {
         guard
             let executableURL = AgentHostExecutable.bundledURL(),
             let bunExecutableURL = AgentHostExecutable.bundledBunURL()
@@ -415,8 +415,7 @@ actor AgentHostService: AgentHostServicing,
                     .appendingPathComponent("Contents/Resources/ComputerUse/pi-computer-use.app").path,
                 "PI_WORK_APP_PID": String(ProcessInfo.processInfo.processIdentifier)
             ],
-            handshakeTimeout: 15,
-            runtimeStore: runtimeStore
+            handshakeTimeout: 15
         )
     }
 

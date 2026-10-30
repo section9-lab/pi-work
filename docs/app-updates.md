@@ -2,7 +2,8 @@
 
 PiWork uses the pinned Sparkle 2.10.1 package for application updates on macOS 13
 and later. Sparkle replaces the former GitHub API checker and browser download
-flow. The separately updated Pi agent runtime keeps its existing installer.
+flow. Pi Coding Agent is bundled and updated only with PiWork; it has no separate
+update flow.
 
 ## User flow
 
@@ -24,7 +25,8 @@ flow. The separately updated Pi agent runtime keeps its existing installer.
   rather than persisted run history, so an old interrupted run cannot block updates.
 - Show download/extraction progress. Downloads can be cancelled before extraction;
   failed checks and downloads can be retried. Show compact progress in the sidebar.
-- Keep conversations, configuration, and agent runtimes in Application Support.
+- Keep conversations and configuration in Application Support. The agent runtime
+  stays inside the app bundle and is replaced with the app.
   Sparkle manages replacement and installation recovery; the Host handles normal
   stdin EOF when the application quits.
 

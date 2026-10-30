@@ -679,7 +679,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         XCTAssertTrue(textBlockSource.contains(".padding(.leading, 6)"))
     }
 
-    func testConversationKeepsBoundedTranscriptRowsMountedWhileScrolling() throws {
+    func testConversationKeepsLiveTailMountedAndVirtualizesExpandedHistory() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -695,7 +695,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         let transcriptSource = String(source[transcriptStart.lowerBound..<emptySessionStart.lowerBound])
 
         XCTAssertTrue(transcriptSource.contains("VStack(alignment: .leading, spacing: 12)"))
-        XCTAssertFalse(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: 12)"))
+        XCTAssertTrue(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing)"))
+        XCTAssertTrue(transcriptSource.contains("messages.dropLast(TranscriptWindow.batchSize)"))
+        XCTAssertTrue(transcriptSource.contains("messages.suffix(TranscriptWindow.batchSize)"))
+        XCTAssertTrue(source.contains(".equatable()"))
     }
 
     func testAssistantTimelineUsesOneThirdTighterVerticalRhythm() throws {

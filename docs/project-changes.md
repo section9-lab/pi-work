@@ -1,11 +1,14 @@
 # Project code changes
 
-Select a project under Work, then open the project menu in the **session header's
-top-right corner**. It shows the project, current Git branch, and **Code Changes**.
-Choosing Code Changes opens a resizable review pane to the right of the
-conversation, not as a sidebar destination or modal sheet. The control is inside
-the detail column, not the native window toolbar, so it does not reposition the
-left navigation. Opening it never increases the window's minimum width: wide
+Select a project under Work, then open the project menu in the **window's upper-right
+chrome**. There is no extra session-title row. An arrowless card opens below the
+button, bounded inside the window; it never becomes an above-window system bubble.
+The card shows the project and **Changes**, with exact addition/deletion totals
+when a bounded summary is available (otherwise the changed-file count). The
+project's ellipsis menu includes the current branch, copy path, and reveal in Finder.
+Choosing Changes opens a resizable review pane to the right of the conversation,
+not as a sidebar destination or modal sheet. These are custom overlays, not native
+window toolbar items, so they do not reposition the left navigation. Opening it never increases the window's minimum width: wide
 detail columns split the available space; narrow columns show an overlaid review
 pane without squeezing or clipping the sidebar. Its file list shows staged,
 unstaged, and untracked files; select a file to inspect its diff, line numbers,

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import XCTest
 @testable import PiWork
@@ -1057,6 +1058,111 @@ final class SessionStoreTests: XCTestCase {
         let snapshotCount = await host.snapshotCount
         XCTAssertEqual(openCount, 2)
         XCTAssertEqual(snapshotCount, 2)
+        await store.stop()
+    }
+
+    func testStreamingBurstPublishesOnlyOnceAndFlushesOnCompletion() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host, streamingPublishDelayNanoseconds: 10_000_000_000)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        await host.emit(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )))
+        try await waitUntil { store.records["session-one"]?.lastSequence == 1 }
+
+        var publications: [SessionRecord] = []
+        let subscription = store.recordsPublisher.dropFirst().sink {
+            if let record = $0["session-one"] { publications.append(record) }
+        }
+        for sequence in 2...21 {
+            await host.emit(.sessionMessageDelta(.init(
+                sessionId: "session-one", sequence: sequence, turnId: "turn-one", delta: "x"
+            )))
+        }
+        await host.emit(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 22, turnId: "turn-one", state: .idle
+        )))
+        try await waitUntil { store.records["session-one"]?.lastSequence == 22 }
+
+        XCTAssertEqual(publications.count, 1)
+        XCTAssertEqual(publications.last?.runState, .idle)
+        XCTAssertEqual(publications.last?.messages.last?.content, [.text(String(repeating: "x", count: 20))])
+        subscription.cancel()
+        await store.stop()
+    }
+
+    func testStreamingWindowUpdatesOnlyTheAffectedConversationWithoutWorkspaceInvalidation() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        await host.emit(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )))
+        try await waitUntil { store.records["session-one"]?.lastSequence == 1 }
+
+        var workspaceUpdates = 0
+        var changedSessions: [Set<String>] = []
+        let workspaceSubscription = store.objectWillChange.sink { workspaceUpdates += 1 }
+        let recordSubscription = store.recordUpdates.sink { changedSessions.append($0) }
+        await host.emit(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one", delta: "partial"
+        )))
+        try await waitUntil { store.records["session-one"]?.lastSequence == 2 }
+
+        XCTAssertEqual(workspaceUpdates, 0)
+        XCTAssertEqual(changedSessions, [["session-one"]])
+        XCTAssertEqual(store.records["session-one"]?.messages.last?.content, [.text("partial")])
+        await host.emit(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 3, turnId: "turn-one", state: .idle
+        )))
+        try await waitUntil { store.records["session-one"]?.lastSequence == 3 }
+        XCTAssertEqual(workspaceUpdates, 1)
+        workspaceSubscription.cancel()
+        recordSubscription.cancel()
+        await store.stop()
+    }
+
+    func testStreamingErrorFlushesTextImmediatelyAndCancelsDelayedPublication() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host, streamingPublishDelayNanoseconds: 10_000_000_000)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        await host.emit(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", delta: "preserved"
+        )))
+        await host.emit(.sessionError(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one", code: "test", message: "failed"
+        )))
+        try await waitUntil { store.records["session-one"]?.runState == .failed }
+        XCTAssertEqual(store.records["session-one"]?.messages.last?.content, [.text("preserved")])
+        await store.stop()
+    }
+
+    func testApprovalFlushesCoalescedThinkingAndToolOutputWithoutDelay() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host, streamingPublishDelayNanoseconds: 10_000_000_000)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        await host.emit(.sessionAssistantContent(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one",
+            generationIndex: 0, phase: .delta, contentType: .thinking, contentIndex: 0,
+            delta: "thinking", content: nil, toolCall: nil
+        )))
+        await host.emit(.sessionToolUpdated(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one",
+            toolCallId: "tool-one", toolName: "write", output: "partial output"
+        )))
+        await host.emit(.sessionApprovalRequested(.init(
+            sessionId: "session-one", sequence: 3, turnId: "turn-one",
+            requestId: "approval-one", toolCallId: "tool-one", toolName: "write", summary: "Write file"
+        )))
+        try await waitUntil { store.records["session-one"]?.pendingApprovals.count == 1 }
+        XCTAssertEqual(store.records["session-one"]?.lastSequence, 3)
+        XCTAssertEqual(store.records["session-one"]?.tools.last?.output, "partial output")
+        XCTAssertEqual(store.records["session-one"]?.tools.last?.state, .awaitingApproval)
+        let thinkingTexts = store.records["session-one"]?.transcript.flatMap(\.parts).compactMap { part -> String? in
+            guard case .thinking(let thinking) = part else { return nil }
+            return thinking.text
+        }
+        XCTAssertEqual(thinkingTexts, ["thinking"])
         await store.stop()
     }
 
