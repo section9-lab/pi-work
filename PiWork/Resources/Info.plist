@@ -53,7 +53,9 @@
 	<string>Copyright © section9-lab</string>
 	<key>OpenAuthIssuerURL</key>
 	<string>https://auth.vibevibe.cc</string>
+	<key>MixpanelProjectID</key>
+	<string>4078925</string>
 	<key>MixpanelProjectToken</key>
-	<string>faed71b6d9a819c812dd44244e836143</string>
+	<string>87b4e3d8fe56ac234f3f4f2859a764ff</string>
 </dict>
 </plist>

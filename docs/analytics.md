@@ -1,20 +1,57 @@
-# Anonymous app analytics
+# Independent app analytics
 
-pi-work shares the owner's Mixpanel project **minicode** (4078569, US region) with the other apps. The public ingestion token is stored in the application's Info.plist; no API secret is bundled. The official Swift SDK is pinned to revision `3ad0fb82216978c124b04accac6c9f9eaf848187`.
+pi-work belongs to the **minicode** organization and sends new data exclusively to its own Mixpanel project, **pi-work (4078925)**, in the US region. The public ingestion token and project ID are configured in Info.plist. No API secret is bundled. The previous shared project **minicode (4078569)** is retained as historical data; switching the token does not automatically move old events.
 
-- Every event includes `app_id = pi-work`, app/build versions, platform, OS version and `environment` (`production` or `development`).
-- `App Launched` records normal launches. `Daily Active` records the first meaningful use of each reporting day, deduplicated across restarts.
-- Reporting days follow the project's **US/Pacific** timezone (`America/Los_Angeles`), including daylight saving time. Update the code if the project timezone changes.
-- Anonymous installation IDs are randomly generated and local to each app. Development and production have separate IDs, SDK queues and daily bookkeeping. Metrics describe installations, not people deduplicated across devices.
-- Settings include a **Share anonymous usage** switch. Disabling analytics prevents SDK initialization on subsequent launches and opts out the running SDK.
-- Analytics never include screenshots, clipboard contents, memories, conversation content, files, commands, agent session IDs, account identifiers or hardware UUIDs. IP-based geolocation, automatic lifecycle tracking, People profiles, feature flags and session replay are disabled.
+The official Mixpanel Swift SDK remains pinned to `3ad0fb82216978c124b04accac6c9f9eaf848187`. No extra client dependency is needed for regional context.
 
-Meaningful use includes bringing pi-work to the foreground or interacting with its windows. Background agent/scheduled work does not manufacture user activity. Preview and automated test runs do not initialize analytics.
+## Usage and retention
 
-## Shared dashboard
+- `App Launched` records a normal launch. `Daily Active` records the first foreground app interaction of each reporting day.
+- The reporting day follows **US/Pacific** (`America/Los_Angeles`), including DST. The Mac's local timezone does not change daily deduplication.
+- Each app uses its own persistent random installation identifier. Development and production have separate identifiers and SDK queues. Project migrations have separate daily bookkeeping and queues so today's use can reach the new project without resetting the installation ID.
+- Counts describe installations, not people deduplicated across computers. Multiple meaningful uses and restarts on the same reporting day count once.
+- Retention uses `Daily Active` as the initial and returning event. First-use cohorts measure new-installation retention; repeated-start cohorts measure activity retention. A cohort needs elapsed days and returning activity before D1/D7/D30 can have results. Missing future periods are not zero retention.
+- Background work, previews and tests do not manufacture active users. Automated checks use temporary preferences and send no events.
 
-In Mixpanel Insights select **Daily Active**, measure **Unique Users**, choose a daily interval, filter **environment = production**, and break down by **app_id**. All apps share the monthly allowance. Weekly/monthly activity should count unique IDs over the week/month, rather than summing daily counts.
+## Regional hints
+
+Every client event contains these coarse device-setting properties:
+
+| Property | Meaning |
+| --- | --- |
+| `device_region_country` | Two-letter ISO country from the system region setting; otherwise `unknown` |
+| `device_language` | Preferred language code, with the system locale language as fallback |
+| `device_timezone` | Current IANA/system timezone identifier |
+| `region_source` | `system_region_setting`, or `unknown` when no country setting exists |
+
+Label the country report **Device country/region setting**. These are settings, not verified residence or current physical location. English and shared timezones cannot uniquely determine a country. The app never guesses a country from those signals, and worldwide/numeric regions remain unknown. IP-based geolocation remains disabled; no precise coordinates or location permission is used. Older events cannot acquire these fields retroactively. Regional hints are refreshed on each newly recorded active day.
+
+The settings disclosure includes language, system region and timezone. The existing anonymous-usage switch controls all client events. Opting out prevents initialization on future launches and opts out the running SDK. No conversations, screenshots, clipboard data, files, commands, account identifiers, hardware UUIDs or session replay are sent.
+
+## Download analysis
+
+The central collector in [vibe-hud](https://github.com/section9-lab/vibe-hud/blob/main/scripts/sync-download-analytics.py) reads public GitHub release-asset counters for all three apps, and sends each aggregate to that app's own project. Its configuration is [analytics-projects.json](https://github.com/section9-lab/vibe-hud/blob/main/docs/analytics-projects.json).
+
+`GitHub Download Snapshot` is an **aggregate**, with `data_kind = aggregate_downloads` and a separate aggregate identity. It never emits `Daily Active`. Only uploaded DMG assets in published stable releases count; source archives, checksums, agent-runtime archives, drafts and prereleases are excluded. Downloads include updates, repeated downloads and automated downloads, so they are not unique users or completed installations. GitHub's public counters do not provide downloader countries.
+
+- `download_total`: total downloads of currently published matching assets at the sample time. Deleted assets are no longer in this total.
+- `downloads_since_previous_snapshot`: positive per-asset increases since the previous acknowledged sample. It is **absent** on the first baseline, rather than pretending lifetime downloads happened today.
+- `is_baseline`, `snapshot_date`, `previous_snapshot_time` and `counter_reset_detected` distinguish sampling gaps and counter changes.
+
+The workflow samples daily. Increases describe the interval between samples, not exact midnight-to-midnight downloads; GitHub scheduled runs can be delayed. Cache loss or project changes establish a fresh baseline. A failed upload does not advance that app's baseline. Pending payloads and insert IDs are persisted before upload, so retries after an ambiguous acknowledgement reuse the original event instead of duplicating its delta. Aggregate events also disable IP enrichment to avoid attributing CI-server geography to users.
+
+## Dashboard plan
+
+Each app's project can use up to five saved report definitions on the current free plan:
+
+1. Daily active installations: unique `Daily Active`, daily interval, last 30 days.
+2. Active-installation summary: unique `Daily Active` over the selected window; switch between 7 and 30 days instead of summing daily users.
+3. Retention: first `Daily Active` to returning `Daily Active`, with daily cohorts.
+4. Device country/region setting: unique `Daily Active`, broken down by `device_region_country`.
+5. Downloads: snapshots of `download_total` plus summed `downloads_since_previous_snapshot`, clearly labeled as asset downloads.
+
+Usage/retention/regional reports filter `environment = production`. Each independent project accepts its own app token; project isolation separates the apps. Download reports select the aggregate event explicitly, so its collector identity cannot inflate active-user or retention counts.
 
 ## Checks
 
-Run `bash scripts/test-analytics.sh` for repeated-use, restart, timezone/DST, opt-out and identifier isolation scenarios. These tests use temporary preferences and send no events.
+Run `bash scripts/test-analytics.sh`. Scenarios cover day/restart deduplication, timezone/DST, opt-out, random-ID isolation, project migration, ambiguous regions, and language/timezone disagreement. Collector checks run with `python3 -m unittest tests/test_download_analytics.py -v` in vibe-hud.

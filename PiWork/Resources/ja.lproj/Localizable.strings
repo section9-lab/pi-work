@@ -790,7 +790,7 @@
 
 /* Anonymous product analytics */
 "analytics.title" = "匿名の使用状況を共有";
-"analytics.description" = "日ごとの利用状況とバージョンのみを集計します。会話、ファイル、コマンド、アカウント情報は送信しません。";
+"analytics.description" = "日ごとの利用状況、バージョン、言語、システムの地域とタイムゾーンを集計します。会話、ファイル、コマンド、アカウント情報は送信しません。";
 "computer_use.permission_unknown" = "未確認";
 
 "update.install" = "アップデート";

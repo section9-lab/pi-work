@@ -790,7 +790,7 @@
 
 /* Anonymous product analytics */
 "analytics.title" = "Compartir uso anónimo";
-"analytics.description" = "Registra la actividad diaria y las versiones. No envía conversaciones, archivos, comandos ni datos de la cuenta.";
+"analytics.description" = "Registra la actividad diaria, versiones, idioma, región y zona horaria del sistema. No envía conversaciones, archivos, comandos ni datos de la cuenta.";
 "computer_use.permission_unknown" = "Sin comprobar";
 
 "update.install" = "Actualizar";

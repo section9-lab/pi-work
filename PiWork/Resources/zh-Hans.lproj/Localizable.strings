@@ -790,7 +790,7 @@
 
 /* Anonymous product analytics */
 "analytics.title" = "匿名使用统计";
-"analytics.description" = "仅统计日活与版本，不上传对话、文件、命令或账号信息。";
+"analytics.description" = "统计日活、版本、语言及系统地区和时区，不上传对话、文件、命令或账号信息。";
 "computer_use.permission_unknown" = "未检测";
 
 "update.install" = "升级";

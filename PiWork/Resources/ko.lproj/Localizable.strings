@@ -790,7 +790,7 @@
 
 /* Anonymous product analytics */
 "analytics.title" = "익명 사용 통계 공유";
-"analytics.description" = "일일 활동과 앱 버전만 집계합니다. 대화, 파일, 명령 또는 계정 정보는 전송하지 않습니다.";
+"analytics.description" = "일일 활동, 앱 버전, 언어, 시스템 지역 및 시간대를 집계합니다. 대화, 파일, 명령 또는 계정 정보는 전송하지 않습니다.";
 "computer_use.permission_unknown" = "확인 안 됨";
 
 "update.install" = "업데이트";
