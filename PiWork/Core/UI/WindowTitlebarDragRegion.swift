@@ -43,7 +43,11 @@ private final class WindowTitlebarDragView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let window, WindowTitlebarControlView.contains(convert(point, to: nil), in: window) {
+        // AppKit supplies hitTest points in the superview's coordinates, not
+        // this view's bounds. A nonzero titlebar origin otherwise shifts the
+        // exclusion rectangle and lets dragging steal real button clicks.
+        if let window, let superview,
+           WindowTitlebarControlView.contains(superview.convert(point, to: nil), in: window) {
             return nil
         }
         return super.hitTest(point)

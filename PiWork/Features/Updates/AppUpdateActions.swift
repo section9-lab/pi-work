@@ -5,12 +5,11 @@ struct AppUpdateAccountRow<Account: View>: View {
     @ViewBuilder var account: () -> Account
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 4) {
+            account().frame(maxWidth: .infinity)
             if let controller {
                 AppUpdateSidebarAccessory(controller: controller)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            account().frame(maxWidth: .infinity)
         }
     }
 }
@@ -25,18 +24,14 @@ struct AppUpdateSidebarAccessory: View {
             case .idle, .upToDate, .checking:
                 EmptyView()
             case .available:
-                AppUpdateInstallButton(controller: controller, titleKey: "update.install")
+                AppUpdateInstallButton(controller: controller, titleKey: "update.install", iconOnly: true)
             case .readyToInstall:
-                AppUpdateInstallButton(controller: controller, titleKey: "update.restart")
+                AppUpdateInstallButton(controller: controller, titleKey: "update.restart", iconOnly: true)
             case .installing where controller.canRetryRelaunch:
-                AppUpdateInstallButton(controller: controller, titleKey: "update.restart")
+                AppUpdateInstallButton(controller: controller, titleKey: "update.restart", iconOnly: true)
             case .downloading, .extracting, .installing:
-                HStack(spacing: 6) {
-                    AppUpdateProgress(controller: controller)
-                    Text(progressLabel).font(.system(size: 12))
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
+                AppUpdateProgress(controller: controller)
+                .frame(width: 32, height: 32)
                 .help(controller.statusDescription)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(controller.statusDescription)
@@ -44,10 +39,12 @@ struct AppUpdateSidebarAccessory: View {
                 EmptyView()
             case .failed:
                 Button { controller.checkForUpdatesAndPresent() } label: {
-                    Text(L10n.string("common.retry"))
-                        .padding(.horizontal, 10).padding(.vertical, 6)
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
                     .help(controller.failureDescription)
+                    .accessibilityLabel(L10n.string("common.retry"))
             }
         }
         .font(.system(size: 12, weight: .semibold))
@@ -55,21 +52,12 @@ struct AppUpdateSidebarAccessory: View {
         .accessibilityIdentifier("sidebar-app-update")
     }
 
-    private var progressLabel: String {
-        switch controller.state {
-        case let .downloading(progress):
-            if let progress { return "\(Int(progress * 100))%" }
-            return L10n.string("update.sidebar.downloading")
-        case .extracting: return L10n.string("update.sidebar.preparing")
-        case .installing: return L10n.string("update.sidebar.restarting")
-        default: return L10n.string("update.sidebar.checking")
-        }
-    }
 }
 
 private struct AppUpdateInstallButton: View {
     @ObservedObject var controller: AppUpdateController
     let titleKey: String
+    var iconOnly = false
 
     private var title: String {
         if case let .available(version) = controller.state {
@@ -87,16 +75,26 @@ private struct AppUpdateInstallButton: View {
             default: break
             }
         } label: {
-            Label(title, systemImage: "arrow.up.circle")
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .foregroundStyle(controller.hasActiveTasks ? Color.secondary : Color.accentColor)
+            Group {
+                if iconOnly {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                } else {
+                    Label(title, systemImage: "arrow.up.circle")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                }
+            }
+            .foregroundStyle(controller.hasActiveTasks ? Color.secondary : Color.accentColor)
         }
         // Keep the control hoverable and focusable while blocked. The controller
         // guards pointer, keyboard, Settings, and Sparkle entry points alike.
-        .help(controller.installationHelp)
+        .help(controller.hasActiveTasks ? controller.installationHelp : title)
+        .accessibilityLabel(title)
         .accessibilityHint(controller.installationHelp)
         .accessibilityIdentifier("install-app-update")
     }
@@ -109,7 +107,15 @@ private struct AppUpdateProgress: View {
         Group {
             switch controller.state {
             case let .downloading(progress?), let .extracting(progress?):
-                ProgressView(value: progress).progressViewStyle(.circular)
+                ZStack {
+                    Circle().stroke(Color.primary.opacity(0.12), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: min(1, max(0, progress)))
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 18, height: 18)
+                .accessibilityValue("\(Int(progress * 100))%")
             default:
                 ProgressView()
             }

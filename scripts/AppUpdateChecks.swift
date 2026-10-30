@@ -151,7 +151,7 @@ enum AppUpdateChecks {
                         .environment(\.colorScheme, scheme))
                         let size = host.sizeThatFits(in: CGSize(width: width, height: 400))
                         try expect(size.width <= width, "Account update row overflows in \(language.rawValue)/\(phase) at \(width)")
-                        try expect(size.height <= 130, "Account and separate update row are too tall")
+                        try expect(size.height <= 80, "Update accessory must stay within the account row, not add another row")
                         if language == .simplifiedChinese && width == 260 {
                             host.view.frame = NSRect(x: 0, y: 0, width: width, height: size.height)
                             host.view.layoutSubtreeIfNeeded()

@@ -87,9 +87,10 @@ struct ProjectSessionMenuOverlay: View {
         ZStack(alignment: .topTrailing) {
             Color.clear.allowsHitTesting(false)
             Button { showsProjectMenu.toggle() } label: {
-                ProjectSessionMenuIcon().frame(width: 32, height: 30)
+                ProjectSessionMenuIcon().frame(width: 36, height: 32)
                     .background(RoundedRectangle(cornerRadius: 8)
                         .fill(Color.primary.opacity(showsProjectMenu || isReviewPresented ? 0.08 : 0)))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(showsProjectMenu ? "" : L10n.string("changes.project_menu"))

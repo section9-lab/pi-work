@@ -114,9 +114,18 @@ final class ProjectChangesTests: XCTestCase {
         let drag = try XCTUnwrap(find("WindowTitlebarDragView", in: host))
         let control = try XCTUnwrap(find("WindowTitlebarControlView", in: host))
         XCTAssertGreaterThan(control.bounds.width, 0)
-        let controlCenter = control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: drag)
-        XCTAssertNil(drag.hitTest(controlCenter), "Project menu must receive clicks instead of moving the window")
-        XCTAssertNotNil(drag.hitTest(NSPoint(x: 8, y: 8)), "Empty titlebar must remain draggable")
+        let parent = try XCTUnwrap(drag.superview)
+        for origin in [NSPoint.zero, NSPoint(x: 13, y: 9)] {
+            drag.setFrameOrigin(origin)
+            for x in [control.bounds.minX + 2, control.bounds.midX, control.bounds.maxX - 2] {
+                for y in [control.bounds.minY + 2, control.bounds.midY, control.bounds.maxY - 2] {
+                    let point = control.convert(NSPoint(x: x, y: y), to: parent)
+                    XCTAssertNil(drag.hitTest(point), "Entire project menu must be excluded, even with offset titlebar bounds")
+                }
+            }
+            let emptyPoint = drag.convert(NSPoint(x: 8, y: 8), to: parent)
+            XCTAssertNotNil(drag.hitTest(emptyPoint), "Empty titlebar must remain draggable")
+        }
     }
 
     func testStatusPreservesUnusualPathsAndRenamePairs() {
