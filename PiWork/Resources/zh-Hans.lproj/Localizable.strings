@@ -803,6 +803,22 @@
 
 "update.automatic_checks" = "自动检查更新";
 
+/* 项目代码变更 */
+"changes.title" = "代码变更";
+"changes.refresh" = "刷新变更";
+"changes.done" = "完成";
+"changes.filter" = "筛选文件…";
+"changes.baseline" = "工作区 + 暂存区 · 相对 HEAD · 只读";
+"changes.file_count" = "%ld 个变更文件";
+"changes.clean" = "工作区没有变更";
+"changes.clean_detail" = "此项目没有未提交的改动，检查范围包含未跟踪文件。";
+"changes.unavailable" = "无法加载代码变更";
+"changes.select_file" = "选择文件，查看具体改动";
+"changes.no_text" = "没有可显示的文本差异";
+"changes.no_text_detail" = "这可能是二进制文件、权限或子模块的变更。";
+"changes.truncated" = "文件差异较大，仅显示前 2 MB；行数统计仅包含已显示部分。";
+"changes.too_many_files" = "变更文件列表超过显示限制，请缩小仓库变更范围后刷新。";
+
 "update.restart_note" = "升级会重启 PiWork；有任务运行时，请等任务结束后再点击升级或重启。";
 
 "update.tasks_running" = "有任务正在运行。请等所有任务结束后，再点击升级或重启。";
@@ -818,3 +834,5 @@
 "update.sidebar.preparing" = "准备中";
 
 "update.sidebar.restarting" = "重启中";
+
+"changes.no_matches" = "没有符合筛选条件的文件。";

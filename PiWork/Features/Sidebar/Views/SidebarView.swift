@@ -70,6 +70,7 @@ struct SidebarView: View {
 
     @State private var selectedCustomDestination: SidebarCustomDestination?
     @State private var projectDisclosureState = ProjectDisclosureState()
+    @State private var changesProject: PiProject?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -148,6 +149,19 @@ struct SidebarView: View {
                                 )
 
                                 if isExpanded {
+                                    Button {
+                                        changesProject = project
+                                    } label: {
+                                        Text(L10n.string("changes.title"))
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.leading, 24)
+                                            .padding(.vertical, 6)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(L10n.string("changes.baseline"))
                                     if sessions.isEmpty {
                                         WorkSessionEmptyState()
                                     } else {
@@ -194,6 +208,9 @@ struct SidebarView: View {
                 NativeSidebarBackdropStabilizer()
                     .allowsHitTesting(false)
             }
+        }
+        .sheet(item: $changesProject) { project in
+            ProjectChangesView(project: project)
         }
         .onChange(of: selectedProject?.id) { projectID in
             if projectID != nil { selectedCustomDestination = nil }

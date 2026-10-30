@@ -803,6 +803,22 @@
 
 "update.automatic_checks" = "自動檢查更新";
 
+/* 專案程式碼變更 */
+"changes.title" = "程式碼變更";
+"changes.refresh" = "重新整理變更";
+"changes.done" = "完成";
+"changes.filter" = "篩選檔案…";
+"changes.baseline" = "工作區 + 暫存區 · 相對 HEAD · 唯讀";
+"changes.file_count" = "%ld 個變更檔案";
+"changes.clean" = "工作區沒有變更";
+"changes.clean_detail" = "此專案沒有未提交的變更，檢查範圍包含未追蹤檔案。";
+"changes.unavailable" = "無法載入程式碼變更";
+"changes.select_file" = "選擇檔案以檢視變更";
+"changes.no_text" = "沒有可顯示的文字差異";
+"changes.no_text_detail" = "這可能是二進位檔案、權限或子模組的變更。";
+"changes.truncated" = "差異較大，僅顯示前 2 MB；行數統計僅包含已顯示部分。";
+"changes.too_many_files" = "變更檔案列表超過顯示限制，請縮小儲存庫變更範圍後重新整理。";
+
 "update.restart_note" = "升級會重新啟動 PiWork；有工作執行時，請等工作結束後再按升級或重新啟動。";
 
 "update.tasks_running" = "有工作正在執行。請等所有工作結束後，再按升級或重新啟動。";
@@ -818,3 +834,5 @@
 "update.sidebar.preparing" = "準備中";
 
 "update.sidebar.restarting" = "重新啟動中";
+
+"changes.no_matches" = "沒有符合篩選條件的檔案。";

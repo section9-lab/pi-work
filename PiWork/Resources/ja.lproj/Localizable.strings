@@ -803,6 +803,22 @@
 
 "update.automatic_checks" = "アップデートを自動で確認";
 
+/* Project changes */
+"changes.title" = "コードの変更";
+"changes.refresh" = "変更を更新";
+"changes.done" = "完了";
+"changes.filter" = "ファイルを絞り込み…";
+"changes.baseline" = "作業ツリー + ステージ済み · HEAD と比較 · 読み取り専用";
+"changes.file_count" = "%ld 個の変更ファイル";
+"changes.clean" = "変更はありません";
+"changes.clean_detail" = "未追跡ファイルを含め、未コミットの変更はありません。";
+"changes.unavailable" = "変更を読み込めません";
+"changes.select_file" = "ファイルを選択して変更を確認";
+"changes.no_text" = "表示できるテキスト差分はありません";
+"changes.no_text_detail" = "バイナリ、権限、サブモジュールの変更の可能性があります。";
+"changes.truncated" = "大きな差分のため先頭 2 MB のみ表示します。行数は表示部分のみです。";
+"changes.too_many_files" = "ファイル一覧が表示上限を超えています。変更範囲を縮小して更新してください。";
+
 "update.restart_note" = "更新すると PiWork が再起動します。実行中のタスクが終了してから、アップデートまたは再起動をクリックしてください。";
 
 "update.tasks_running" = "タスクが実行中です。すべてのタスクが終了してから、アップデートまたは再起動をもう一度クリックしてください。";
@@ -818,3 +834,5 @@
 "update.sidebar.preparing" = "準備中";
 
 "update.sidebar.restarting" = "再起動中";
+
+"changes.no_matches" = "条件に一致するファイルはありません。";

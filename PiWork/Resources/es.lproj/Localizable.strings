@@ -803,6 +803,22 @@
 
 "update.automatic_checks" = "Buscar actualizaciones automáticamente";
 
+/* Project changes */
+"changes.title" = "Cambios de código";
+"changes.refresh" = "Actualizar cambios";
+"changes.done" = "Listo";
+"changes.filter" = "Filtrar archivos…";
+"changes.baseline" = "Árbol de trabajo + índice · frente a HEAD · solo lectura";
+"changes.file_count" = "%ld archivos modificados";
+"changes.clean" = "No hay cambios";
+"changes.clean_detail" = "No hay cambios sin confirmar, incluidos los archivos sin seguimiento.";
+"changes.unavailable" = "No se pueden cargar los cambios";
+"changes.select_file" = "Selecciona un archivo para revisar sus cambios";
+"changes.no_text" = "No hay diferencias de texto";
+"changes.no_text_detail" = "Puede ser un cambio binario, de permisos o de submódulo.";
+"changes.truncated" = "Diferencia grande: solo se muestran los primeros 2 MB. El recuento refleja la parte visible.";
+"changes.too_many_files" = "La lista supera el límite. Reduce los cambios del repositorio y actualiza.";
+
 "update.restart_note" = "La actualización reiniciará PiWork. Espera a que terminen las tareas antes de pulsar Actualizar o Reiniciar.";
 
 "update.tasks_running" = "Hay tareas en curso. Espera a que terminen todas y vuelve a pulsar Actualizar o Reiniciar.";
@@ -818,3 +834,5 @@
 "update.sidebar.preparing" = "Preparando…";
 
 "update.sidebar.restarting" = "Reiniciando…";
+
+"changes.no_matches" = "No hay archivos que coincidan con el filtro.";

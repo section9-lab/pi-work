@@ -69,6 +69,7 @@ jobs:
           bash scripts/fetch-sparkle-tools.sh
           python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py scripts/test_appcast.py
           bash scripts/test-app-updates.sh
+          bash scripts/test-project-changes.sh
           bash scripts/test-agent-runtime.sh
 
       - name: Generate Xcode project
