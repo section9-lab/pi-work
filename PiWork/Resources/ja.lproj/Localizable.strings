@@ -22,7 +22,6 @@
 /* 設定 */
 "about.menu" = "%@ について";
 "settings.title" = "設定";
-"settings.sidebar.section" = "PI-CODING-AGENT";
 "settings.sidebar.general" = "一般";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人設定";
@@ -81,8 +80,6 @@
 "update.alert.failed.message" = "PiWork から GitHub Release に接続できませんでした。インターネット接続を確認して、もう一度お試しください。";
 "update.agent.checking" = "pi-coding-agent の更新を確認中…";
 "update.agent.version_unavailable" = "同梱の pi-coding-agent のバージョンを取得できません。";
-"runtime.current" = "Pi %@ · ランタイム %@";
-"runtime.description" = "PiWork に同梱され、アプリと一緒にのみ更新されます。";
 "runtime.available" = "Pi %@（ランタイム %@）をインストールできます。";
 "runtime.pending" = "Pi %@ をインストールしました。次回の PiWork 起動時に有効になります。";
 "runtime.downloading" = "ランタイムをダウンロード中…";
@@ -306,9 +303,9 @@
 "chat.slash.remove" = "%@ を解除";
 "chat.search_models" = "モデルを検索";
 "chat.no_models" = "モデルが見つかりません";
-"chat.fast_mode" = "Fast モード";
+"chat.fast_mode" = "高速モード";
+"chat.fast_mode_detail" = "優先サービス枠を使い、応答を速くします（料金はやや高め）";
 "chat.fast_unsupported" = "このモデルは Fast モードに対応していません";
-"chat.fast_accessibility" = "%@ Fast モード";
 "chat.agent_settings" = "Agent 設定";
 "chat.session_plan" = "計画";
 "chat.activity.title" = "状態";
@@ -317,12 +314,9 @@
 "chat.session_cost" = "費用";
 "chat.agent_mode" = "モード";
 "chat.enabled" = "オン";
-"chat.disabled" = "オフ";
-"chat.unsupported" = "非対応";
 "chat.effort" = "思考レベル";
 "chat.faster" = "高速";
 "chat.smarter" = "高性能";
-"chat.thinking_help" = "思考レベル：%@";
 "chat.thinking_accessibility" = "思考レベル";
 "chat.thinking.running" = "思考中…";
 "chat.thinking.title" = "深い思考";
@@ -332,7 +326,6 @@
 "chat.access_help" = "アクセス：%@";
 "chat.send" = "送信";
 "chat.stop" = "停止";
-"chat.context_window" = "コンテキストウインドウ";
 "chat.suggestion.explore.title" = "コードを探索して理解する";
 "chat.suggestion.explore.prompt" = "このプロジェクトのコード構造を探索し、理解できるように説明してください";
 "chat.suggestion.build.title" = "機能、アプリ、ツールを作る";
@@ -396,7 +389,6 @@
 "context.recalculating" = "使用量を再計算中";
 "context.percent_used" = "%ld%% 使用済み";
 "context.total" = "合計 %@ トークン";
-"context.used_total" = "%@ / %@ トークンを使用";
 "context.accessibility" = "コンテキストウインドウ、%@、%@";
 
 /* スキル */
@@ -853,3 +845,51 @@
 "update.sidebar.restarting" = "再起動中";
 
 "changes.no_matches" = "条件に一致するファイルはありません。";
+
+/* 会話のエラー */
+"chat.error.upstream.title" = "モデルサービスに接続できませんでした";
+"chat.error.upstream.detail" = "リクエストが上流のエンドポイントに届かず、このターンは何も変更していません。";
+"chat.error.upstream.recovery" = "ネットワークやプロキシを確認して再試行するか、別のモデルに切り替えてください。";
+
+"chat.error.auth.title" = "モデルサービスの認証に失敗しました";
+"chat.error.auth.detail" = "認証情報が無効か期限切れのため、上流がリクエストを拒否しました。";
+"chat.error.auth.recovery" = "「設定 → モデルサービス」で再ログインするか、キーを更新してください。";
+
+"chat.error.rate_limit.title" = "リクエストが集中しています";
+"chat.error.rate_limit.detail" = "上流が一時的に新しいリクエストを受け付けていません。";
+"chat.error.rate_limit.recovery" = "しばらく待ってから再試行してください。";
+
+"chat.error.timeout.title" = "リクエストがタイムアウトしました";
+"chat.error.timeout.detail" = "上流が時間内に応答しませんでした。";
+"chat.error.timeout.recovery" = "再試行するか、より高速なモデルに切り替えてください。";
+
+"chat.error.connection.title" = "エージェントとの接続が切れました";
+"chat.error.connection.detail" = "バックグラウンドのランタイムが終了し、このターンは中断しました。";
+"chat.error.connection.recovery" = "再試行すると再接続してこのセッションを続行します。";
+
+"chat.error.busy.title" = "セッションはまだ実行中です";
+"chat.error.busy.detail" = "前の指示が終わっていないため、この操作は送信されませんでした。";
+"chat.error.busy.recovery" = "現在のステップが完了してから再試行してください。";
+
+"chat.error.internal.title" = "このステップを完了できませんでした";
+"chat.error.internal.detail" = "エージェントで想定外のエラーが発生し、このターンは停止しました。";
+"chat.error.internal.recovery" = "もう一度再試行してください。繰り返す場合は詳細を開いてお知らせください。";
+
+"chat.error.details.show" = "詳細を表示";
+"chat.error.details.hide" = "詳細を閉じる";
+
+/* コンテキスト使用量 */
+"context.title" = "コンテキスト使用量";
+"context.used_of_window" = "%@ / %@ 使用中";
+"context.segment.system" = "システムプロンプト";
+"context.segment.tools" = "ツール定義";
+"context.segment.messages" = "会話";
+"context.segment.mcp" = "コネクタと MCP";
+"context.segment.skills" = "スキル";
+"context.segment.context" = "プロジェクトコンテキスト";
+"chat.prompt_rail.title" = "プロンプト";
+"chat.prompt_rail.open" = "プロンプト一覧を表示";
+"chat.prompt_rail.position" = "%1$d / %2$d";
+"chat.prompt_rail.image_only" = "画像 ×%d";
+"chat.prompt_rail.image_count" = "%d 枚の画像";
+"chat.prompt_rail.mark" = "%1$d 件目のプロンプト：%2$@";

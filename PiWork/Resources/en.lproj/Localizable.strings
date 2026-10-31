@@ -22,7 +22,6 @@
 /* Settings */
 "about.menu" = "About %@";
 "settings.title" = "Settings";
-"settings.sidebar.section" = "PI-CODING-AGENT";
 "settings.sidebar.general" = "General";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "Personal Preferences";
@@ -81,8 +80,6 @@
 "update.alert.failed.message" = "PiWork could not reach GitHub Releases. Check your internet connection and try again.";
 "update.agent.checking" = "Checking pi-coding-agent updates…";
 "update.agent.version_unavailable" = "The bundled pi-coding-agent version is unavailable.";
-"runtime.current" = "Pi %@ · Runtime %@";
-"runtime.description" = "Bundled with PiWork and updated only with the app.";
 "runtime.available" = "Pi %@ (runtime %@) is available.";
 "runtime.pending" = "Pi %@ is installed and will activate when you next launch PiWork.";
 "runtime.downloading" = "Downloading runtime…";
@@ -307,8 +304,8 @@
 "chat.search_models" = "Search models";
 "chat.no_models" = "No models found";
 "chat.fast_mode" = "Fast mode";
+"chat.fast_mode_detail" = "Priority service tier: faster responses at a slightly higher rate";
 "chat.fast_unsupported" = "This model doesn't support Fast mode";
-"chat.fast_accessibility" = "%@ Fast mode";
 "chat.agent_settings" = "Agent settings";
 "chat.session_plan" = "Plan";
 "chat.activity.title" = "Activity";
@@ -317,12 +314,9 @@
 "chat.session_cost" = "Cost";
 "chat.agent_mode" = "Mode";
 "chat.enabled" = "On";
-"chat.disabled" = "Off";
-"chat.unsupported" = "Not supported";
 "chat.effort" = "Effort";
 "chat.faster" = "Faster";
 "chat.smarter" = "Smarter";
-"chat.thinking_help" = "Thinking effort: %@";
 "chat.thinking_accessibility" = "Thinking effort";
 "chat.thinking.running" = "Thinking…";
 "chat.thinking.title" = "Deep thinking";
@@ -332,7 +326,6 @@
 "chat.access_help" = "Access: %@";
 "chat.send" = "Send";
 "chat.stop" = "Stop";
-"chat.context_window" = "Context window";
 "chat.suggestion.explore.title" = "Explore and understand code";
 "chat.suggestion.explore.prompt" = "Explore this project's code structure and help me understand it";
 "chat.suggestion.build.title" = "Build a feature, app, or tool";
@@ -396,7 +389,6 @@
 "context.recalculating" = "Recalculating usage";
 "context.percent_used" = "%ld%% used";
 "context.total" = "%@ tokens total";
-"context.used_total" = "%@ of %@ tokens used";
 "context.accessibility" = "Context window, %@, %@";
 
 /* Skills */
@@ -853,3 +845,51 @@
 "update.sidebar.restarting" = "Restarting…";
 
 "changes.no_matches" = "No files match this filter.";
+
+/* Conversation errors */
+"chat.error.upstream.title" = "Couldn't reach the model service";
+"chat.error.upstream.detail" = "The request never reached the upstream endpoint. This turn made no changes.";
+"chat.error.upstream.recovery" = "Check your network or proxy and retry, or switch to another model.";
+
+"chat.error.auth.title" = "The model service rejected the credentials";
+"chat.error.auth.detail" = "The credentials are invalid or expired, so upstream refused the request.";
+"chat.error.auth.recovery" = "Sign in again or update the key in Settings → Model providers.";
+
+"chat.error.rate_limit.title" = "Rate limited";
+"chat.error.rate_limit.detail" = "Upstream is not accepting new requests right now.";
+"chat.error.rate_limit.recovery" = "Wait a moment and retry.";
+
+"chat.error.timeout.title" = "The request timed out";
+"chat.error.timeout.detail" = "Upstream did not respond in time.";
+"chat.error.timeout.recovery" = "Retry, or switch to a faster model.";
+
+"chat.error.connection.title" = "Lost the connection to the agent";
+"chat.error.connection.detail" = "The background runtime exited, so this turn stopped.";
+"chat.error.connection.recovery" = "Retry to reconnect and continue this session.";
+
+"chat.error.busy.title" = "This session is still running";
+"chat.error.busy.detail" = "The previous instruction has not finished, so this action was not sent.";
+"chat.error.busy.recovery" = "Try again once the current step completes.";
+
+"chat.error.internal.title" = "That step didn't finish";
+"chat.error.internal.detail" = "The agent hit an unexpected error and stopped this turn.";
+"chat.error.internal.recovery" = "Retry once; if it keeps happening, open Details and send them to us.";
+
+"chat.error.details.show" = "View details";
+"chat.error.details.hide" = "Hide details";
+
+/* Context usage */
+"context.title" = "Context usage";
+"context.used_of_window" = "Used %@ of %@";
+"context.segment.system" = "System prompt";
+"context.segment.tools" = "Tool definitions";
+"context.segment.messages" = "Conversation";
+"context.segment.mcp" = "Connectors & MCP";
+"context.segment.skills" = "Skills";
+"context.segment.context" = "Project context";
+"chat.prompt_rail.title" = "Prompts";
+"chat.prompt_rail.open" = "Show prompt index";
+"chat.prompt_rail.position" = "%1$d / %2$d";
+"chat.prompt_rail.image_only" = "Image ×%d";
+"chat.prompt_rail.image_count" = "%d images";
+"chat.prompt_rail.mark" = "Prompt %1$d: %2$@";

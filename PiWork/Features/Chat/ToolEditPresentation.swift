@@ -10,6 +10,14 @@ struct ToolEditPresentation {
 
     let changes: [Change]
 
+    var diffSummary: (additions: Int, deletions: Int) {
+        changes.reduce(into: (additions: 0, deletions: 0)) { totals, change in
+            let diff = ToolDiffPresentation(oldText: change.oldText, newText: change.newText)
+            totals.additions += diff.additions
+            totals.deletions += diff.deletions
+        }
+    }
+
     init?(name: String, rawInput: AgentHostJSONValue?, summary: String) {
         guard ["edit", "editor"].contains(name.lowercased()) else { return nil }
         let input = rawInput ?? summary.data(using: .utf8).flatMap {

@@ -67,20 +67,18 @@ private struct SettingsSidebar: View {
             Label(SettingsDestination.general.title(language: language), systemImage: "gearshape")
                 .tag(SettingsDestination.general)
 
-            Section(L10n.string("settings.sidebar.section", language: language)) {
-                ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
-                    Group {
-                        if destination == .mcp || destination == .computerUse || destination == .rtk {
-                            Label {
-                                Text(destination.title(language: language))
-                            } icon: {
-                                MCPGlyph(name: destination == .mcp ? "Plug" : destination == .rtk ? "Terminal" : "Monitor")
-                            }
-                        } else {
-                            Label(destination.title(language: language), systemImage: destination.icon)
+            ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
+                Group {
+                    if destination == .mcp || destination == .computerUse || destination == .rtk {
+                        Label {
+                            Text(destination.title(language: language))
+                        } icon: {
+                            MCPGlyph(name: destination == .mcp ? "Plug" : destination == .rtk ? "Terminal" : "Monitor")
                         }
-                    }.tag(destination)
-                }
+                    } else {
+                        Label(destination.title(language: language), systemImage: destination.icon)
+                    }
+                }.tag(destination)
             }
         }
         .listStyle(.sidebar)
@@ -303,19 +301,18 @@ private struct PiCodingAgentVersionSettingsRow: View {
     @ObservedObject var controller: AgentRuntimeUpdateController
 
     var body: some View {
-        AgentSettingsRow(
-            title: "pi-coding-agent",
-            description: statusDescription
-        ) {
-            EmptyView()
+        LabeledContent("Pi Coding Agent") {
+            Text(versionText)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .textSelection(.enabled)
         }
     }
 
-    private var statusDescription: String {
-        let version = controller.currentPiVersion.isEmpty
+    private var versionText: String {
+        controller.currentPiVersion.isEmpty
             ? L10n.string("update.agent.version_unavailable")
-            : L10n.format("runtime.current", controller.currentPiVersion, controller.currentRuntimeVersion)
-        return version + "\n" + L10n.string("runtime.description")
+            : controller.currentPiVersion
     }
 }
 
@@ -645,7 +642,7 @@ struct ModelProviderSettingsView: View {
                         )
                     }
                 }
-            } footer: {
+            } header: {
                 Text(L10n.string("providers.subtitle"))
             }
         }

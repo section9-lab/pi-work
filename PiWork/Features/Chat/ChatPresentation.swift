@@ -765,6 +765,19 @@ struct PiModelOption: Identifiable, Equatable {
 }
 
 struct ContextUsagePresentation: Equatable {
+    /// One row of the breakdown, already localized and formatted for display.
+    struct Segment: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let tokens: Int
+        /// Share of the whole context window, so the rows line up with the headline.
+        let percent: Double
+        let percentText: String
+        let tokenText: String
+
+        var fraction: Double { min(max(percent / 100, 0), 1) }
+    }
+
     let usage: AgentHostContextUsage
 
     var progress: Double {
@@ -777,25 +790,70 @@ struct ContextUsagePresentation: Equatable {
         return L10n.format("context.percent_used", Int(percentage.rounded()))
     }
 
+    /// Bare figure for the popover headline, which carries the wording in the
+    /// detail line next to it.
+    var headlinePercentText: String {
+        guard let percentage else { return "—" }
+        return String(format: "%.1f%%", locale: L10n.currentLanguage.locale, percentage)
+    }
+
     var detailText: String {
         guard let tokens = usage.tokens else {
             return L10n.format("context.total", Self.tokenCountText(usage.contextWindow))
         }
         return L10n.format(
-            "context.used_total",
+            "context.used_of_window",
             Self.tokenCountText(tokens),
             Self.tokenCountText(usage.contextWindow)
         )
     }
 
+    /// Whichever categories the host could attribute, in the order it reported.
+    /// An empty list means only the headline numbers are known.
+    var segments: [Segment] {
+        guard let raw = usage.segments, !raw.isEmpty else { return [] }
+        return raw.compactMap { segment in
+            guard let title = Self.title(forSegment: segment.id) else { return nil }
+            let percent = usage.contextWindow > 0
+                ? Double(segment.tokens) / Double(usage.contextWindow) * 100
+                : 0
+            return Segment(
+                id: segment.id,
+                title: title,
+                tokens: segment.tokens,
+                percent: percent,
+                percentText: Self.segmentPercentText(percent),
+                tokenText: Self.tokenCountText(segment.tokens)
+            )
+        }
+    }
+
     var accessibilityLabel: String {
-        L10n.format("context.accessibility", percentText, detailText)
+        let base = L10n.format("context.accessibility", percentText, detailText)
+        let breakdown = segments.map { "\($0.title) \($0.percentText)" }
+        return ([base] + breakdown).joined(separator: ", ")
     }
 
     private var percentage: Double? {
         if let percent = usage.percent { return percent }
         guard let tokens = usage.tokens, usage.contextWindow > 0 else { return nil }
         return Double(tokens) / Double(usage.contextWindow) * 100
+    }
+
+    private static func title(forSegment id: String) -> String? {
+        switch id {
+        case "system": L10n.string("context.segment.system")
+        case "tools": L10n.string("context.segment.tools")
+        case "messages": L10n.string("context.segment.messages")
+        case "mcp": L10n.string("context.segment.mcp")
+        case "skills": L10n.string("context.segment.skills")
+        case "context": L10n.string("context.segment.context")
+        default: nil
+        }
+    }
+
+    private static func segmentPercentText(_ percent: Double) -> String {
+        String(format: "%.1f%%", locale: L10n.currentLanguage.locale, percent)
     }
 
     static func tokenCountText(_ count: Int) -> String {

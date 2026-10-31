@@ -742,8 +742,35 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertEqual(presentation.percentText, L10n.format("context.percent_used", 75))
         XCTAssertEqual(
             presentation.detailText,
-            L10n.format("context.used_total", "194k", "258k")
+            L10n.format("context.used_of_window", "194k", "258k")
         )
+        XCTAssertEqual(presentation.headlinePercentText, "75.2%")
+        XCTAssertTrue(presentation.segments.isEmpty)
+    }
+
+    func testContextUsagePresentationSplitsTheWindowIntoLocalizedSegments() {
+        let presentation = ContextUsagePresentation(
+            usage: AgentHostContextUsage(
+                tokens: 250_000,
+                contextWindow: 500_000,
+                percent: 50,
+                segments: [
+                    .init(id: "system", tokens: 20_000),
+                    .init(id: "tools", tokens: 60_000),
+                    .init(id: "messages", tokens: 165_000),
+                    .init(id: "skills", tokens: 5_000),
+                    .init(id: "unknown", tokens: 500)
+                ]
+            )
+        )
+
+        // Unknown categories are dropped rather than shown with a raw id.
+        XCTAssertEqual(presentation.segments.map(\.id), ["system", "tools", "messages", "skills"])
+        XCTAssertEqual(presentation.segments.first?.title, L10n.string("context.segment.system"))
+        XCTAssertEqual(presentation.segments.first?.tokenText, "20k")
+        XCTAssertEqual(presentation.segments.first?.percentText, "4.0%")
+        XCTAssertEqual(presentation.segments.map(\.fraction).reduce(0, +), 0.5, accuracy: 0.001)
+        XCTAssertTrue(presentation.accessibilityLabel.contains(L10n.string("context.segment.messages")))
     }
 
     func testContextUsagePresentationHandlesPostCompactionUnknownState() {
@@ -1899,11 +1926,11 @@ final class SessionComposerTests: XCTestCase {
 
         XCTAssertTrue(source.contains("model-picker-search"))
         XCTAssertTrue(source.contains("model-picker-scroll-view"))
-        XCTAssertTrue(source.contains("session-thinking-level"))
+        XCTAssertTrue(source.contains("session-model-effort"))
         XCTAssertTrue(source.contains("availableThinkingLevels"))
     }
 
-    func testComposerKeepsModelAndThinkingControlsTightlyGrouped() throws {
+    func testComposerKeepsModelAndThinkingControlsInOneChip() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1920,11 +1947,12 @@ final class SessionComposerTests: XCTestCase {
         )
         let editorSource = source[editorStart.lowerBound..<editorEnd.lowerBound]
 
-        XCTAssertTrue(editorSource.contains("HStack(spacing: 4) {\n                    modelPicker"))
-        XCTAssertTrue(editorSource.contains("thinkingLevelMenu(selectedThinkingLevel)"))
+        XCTAssertTrue(editorSource.contains("modelEffortPicker"))
+        XCTAssertFalse(editorSource.contains("thinkingLevelMenu("))
+        XCTAssertEqual(editorSource.components(separatedBy: "modelEffortPicker").count - 1, 1)
     }
 
-    func testThinkingLevelButtonHasNoDefaultFill() throws {
+    func testModelEffortChipHasNoDefaultFill() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1932,17 +1960,17 @@ final class SessionComposerTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
             encoding: .utf8
         )
-        let menuStart = try XCTUnwrap(source.range(of: "private func thinkingLevelMenu"))
-        let pickerStart = try XCTUnwrap(
+        let pickerStart = try XCTUnwrap(source.range(of: "private var modelEffortPicker"))
+        let summaryStart = try XCTUnwrap(
             source.range(
-                of: "private func thinkingLevelPickerContent",
-                range: menuStart.upperBound..<source.endIndex
+                of: "private var composerModelSummary",
+                range: pickerStart.upperBound..<source.endIndex
             )
         )
-        let menuSource = source[menuStart.lowerBound..<pickerStart.lowerBound]
+        let pickerSource = source[pickerStart.lowerBound..<summaryStart.lowerBound]
 
-        XCTAssertFalse(menuSource.contains(".background("))
-        XCTAssertFalse(menuSource.contains("isThinkingMenuHovering"))
+        XCTAssertFalse(pickerSource.contains(".background("))
+        XCTAssertTrue(pickerSource.contains("RoundedInteractionButtonStyle("))
     }
 
     func testSharedChatAndWorkComposerOmitsVoiceInputButton() throws {
@@ -1977,7 +2005,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains("Image(model.providerIconAssetName)"))
         XCTAssertTrue(source.contains(".renderingMode(.template)"))
         XCTAssertTrue(source.contains(".foregroundStyle(Color.primary)"))
-        XCTAssertTrue(source.contains(".frame(width: 260)"))
+        XCTAssertTrue(source.contains(".frame(width: 288)"))
         XCTAssertFalse(source.contains(".frame(width: 272)"))
         XCTAssertFalse(source.contains(".frame(width: 330)"))
         XCTAssertFalse(source.contains("Image(systemName: model.providerIconName)"))
@@ -1995,24 +2023,23 @@ final class SessionComposerTests: XCTestCase {
         let rowStart = try XCTUnwrap(
             source.range(of: "private func modelPickerRow", range: contentStart.upperBound..<source.endIndex)
         )
-        let fastButtonStart = try XCTUnwrap(
-            source.range(of: "private func fastModeButton", range: rowStart.upperBound..<source.endIndex)
+        let rowEnd = try XCTUnwrap(
+            source.range(of: "private var filteredModels", range: rowStart.upperBound..<source.endIndex)
         )
         let contentSource = source[contentStart.lowerBound..<rowStart.lowerBound]
-        let rowSource = source[rowStart.lowerBound..<fastButtonStart.lowerBound]
+        let rowSource = source[rowStart.lowerBound..<rowEnd.lowerBound]
 
         XCTAssertTrue(contentSource.contains("RoundedRectangle(cornerRadius: 8, style: .continuous)"))
-        XCTAssertFalse(contentSource.contains("Divider()"))
-        XCTAssertTrue(contentSource.contains(".frame(width: 260)"))
+        XCTAssertTrue(contentSource.contains(".frame(width: 288)"))
+        XCTAssertTrue(contentSource.contains("effortSection"))
+        XCTAssertTrue(contentSource.contains("modelOptionRow("))
         XCTAssertTrue(rowSource.contains("minHeight: 34"))
         XCTAssertTrue(rowSource.contains("RoundedInteractionButtonStyle(cornerRadius: 7)"))
         XCTAssertFalse(rowSource.contains("isSelected: model == selectedModel"))
-        XCTAssertTrue(rowSource.contains(
-            "Text(model.displayName)\n                        .lineLimit(1)\n                    Spacer(minLength: 8)\n                    Image(systemName: \"checkmark\")"
-        ))
+        XCTAssertFalse(rowSource.contains("Toggle("))
     }
 
-    func testComposerModelPickerOmitsCurrentModelIcon() throws {
+    func testComposerModelEffortChipOmitsProviderIcon() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2020,17 +2047,18 @@ final class SessionComposerTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
             encoding: .utf8
         )
-        let pickerStart = try XCTUnwrap(source.range(of: "private var modelPicker"))
+        let pickerStart = try XCTUnwrap(source.range(of: "private var modelEffortPicker"))
         let contentStart = try XCTUnwrap(
             source.range(of: "private var modelPickerContent", range: pickerStart.upperBound..<source.endIndex)
         )
         let pickerSource = source[pickerStart.lowerBound..<contentStart.lowerBound]
 
         XCTAssertFalse(pickerSource.contains("ModelProviderIcon"))
-        XCTAssertFalse(pickerSource.contains("Image(systemName: \"bolt.fill\")"))
+        XCTAssertTrue(pickerSource.contains("if isFastModeEnabled {"))
+        XCTAssertTrue(pickerSource.contains("selectedThinkingLevel.composerTitle"))
     }
 
-    func testModelSelectionHighlightExcludesFastModeControl() throws {
+    func testModelRowSelectionKeepsOneTapTarget() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2039,18 +2067,18 @@ final class SessionComposerTests: XCTestCase {
             encoding: .utf8
         )
         let rowStart = try XCTUnwrap(source.range(of: "private func modelPickerRow"))
-        let fastButtonStart = try XCTUnwrap(
-            source.range(of: "private func fastModeButton", range: rowStart.upperBound..<source.endIndex)
+        let rowEnd = try XCTUnwrap(
+            source.range(of: "private var filteredModels", range: rowStart.upperBound..<source.endIndex)
         )
-        let rowSource = source[rowStart.lowerBound..<fastButtonStart.lowerBound]
+        let rowSource = source[rowStart.lowerBound..<rowEnd.lowerBound]
 
         XCTAssertFalse(rowSource.contains("isSelected: model == selectedModel"))
         XCTAssertTrue(rowSource.contains("RoundedInteractionButtonStyle(cornerRadius: 7)"))
         XCTAssertFalse(rowSource.contains(".background("))
-        XCTAssertTrue(rowSource.contains("fastModeButton(for: model)"))
+        XCTAssertFalse(rowSource.contains("Toggle("))
     }
 
-    func testFastModeControlUsesSlidingCapsule() throws {
+    func testFastModeIsALabeledSwitchBesideTheModelList() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2058,25 +2086,13 @@ final class SessionComposerTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
             encoding: .utf8
         )
-        let fastButtonStart = try XCTUnwrap(source.range(of: "private func fastModeButton"))
-        let filteredModelsStart = try XCTUnwrap(
-            source.range(of: "private var filteredModels", range: fastButtonStart.upperBound..<source.endIndex)
-        )
-        let fastButtonSource = source[fastButtonStart.lowerBound..<filteredModelsStart.lowerBound]
-        let switchStart = try XCTUnwrap(source.range(of: "private struct FastModeCapsuleSwitch"))
-        let providerIconStart = try XCTUnwrap(
-            source.range(of: "private struct ModelProviderIcon", range: switchStart.upperBound..<source.endIndex)
-        )
-        let switchSource = source[switchStart.lowerBound..<providerIconStart.lowerBound]
 
-        XCTAssertTrue(fastButtonSource.contains("FastModeCapsuleSwitch("))
-        XCTAssertTrue(fastButtonSource.contains(".opacity(model.supportsFastMode ? 1 : 0)"))
-        XCTAssertTrue(fastButtonSource.contains(".buttonStyle(.plain)"))
-        XCTAssertFalse(fastButtonSource.contains("isModelPickerPresented = false"))
-        XCTAssertTrue(switchSource.contains("Capsule()"))
-        XCTAssertTrue(switchSource.contains("Circle()"))
-        XCTAssertTrue(switchSource.contains(".offset(x: isOn ? 7 : -7)"))
-        XCTAssertTrue(switchSource.contains("value: isOn"))
+        XCTAssertTrue(source.contains("L10n.string(\"chat.fast_mode\")"))
+        XCTAssertTrue(source.contains("chat.fast_mode_detail"))
+        XCTAssertTrue(source.contains("option: .fastMode"))
+        XCTAssertTrue(source.contains("fast-mode-toggle"))
+        XCTAssertTrue(source.contains("selectedModel?.supportsFastMode == true && modelOptions.fastMode.enabled"))
+        XCTAssertFalse(source.contains("FastModeCapsuleSwitch"))
     }
 
     func testLobeHubModelIconAssetsArePresent() {
@@ -2137,7 +2153,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertFalse(manifestContents.contains(".svg"))
     }
 
-    func testThinkingPickerRequestsUpwardPopoverPlacement() throws {
+    func testModelEffortPickerRequestsUpwardPopoverPlacement() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2148,7 +2164,7 @@ final class SessionComposerTests: XCTestCase {
 
         XCTAssertTrue(
             source.contains(
-                ".popover(isPresented: $isThinkingPickerPresented, arrowEdge: .bottom)"
+                ".popover(isPresented: $isModelPickerPresented, arrowEdge: .top)"
             )
         )
     }
@@ -2167,7 +2183,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains("L10n.string(\"chat.smarter\")"))
     }
 
-    func testEveryModelRowShowsCapabilityAwareFastButton() throws {
+    func testFastCapableModelsAreMarkedInTheList() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2177,7 +2193,7 @@ final class SessionComposerTests: XCTestCase {
         )
         let editorStart = try XCTUnwrap(source.range(of: "private var editor"))
         let pickerStart = try XCTUnwrap(
-            source.range(of: "private var modelPicker", range: editorStart.upperBound..<source.endIndex)
+            source.range(of: "private var modelEffortPicker", range: editorStart.upperBound..<source.endIndex)
         )
         let rowStart = try XCTUnwrap(source.range(of: "private func modelPickerRow"))
         let rowEnd = try XCTUnwrap(
@@ -2187,15 +2203,12 @@ final class SessionComposerTests: XCTestCase {
         let rowSource = source[rowStart.lowerBound..<rowEnd.lowerBound]
 
         XCTAssertFalse(editorSource.contains("fastModeToggle"))
-        XCTAssertFalse(rowSource.contains("if model == selectedModel"))
-        XCTAssertTrue(rowSource.contains("fastModeButton(for: model)"))
-        XCTAssertTrue(source.contains("FastModeCapsuleSwitch("))
-        XCTAssertTrue(source.contains(".disabled(!model.supportsFastMode)"))
-        XCTAssertTrue(source.contains("model == selectedModel && modelOptions.fastMode.enabled"))
-        XCTAssertTrue(source.contains("onToggleFastMode(model)"))
+        XCTAssertTrue(rowSource.contains("if model.supportsFastMode {"))
+        XCTAssertTrue(rowSource.contains("Image(systemName: \"bolt.fill\")"))
+        XCTAssertFalse(rowSource.contains("onToggleFastMode"))
     }
 
-    func testThinkingPickerKeepsOnlyOneMillionContextSwitch() throws {
+    func testModelPickerHostsTheModelOptionSwitches() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -2203,18 +2216,16 @@ final class SessionComposerTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
             encoding: .utf8
         )
-        let pickerStart = try XCTUnwrap(
-            source.range(of: "private func thinkingLevelPickerContent")
-        )
+        let pickerStart = try XCTUnwrap(source.range(of: "private var modelPickerContent"))
         let pickerEnd = try XCTUnwrap(
-            source.range(of: "private func modelOptionToggle", range: pickerStart.upperBound..<source.endIndex)
+            source.range(of: "private func filteredModels", range: pickerStart.upperBound..<source.endIndex)
         )
         let pickerSource = source[pickerStart.lowerBound..<pickerEnd.lowerBound]
 
         XCTAssertTrue(pickerSource.contains("L10n.string(\"chat.one_million_context\")"))
         XCTAssertTrue(pickerSource.contains("one-million-context-toggle"))
-        XCTAssertFalse(pickerSource.contains("Text(\"Fast 模式\")"))
-        XCTAssertFalse(pickerSource.contains("option: .fastMode"))
+        XCTAssertTrue(pickerSource.contains("option: .fastMode"))
+        XCTAssertTrue(pickerSource.contains("effortSection"))
     }
 
     func testComposerExposesContextUsageIndicatorAndHoverDetails() throws {

@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var bootstrappedWorkProjectPaths: Set<String> = []
     @State private var sessionOpeningState = SessionOpeningState()
     @State private var sessionOpenTask: Task<Void, Never>?
-    @State private var agentError: String?
+    @State private var agentError: AgentErrorPresentation?
     @State private var exportingSessionIDs: Set<String> = []
     @State private var showsProjectChanges = false
 
@@ -204,7 +204,7 @@ struct ContentView: View {
             }
             agentError = nil
         } catch {
-            agentError = String(describing: error)
+            agentError = AgentErrorPresentation(error)
         }
     }
 
@@ -218,7 +218,7 @@ struct ContentView: View {
             )
             agentError = nil
         } catch {
-            agentError = String(describing: error)
+            agentError = AgentErrorPresentation(error)
         }
     }
 
@@ -240,7 +240,7 @@ struct ContentView: View {
             agentError = nil
         } catch {
             bootstrappedWorkProjectPaths.remove(project.path)
-            agentError = String(describing: error)
+            agentError = AgentErrorPresentation(error)
         }
     }
 
@@ -254,7 +254,7 @@ struct ContentView: View {
             )
             agentError = nil
         } catch {
-            agentError = String(describing: error)
+            agentError = AgentErrorPresentation(error)
         }
     }
 
@@ -303,7 +303,7 @@ struct ContentView: View {
             agentError = nil
         } catch {
             sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
-            agentError = String(describing: error)
+            agentError = AgentErrorPresentation(error)
         }
         return true
     }
@@ -354,7 +354,7 @@ struct ContentView: View {
             } catch {
                 sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
                 guard sessionOpeningState.complete(request) else { return }
-                agentError = String(describing: error)
+                agentError = AgentErrorPresentation(error)
             }
         }
     }
@@ -392,7 +392,7 @@ struct ContentView: View {
                 )
                 agentError = nil
             } catch {
-                agentError = String(describing: error)
+                agentError = AgentErrorPresentation(error)
             }
         }
     }
@@ -411,7 +411,7 @@ struct ContentView: View {
                 )
                 agentError = nil
             } catch {
-                agentError = String(describing: error)
+                agentError = AgentErrorPresentation(error)
             }
         }
     }
@@ -437,7 +437,7 @@ struct ContentView: View {
                 }
                 agentError = nil
             } catch {
-                agentError = String(describing: error)
+                agentError = AgentErrorPresentation(error)
             }
         }
     }
@@ -456,7 +456,7 @@ struct ContentView: View {
                 projectStore.removeProject(project)
                 agentError = nil
             } catch {
-                agentError = String(describing: error)
+                agentError = AgentErrorPresentation(error)
             }
         }
     }

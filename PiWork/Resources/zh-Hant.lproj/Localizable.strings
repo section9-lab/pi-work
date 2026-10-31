@@ -22,7 +22,6 @@
 /* 設定 */
 "about.menu" = "關於 %@";
 "settings.title" = "設定";
-"settings.sidebar.section" = "PI-CODING-AGENT";
 "settings.sidebar.general" = "一般";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "個人偏好";
@@ -81,8 +80,6 @@
 "update.alert.failed.message" = "PiWork 無法連接 GitHub Release。請檢查網路連線後重試。";
 "update.agent.checking" = "正在檢查 pi-coding-agent 更新…";
 "update.agent.version_unavailable" = "無法讀取內建 pi-coding-agent 版本。";
-"runtime.current" = "Pi %@ · 執行環境 %@";
-"runtime.description" = "隨 PiWork 一起發佈和更新，不單獨升級。";
 "runtime.available" = "Pi %@（執行環境 %@）可供安裝。";
 "runtime.pending" = "Pi %@ 已安裝，下次啟動 PiWork 時生效。";
 "runtime.downloading" = "正在下載執行環境…";
@@ -306,9 +303,9 @@
 "chat.slash.remove" = "移除 %@";
 "chat.search_models" = "搜尋模型";
 "chat.no_models" = "找不到模型";
-"chat.fast_mode" = "Fast 模式";
+"chat.fast_mode" = "快速模式";
+"chat.fast_mode_detail" = "使用優先服務佇列，回應更快，費用略高";
 "chat.fast_unsupported" = "此模型不支援 Fast 模式";
-"chat.fast_accessibility" = "%@ Fast 模式";
 "chat.agent_settings" = "Agent 設定";
 "chat.session_plan" = "計畫";
 "chat.activity.title" = "狀態";
@@ -317,12 +314,9 @@
 "chat.session_cost" = "費用";
 "chat.agent_mode" = "模式";
 "chat.enabled" = "已開啟";
-"chat.disabled" = "已關閉";
-"chat.unsupported" = "不支援";
 "chat.effort" = "思考強度";
 "chat.faster" = "更快";
 "chat.smarter" = "更聰明";
-"chat.thinking_help" = "思考強度：%@";
 "chat.thinking_accessibility" = "思考強度";
 "chat.thinking.running" = "正在思考…";
 "chat.thinking.title" = "深度思考";
@@ -332,7 +326,6 @@
 "chat.access_help" = "存取權限：%@";
 "chat.send" = "傳送";
 "chat.stop" = "停止";
-"chat.context_window" = "上下文視窗";
 "chat.suggestion.explore.title" = "探索並理解程式碼";
 "chat.suggestion.explore.prompt" = "幫我探索並理解這個專案的程式碼結構";
 "chat.suggestion.build.title" = "建構新功能、應用程式或工具";
@@ -396,7 +389,6 @@
 "context.recalculating" = "正在重新計算用量";
 "context.percent_used" = "已使用 %ld%%";
 "context.total" = "上下文總計 %@ token";
-"context.used_total" = "已使用 %@ token，共 %@ token";
 "context.accessibility" = "上下文視窗，%@，%@";
 
 /* 技能 */
@@ -853,3 +845,51 @@
 "update.sidebar.restarting" = "重新啟動中";
 
 "changes.no_matches" = "沒有符合篩選條件的檔案。";
+
+/* 會話錯誤提示 */
+"chat.error.upstream.title" = "沒能連上模型服務";
+"chat.error.upstream.detail" = "請求沒有到達上游端點，這一輪沒有產生任何改動。";
+"chat.error.upstream.recovery" = "檢查網路或代理後重試，也可以先換個模型。";
+
+"chat.error.auth.title" = "模型服務認證失敗";
+"chat.error.auth.detail" = "憑據無效或已過期，上游拒絕了這次請求。";
+"chat.error.auth.recovery" = "到「設定 → 模型服務」重新登入或更新金鑰。";
+
+"chat.error.rate_limit.title" = "請求太頻繁，被限流了";
+"chat.error.rate_limit.detail" = "上游暫時不接受新的請求。";
+"chat.error.rate_limit.recovery" = "等一會兒再重試。";
+
+"chat.error.timeout.title" = "請求逾時";
+"chat.error.timeout.detail" = "上游在預期時間內沒有回應。";
+"chat.error.timeout.recovery" = "重試一次，或換一個更快的模型。";
+
+"chat.error.connection.title" = "和 Agent 程序的連線中斷了";
+"chat.error.connection.detail" = "背景執行環境已經結束，這一輪中斷了。";
+"chat.error.connection.recovery" = "重試會重新連線並繼續這個會話。";
+
+"chat.error.busy.title" = "會話還在執行中";
+"chat.error.busy.detail" = "上一條指令沒有結束，這次操作沒有送出。";
+"chat.error.busy.recovery" = "等目前步驟完成後再試。";
+
+"chat.error.internal.title" = "這一步沒能完成";
+"chat.error.internal.detail" = "Agent 遇到了沒有預期到的錯誤，本輪已停止。";
+"chat.error.internal.recovery" = "重試一次；如果反覆出現，展開詳情回報給我們。";
+
+"chat.error.details.show" = "查看詳情";
+"chat.error.details.hide" = "收起詳情";
+
+/* 上下文用量 */
+"context.title" = "上下文用量";
+"context.used_of_window" = "已使用 %@ / %@";
+"context.segment.system" = "系統提示詞";
+"context.segment.tools" = "工具定義";
+"context.segment.messages" = "對話訊息";
+"context.segment.mcp" = "連接器與 MCP";
+"context.segment.skills" = "技能";
+"context.segment.context" = "專案上下文";
+"chat.prompt_rail.title" = "提問";
+"chat.prompt_rail.open" = "展開提問目錄";
+"chat.prompt_rail.position" = "%1$d / %2$d";
+"chat.prompt_rail.image_only" = "圖片 ×%d";
+"chat.prompt_rail.image_count" = "%d 張圖片";
+"chat.prompt_rail.mark" = "第 %1$d 條提問：%2$@";

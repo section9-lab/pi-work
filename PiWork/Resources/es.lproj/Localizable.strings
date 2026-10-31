@@ -22,7 +22,6 @@
 /* Ajustes */
 "about.menu" = "Acerca de %@";
 "settings.title" = "Ajustes";
-"settings.sidebar.section" = "PI-CODING-AGENT";
 "settings.sidebar.general" = "General";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "Preferencias personales";
@@ -81,8 +80,6 @@
 "update.alert.failed.message" = "PiWork no pudo acceder a GitHub Releases. Comprueba tu conexión a internet e inténtalo de nuevo.";
 "update.agent.checking" = "Buscando actualizaciones de pi-coding-agent…";
 "update.agent.version_unavailable" = "No se pudo obtener la versión integrada de pi-coding-agent.";
-"runtime.current" = "Pi %@ · Entorno %@";
-"runtime.description" = "Incluido en PiWork y actualizado solo junto con la aplicación.";
 "runtime.available" = "Pi %@ (entorno %@) está disponible.";
 "runtime.pending" = "Pi %@ está instalado y se activará al volver a abrir PiWork.";
 "runtime.downloading" = "Descargando el entorno…";
@@ -306,9 +303,9 @@
 "chat.slash.remove" = "Quitar %@";
 "chat.search_models" = "Buscar modelos";
 "chat.no_models" = "No se encontraron modelos";
-"chat.fast_mode" = "Modo Fast";
+"chat.fast_mode" = "Modo rápido";
+"chat.fast_mode_detail" = "Cola de servicio prioritaria: respuestas más rápidas con una tarifa algo mayor";
 "chat.fast_unsupported" = "Este modelo no admite el modo Fast";
-"chat.fast_accessibility" = "Modo Fast de %@";
 "chat.agent_settings" = "Ajustes del Agent";
 "chat.session_plan" = "Plan";
 "chat.activity.title" = "Actividad";
@@ -317,12 +314,9 @@
 "chat.session_cost" = "Coste";
 "chat.agent_mode" = "Modo";
 "chat.enabled" = "Activado";
-"chat.disabled" = "Desactivado";
-"chat.unsupported" = "No compatible";
 "chat.effort" = "Nivel";
 "chat.faster" = "Más rápido";
 "chat.smarter" = "Más capaz";
-"chat.thinking_help" = "Nivel de razonamiento: %@";
 "chat.thinking_accessibility" = "Nivel de razonamiento";
 "chat.thinking.running" = "Pensando…";
 "chat.thinking.title" = "Razonamiento profundo";
@@ -332,7 +326,6 @@
 "chat.access_help" = "Acceso: %@";
 "chat.send" = "Enviar";
 "chat.stop" = "Detener";
-"chat.context_window" = "Ventana de contexto";
 "chat.suggestion.explore.title" = "Explorar y entender código";
 "chat.suggestion.explore.prompt" = "Explora la estructura del código de este proyecto y ayúdame a entenderla";
 "chat.suggestion.build.title" = "Crear una función, app o herramienta";
@@ -396,7 +389,6 @@
 "context.recalculating" = "Recalculando el uso";
 "context.percent_used" = "%ld%% usado";
 "context.total" = "%@ tokens en total";
-"context.used_total" = "%@ de %@ tokens usados";
 "context.accessibility" = "Ventana de contexto, %@, %@";
 
 /* Habilidades */
@@ -853,3 +845,51 @@
 "update.sidebar.restarting" = "Reiniciando…";
 
 "changes.no_matches" = "No hay archivos que coincidan con el filtro.";
+
+/* Errores de la conversación */
+"chat.error.upstream.title" = "No se pudo conectar con el servicio del modelo";
+"chat.error.upstream.detail" = "La solicitud no llegó al extremo remoto. Este turno no cambió nada.";
+"chat.error.upstream.recovery" = "Revisa la red o el proxy y reintenta, o cambia de modelo.";
+
+"chat.error.auth.title" = "El servicio del modelo rechazó las credenciales";
+"chat.error.auth.detail" = "Las credenciales no son válidas o caducaron, así que el servidor rechazó la solicitud.";
+"chat.error.auth.recovery" = "Vuelve a iniciar sesión o actualiza la clave en Ajustes → Proveedores de modelos.";
+
+"chat.error.rate_limit.title" = "Demasiadas solicitudes";
+"chat.error.rate_limit.detail" = "El servidor no acepta nuevas solicitudes por ahora.";
+"chat.error.rate_limit.recovery" = "Espera un momento y reintenta.";
+
+"chat.error.timeout.title" = "La solicitud agotó el tiempo";
+"chat.error.timeout.detail" = "El servidor no respondió a tiempo.";
+"chat.error.timeout.recovery" = "Reintenta o cambia a un modelo más rápido.";
+
+"chat.error.connection.title" = "Se perdió la conexión con el agente";
+"chat.error.connection.detail" = "El entorno en segundo plano finalizó y este turno se detuvo.";
+"chat.error.connection.recovery" = "Reintenta para reconectar y continuar la sesión.";
+
+"chat.error.busy.title" = "La sesión sigue ejecutándose";
+"chat.error.busy.detail" = "La instrucción anterior no ha terminado, así que esta acción no se envió.";
+"chat.error.busy.recovery" = "Inténtalo de nuevo cuando termine el paso actual.";
+
+"chat.error.internal.title" = "Ese paso no se completó";
+"chat.error.internal.detail" = "El agente encontró un error inesperado y detuvo este turno.";
+"chat.error.internal.recovery" = "Reintenta una vez; si se repite, abre Detalles y envíanoslos.";
+
+"chat.error.details.show" = "Ver detalles";
+"chat.error.details.hide" = "Ocultar detalles";
+
+/* Uso del contexto */
+"context.title" = "Uso del contexto";
+"context.used_of_window" = "Usado %@ de %@";
+"context.segment.system" = "Prompt del sistema";
+"context.segment.tools" = "Definiciones de herramientas";
+"context.segment.messages" = "Conversación";
+"context.segment.mcp" = "Conectores y MCP";
+"context.segment.skills" = "Habilidades";
+"context.segment.context" = "Contexto del proyecto";
+"chat.prompt_rail.title" = "Prompts";
+"chat.prompt_rail.open" = "Mostrar índice de prompts";
+"chat.prompt_rail.position" = "%1$d / %2$d";
+"chat.prompt_rail.image_only" = "Imagen ×%d";
+"chat.prompt_rail.image_count" = "%d imágenes";
+"chat.prompt_rail.mark" = "Prompt %1$d: %2$@";

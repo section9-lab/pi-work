@@ -769,7 +769,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         XCTAssertTrue(source.contains("case \"read\": return \"book\""))
         XCTAssertTrue(source.contains("case \"bash\": return \"terminal\""))
         XCTAssertTrue(source.contains(
-            "case \"write\", \"edit\": return \"square.and.pencil\""
+            "case \"write\": return \"square.and.pencil\""
+        ))
+        XCTAssertTrue(source.contains(
+            "case \"edit\", \"editor\": return \"pencil\""
         ))
         XCTAssertTrue(source.contains("case \"grep\", \"find\": return \"magnifyingglass\""))
         XCTAssertTrue(source.contains("case \"ls\": return \"folder\""))
@@ -816,6 +819,31 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             "private var showsExceptionalStatus: Bool {\n        tool.state == .awaitingApproval\n    }"
         ))
         XCTAssertTrue(toolStepSource.contains("if tool.isError == true { return .red }"))
+    }
+
+    func testEditStepShowsDiffSummaryBeforeDisclosure() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(source.range(of: "private struct AssistantToolStepRow"))
+        let end = try XCTUnwrap(source.range(of: "private struct ToolDetailBlock"))
+        let row = String(source[start.lowerBound..<end.lowerBound])
+        let summary = try XCTUnwrap(row.range(of: "Text(presentation.summary)"))
+        let diff = try XCTUnwrap(row.range(of: "let diff = edit.diffSummary"))
+        let disclosure = try XCTUnwrap(row.range(of: "if hasDetails {"))
+        XCTAssertLessThan(summary.lowerBound, diff.lowerBound)
+        XCTAssertLessThan(diff.lowerBound, disclosure.lowerBound)
+        XCTAssertTrue(row.contains("Text(\"+\\(diff.additions)\")"))
+        XCTAssertTrue(row.contains("Text(\"−\\(diff.deletions)\")"))
+        XCTAssertTrue(row.contains(".foregroundStyle(Color.green)"))
+        XCTAssertTrue(row.contains(".foregroundStyle(Color.red)"))
+        XCTAssertTrue(row.contains(".fixedSize()"))
     }
 
     func testWriteAndEditUseTheStandardToolIconSize() throws {

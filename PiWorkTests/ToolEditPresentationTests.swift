@@ -18,6 +18,30 @@ final class ToolEditPresentationTests: XCTestCase {
         XCTAssertEqual(result?.changes.last?.newText, "")
     }
 
+    func testDiffSummaryExcludesUnchangedContext() throws {
+        let result = try XCTUnwrap(preview(
+            #"{"path":"App.swift","oldText":"first\nold\nlast\n","newText":"first\nnew\nlast\n"}"#
+        ))
+        XCTAssertEqual(result.diffSummary.additions, 1)
+        XCTAssertEqual(result.diffSummary.deletions, 1)
+    }
+
+    func testDiffSummaryAggregatesMultipleReplacements() throws {
+        let result = try XCTUnwrap(preview(
+            #"{"path":"App.swift","edits":[{"oldText":"","newText":"a\nb\n"},{"oldText":"removed\n","newText":""},{"oldText":"same","newText":"same"}]}"#
+        ))
+        XCTAssertEqual(result.diffSummary.additions, 2)
+        XCTAssertEqual(result.diffSummary.deletions, 1)
+    }
+
+    func testDiffSummaryForUnchangedTextIsZero() throws {
+        let result = try XCTUnwrap(preview(
+            #"{"path":"App.swift","oldText":"same\n","newText":"same\n"}"#
+        ))
+        XCTAssertEqual(result.diffSummary.additions, 0)
+        XCTAssertEqual(result.diffSummary.deletions, 0)
+    }
+
     func testSummaryFallback() {
         let result = ToolEditPresentation(name: "edit", rawInput: nil,
             summary: #"{"path":"a","oldText":"before","newText":"after"}"#)

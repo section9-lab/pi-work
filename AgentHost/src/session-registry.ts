@@ -103,10 +103,26 @@ export type SessionModel = {
   supportsFastMode: boolean;
 };
 
+/** Which part of the request a context slice belongs to. */
+export type SessionContextSegmentId =
+  | "system"
+  | "tools"
+  | "messages"
+  | "mcp"
+  | "skills"
+  | "context";
+
+export type SessionContextSegment = {
+  id: SessionContextSegmentId;
+  tokens: number;
+};
+
 export type SessionContextUsage = {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+  /** Estimated split of `tokens`, scaled to add up to it exactly. */
+  segments?: SessionContextSegment[];
 };
 
 export type SessionThinkingLevel =

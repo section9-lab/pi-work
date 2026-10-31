@@ -268,6 +268,19 @@ class HostRequestError extends Error {
   }
 }
 
+// Provider failures arrive as plain Error objects with the upstream wording, so
+// the wire code has to be derived from the message instead of defaulting every
+// unclassified failure to "invalid_request" (which claims the request was bad).
+const UPSTREAM_UNREACHABLE_PATTERN =
+  /unable to connect|is the computer able to access|fetch failed|econnrefused|enotfound|eai_again|etimedout|socket hang up|connection (reset|refused|closed)|network error|getaddrinfo|no route to host|proxy/i;
+
+function unclassifiedErrorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return UPSTREAM_UNREACHABLE_PATTERN.test(message)
+    ? "upstream_unreachable"
+    : "internal_error";
+}
+
 async function handleRequest(request: HostRequest): Promise<HostResponse> {
   if (request.method === "rtk.get" || request.method === "rtk.action") {
     const params = request.params ?? {};
@@ -1391,7 +1404,7 @@ async function handleLine(line: string): Promise<void> {
             || error instanceof AccessPolicyError
             || error instanceof ProviderAuthCoordinatorError
             ? error.code
-            : "invalid_request",
+            : unclassifiedErrorCode(error),
         },
       },
     };

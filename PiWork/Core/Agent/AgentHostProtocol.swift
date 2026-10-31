@@ -274,9 +274,24 @@ enum AgentHostSessionRunState: String, Decodable, Equatable {
 }
 
 struct AgentHostContextUsage: Decodable, Equatable {
+    /// One category of the context window, with a token estimate that already
+    /// adds up to `tokens` across all segments.
+    struct Segment: Decodable, Equatable, Identifiable {
+        let id: String
+        let tokens: Int
+    }
+
     let tokens: Int?
     let contextWindow: Int
     let percent: Double?
+    let segments: [Segment]?
+
+    init(tokens: Int?, contextWindow: Int, percent: Double?, segments: [Segment]? = nil) {
+        self.tokens = tokens
+        self.contextWindow = contextWindow
+        self.percent = percent
+        self.segments = segments
+    }
 }
 
 struct AgentHostACPSessionMode: Decodable, Equatable, Identifiable {

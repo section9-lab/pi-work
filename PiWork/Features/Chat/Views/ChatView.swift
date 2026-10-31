@@ -12,7 +12,7 @@ struct ChatView: View {
 
     let mode: SidebarTab
     let projects: [PiProject]
-    let hostError: String?
+    let hostError: AgentErrorPresentation?
     let isLoadingSession: Bool
     let onSelectProject: (PiProject) -> Void
     let onAddFolder: () -> Void
@@ -26,7 +26,7 @@ struct ChatView: View {
     @State private var imageAttachments: [ComposerImageAttachment] = []
     @State private var isProcessingImageAttachments = false
     @State private var imageProcessingID: UUID?
-    @State private var actionError: String?
+    @State private var actionFailure: AgentErrorPresentation?
     @State private var gitBranches = AgentHostGitBranchesResult.unavailable
     @State private var isFollowingTranscriptTail = true
     @State private var isTranscriptAutoFollowPaused = false
@@ -41,6 +41,9 @@ struct ChatView: View {
     @State private var isPreparingSessionPresentation = false
     @State private var loadedToolOutputs: [String: String] = [:]
     @State private var loadingToolOutputIDs: Set<String> = []
+    @State private var currentPromptID: String?
+    @State private var highlightedPromptID: String?
+    @State private var promptHighlightTask: Task<Void, Never>?
 
     init(
         mode: SidebarTab,
@@ -48,7 +51,7 @@ struct ChatView: View {
         selectedProject: Binding<PiProject?>,
         sessionStore: SessionStore,
         computerUseStore: ComputerUseStore? = nil,
-        hostError: String? = nil,
+        hostError: AgentErrorPresentation? = nil,
         isLoadingSession: Bool = false,
         onSelectProject: @escaping (PiProject) -> Void = { _ in },
         onAddFolder: @escaping () -> Void
@@ -98,13 +101,12 @@ struct ChatView: View {
                 value: isSessionTransitioning
             )
 
-            if let error = errorMessage {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: 900, alignment: .leading)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 6)
+            if let notice = errorNotice {
+                SessionErrorNotice(notice: notice)
+                    .frame(maxWidth: 900)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
             }
 
             inputQueue
@@ -149,7 +151,6 @@ struct ChatView: View {
                 onSelectProject: onSelectProject,
                 onSelectGitBranch: selectGitBranch,
                 onSelectModel: selectModel,
-                onToggleFastMode: toggleFastMode,
                 onSelectThinkingLevel: selectThinkingLevel,
                 onSelectModelOption: selectModelOption,
                 onSelectConfigOption: selectConfigOption,
@@ -232,7 +233,7 @@ struct ChatView: View {
             imageAttachments.removeAll()
             isProcessingImageAttachments = false
             imageProcessingID = nil
-            actionError = nil
+            actionFailure = nil
             gitBranches = .unavailable
             transcriptMessageLimit = TranscriptWindow.batchSize
             presentedMessageLimit = SessionPresentationBatch.initialCount
@@ -291,7 +292,8 @@ struct ChatView: View {
         messages: [PiChatMessage],
         hiddenMessageCount: Int
     ) -> some View {
-        GeometryReader { viewport in
+        let prompts = PromptRailPresentation.entries(from: messages)
+        return GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -322,7 +324,7 @@ struct ChatView: View {
                                 }
                             )
                     }
-                    .frame(maxWidth: 760, alignment: .leading)
+                    .frame(maxWidth: TranscriptLayout.transcriptMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
@@ -368,6 +370,24 @@ struct ChatView: View {
                         )
                     }
                 }
+                .overlay(alignment: .trailing) {
+                    // The rail only earns its gutter when the content column has
+                    // room to spare; otherwise it would sit on the transcript.
+                    if hasPromptRailGutter(in: viewport.size), prompts.count > 1 {
+                        PromptRailView(
+                            entries: prompts,
+                            currentID: currentPromptID,
+                            height: PromptRailLayout.railHeight(
+                                count: prompts.count,
+                                available: viewport.size.height - 40
+                            )
+                        ) { entry in
+                            jump(to: entry, using: proxy)
+                        }
+                        .padding(.trailing, 6)
+                        .transition(.opacity)
+                    }
+                }
                 .animation(
                     accessibilityReduceMotion ? nil : .easeOut(duration: 0.16),
                     value: isFollowingTranscriptTail
@@ -389,6 +409,16 @@ struct ChatView: View {
                     if shouldFollow, !isAdjustingTranscriptScroll {
                         scheduleTranscriptScroll(using: proxy)
                     }
+                }
+                .onPreferenceChange(PromptRowFramesPreferenceKey.self) { frames in
+                    let next = PromptRailPresentation.currentPromptID(
+                        in: prompts,
+                        frames: frames,
+                        readingLine: TranscriptLayout.promptReadingLine
+                    )
+                    // Scroll fires this constantly; only the marker moving is news.
+                    guard next != currentPromptID else { return }
+                    currentPromptID = next
                 }
                 .onChange(of: transcriptScrollToken(for: messages)) { _ in
                     guard isFollowingTranscriptTail, !isTranscriptAutoFollowPaused else { return }
@@ -416,7 +446,59 @@ struct ChatView: View {
             resolve(approval: approval, decision: decision)
         }
         .equatable()
+        .background {
+            if message.role == .user {
+                GeometryReader { row in
+                    Color.clear.preference(
+                        key: PromptRowFramesPreferenceKey.self,
+                        value: [
+                            message.id: row.frame(in: .named(TranscriptLayout.coordinateSpace))
+                        ]
+                    )
+                }
+            }
+        }
+        .background {
+            if highlightedPromptID == message.id {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppPalette.accentBar.opacity(0.13))
+                    .padding(.horizontal, -10)
+                    .padding(.vertical, -6)
+                    .transition(.opacity)
+            }
+        }
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.3), value: highlightedPromptID == message.id)
         .id(message.id)
+    }
+
+    /// The rail sits in the gutter the centred column leaves behind, so it needs
+    /// enough of that gutter to avoid landing on the conversation.
+    private func hasPromptRailGutter(in size: CGSize) -> Bool {
+        let gutter = (size.width - TranscriptLayout.transcriptMaxWidth) / 2
+        return gutter >= PromptRailLayout.railWidth + 10
+    }
+
+    /// Scrolling to an anchor alone leaves the reader wondering whether the jump
+    /// worked, so the target turn flashes once and then gets out of the way.
+    private func jump(to entry: PromptRailEntry, using proxy: ScrollViewProxy) {
+        transcriptScrollTask?.cancel()
+        transcriptScrollTask = nil
+        isFollowingTranscriptTail = false
+        isTranscriptAutoFollowPaused = true
+        isAdjustingTranscriptScroll = true
+        withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.3)) {
+            proxy.scrollTo(entry.id, anchor: .top)
+        }
+        highlightedPromptID = entry.id
+        promptHighlightTask?.cancel()
+        promptHighlightTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            guard !Task.isCancelled else { return }
+            highlightedPromptID = nil
+        }
+        DispatchQueue.main.async {
+            isAdjustingTranscriptScroll = false
+        }
     }
 
     private func scheduleTranscriptScroll(using proxy: ScrollViewProxy) {
@@ -474,7 +556,7 @@ struct ChatView: View {
                 }
             } catch {
                 guard activeSessionId == sessionID else { return }
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -686,7 +768,7 @@ struct ChatView: View {
         isTranscriptAutoFollowPaused = false
         isFollowingTranscriptTail = true
         transcriptScrollRequest &+= 1
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 if queued {
@@ -703,7 +785,7 @@ struct ChatView: View {
                 }
             } catch {
                 if activeSessionId == sessionId {
-                    actionError = String(describing: error)
+                    actionFailure = AgentErrorPresentation(error)
                 }
                 if queued && activeSessionId != sessionId {
                     sessionStore.recoverDraft(sessionId: sessionId, text: text, images: promptImages, behavior: behavior)
@@ -734,7 +816,7 @@ struct ChatView: View {
                             Button(L10n.string("chat.input_queue.clear")) {
                                 Task {
                                     do { try await sessionStore.clearInputQueue(sessionId: record.id) }
-                                    catch { actionError = String(describing: error) }
+                                    catch { actionFailure = AgentErrorPresentation(error) }
                                 }
                             }
                             .disabled(pendingInputSessionIDs.contains(record.id))
@@ -764,7 +846,7 @@ struct ChatView: View {
                                     selectedSlashCommand = nil
                                     imageAttachments = attachments
                                     sessionStore.removeRecoveredInput(input.id, sessionId: record.id)
-                                } catch { actionError = String(describing: error) }
+                                } catch { actionFailure = AgentErrorPresentation(error) }
                             }
                             .disabled(!draft.isEmpty || !imageAttachments.isEmpty || selectedSlashCommand != nil
                                       || pendingInputSessionIDs.contains(record.id))
@@ -785,7 +867,7 @@ struct ChatView: View {
         let sources = ComposerImagePasteboard.sources(from: pasteboard)
         guard !sources.isEmpty else { return false }
         guard !isProcessingImageAttachments else {
-            actionError = L10n.string("chat.image.error.processing")
+            actionFailure = AgentErrorPresentation(informationalKey: "chat.image.error.processing")
             return true
         }
 
@@ -793,7 +875,7 @@ struct ChatView: View {
         let existingAttachments = imageAttachments
         imageProcessingID = processingID
         isProcessingImageAttachments = true
-        actionError = nil
+        actionFailure = nil
 
         Task { @MainActor in
             do {
@@ -807,13 +889,14 @@ struct ChatView: View {
                 imageAttachments.append(contentsOf: attachments)
                 imageProcessingID = nil
                 isProcessingImageAttachments = false
-                actionError = nil
+                actionFailure = nil
             } catch {
                 guard imageProcessingID == processingID else { return }
                 imageProcessingID = nil
                 isProcessingImageAttachments = false
-                actionError = (error as? ComposerImageAttachmentError)?.message
-                    ?? L10n.string("chat.image.error.unsupported")
+                let key = (error as? ComposerImageAttachmentError)?.localizationKey
+                    ?? "chat.image.error.unsupported"
+                actionFailure = AgentErrorPresentation(informationalKey: key)
             }
         }
         return true
@@ -830,10 +913,10 @@ struct ChatView: View {
         }
         do {
             slashCommands = try await sessionStore.slashCommands(sessionId: sessionId)
-            actionError = nil
+            actionFailure = nil
         } catch {
             slashCommands = []
-            actionError = String(describing: error)
+            actionFailure = AgentErrorPresentation(error)
         }
     }
 
@@ -866,12 +949,12 @@ struct ChatView: View {
         guard let sessionId = activeSessionId, activeRecord?.messages.isEmpty == true else {
             return
         }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.setGitBranch(branch, sessionId: sessionId)
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -881,43 +964,19 @@ struct ChatView: View {
         guard let hostModel = sessionStore.availableModels.first(where: {
             $0.provider == model.provider && $0.id == model.modelID
         }) else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectModel(hostModel, sessionId: sessionId)
             } catch {
-                actionError = String(describing: error)
-            }
-        }
-    }
-
-    private func toggleFastMode(_ model: PiModelOption) {
-        guard model.supportsFastMode, let sessionId = activeSessionId else { return }
-        guard let hostModel = sessionStore.availableModels.first(where: {
-            $0.provider == model.provider && $0.id == model.modelID
-        }) else { return }
-        let isSelected = selectedModel == model
-        let shouldEnable = !isSelected || activeRecord?.modelOptions.fastMode.enabled != true
-        actionError = nil
-        Task {
-            do {
-                if !isSelected {
-                    try await sessionStore.selectModel(hostModel, sessionId: sessionId)
-                }
-                try await sessionStore.selectModelOption(
-                    .fastMode,
-                    enabled: shouldEnable,
-                    sessionId: sessionId
-                )
-            } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
 
     private func selectThinkingLevel(_ thinkingLevel: AgentHostThinkingLevel) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectThinkingLevel(
@@ -925,7 +984,7 @@ struct ChatView: View {
                     sessionId: sessionId
                 )
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -935,7 +994,7 @@ struct ChatView: View {
         enabled: Bool
     ) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectModelOption(
@@ -944,7 +1003,7 @@ struct ChatView: View {
                     sessionId: sessionId
                 )
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -954,7 +1013,7 @@ struct ChatView: View {
         value: AgentHostACPSetConfigOptionResult.ConfigOption.Value
     ) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectConfigOption(
@@ -963,31 +1022,31 @@ struct ChatView: View {
                     sessionId: sessionId
                 )
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
 
     private func selectSessionMode(_ modeId: String) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectSessionMode(modeId, sessionId: sessionId)
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
 
     private func selectAccessMode(_ accessMode: AgentHostAccessMode) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.selectAccessMode(accessMode, sessionId: sessionId)
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -997,7 +1056,7 @@ struct ChatView: View {
         decision: AgentHostApprovalDecision
     ) {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.resolveApproval(
@@ -1006,7 +1065,7 @@ struct ChatView: View {
                     decision: decision
                 )
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -1015,7 +1074,7 @@ struct ChatView: View {
         elicitation: AgentHostACPElicitationRequest,
         response: AgentHostACPElicitationResponse
     ) {
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.resolveElicitation(
@@ -1024,7 +1083,7 @@ struct ChatView: View {
                     response: response
                 )
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -1046,19 +1105,19 @@ struct ChatView: View {
                 guard activeSessionId == sessionId else { return }
                 loadedToolOutputs[tool.id] = output
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
 
     private func stopGeneration() {
         guard let sessionId = activeSessionId else { return }
-        actionError = nil
+        actionFailure = nil
         Task {
             do {
                 try await sessionStore.abortSession(sessionId: sessionId)
             } catch {
-                actionError = String(describing: error)
+                actionFailure = AgentErrorPresentation(error)
             }
         }
     }
@@ -1184,9 +1243,16 @@ struct ChatView: View {
         selectedModel?.displayName ?? L10n.string("chat.select_model")
     }
 
-    private var errorMessage: String? {
-        actionError ?? activeRecord?.errorMessage ?? hostError
+    /// One failure surface for the conversation: an action the user just took
+    /// wins over the turn's recorded failure, which wins over a host-level one.
+    private var errorNotice: AgentErrorPresentation? {
+        if let actionFailure { return actionFailure }
+        if let recorded = activeRecord?.errorMessage, !recorded.isEmpty {
+            return AgentErrorPresentation(rawMessage: recorded)
+        }
+        return hostError
     }
+
 }
 
 private enum TranscriptLayout {
@@ -1195,6 +1261,10 @@ private enum TranscriptLayout {
     static let rowSpacing: CGFloat = 12
     static let historyLoadThreshold: CGFloat = 160
     static let followThreshold: CGFloat = 72
+    /// Reading line that decides which prompt the rail marks as current.
+    static let promptReadingLine: CGFloat = 88
+    /// Widest the transcript column gets before it stops growing.
+    static let transcriptMaxWidth: CGFloat = 760
 }
 
 private struct SessionOpenFirstFrameReporter: View {
@@ -1214,6 +1284,17 @@ private struct TranscriptBottomPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+/// Where each user turn currently sits, in the transcript's own coordinate
+/// space. Only user rows report, so the cost stays proportional to the number of
+/// questions rather than the length of the conversation.
+private struct PromptRowFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] { [:] }
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
@@ -1385,7 +1466,6 @@ private struct SessionComposer: View {
     let onSelectProject: (PiProject) -> Void
     let onSelectGitBranch: (String) -> Void
     let onSelectModel: (PiModelOption) -> Void
-    let onToggleFastMode: (PiModelOption) -> Void
     let onSelectThinkingLevel: (AgentHostThinkingLevel) -> Void
     let onSelectModelOption: (AgentHostModelOption, Bool) -> Void
     let onSelectConfigOption: (
@@ -1411,7 +1491,6 @@ private struct SessionComposer: View {
     @State private var isModelPickerPresented = false
     @State private var modelSearchQuery = ""
     @FocusState private var isModelSearchFocused: Bool
-    @State private var isThinkingPickerPresented = false
     @State private var thinkingSliderValue = 0.0
     @State private var isAccessPickerPresented = false
     @State private var highlightedSlashCommandIndex = 0
@@ -1455,7 +1534,6 @@ private struct SessionComposer: View {
             isModelPickerPresented = false
             modelSearchQuery = ""
             isModelSearchFocused = false
-            isThinkingPickerPresented = false
             isAccessPickerPresented = false
             highlightedSlashCommandIndex = 0
             isSlashCommandPanelDismissed = false
@@ -1998,13 +2076,7 @@ private struct SessionComposer: View {
                 if genericModeState != nil || !genericConfigOptions.isEmpty {
                     genericConfigMenu
                 }
-                HStack(spacing: 4) {
-                    modelPicker
-
-                    if let selectedThinkingLevel {
-                        thinkingLevelMenu(selectedThinkingLevel)
-                    }
-                }
+                modelEffortPicker
 
                 if isExecuting && primaryAction != .stop {
                     primaryButton(icon: "stop.fill", accessibilityLabel: L10n.string("chat.stop"),
@@ -2119,14 +2191,41 @@ private struct SessionComposer: View {
         }
     }
 
-    private var modelPicker: some View {
+    private var isFastModeEnabled: Bool {
+        selectedModel?.supportsFastMode == true && modelOptions.fastMode.enabled
+    }
+
+    /// Model and reasoning effort share one chip and one popover: they describe
+    /// the same decision (which brain, thinking how hard), and splitting them
+    /// into two pills made the composer read as three unrelated settings.
+    private var modelEffortPicker: some View {
         Button {
             modelSearchQuery = ""
+            if let selectedThinkingLevel {
+                thinkingSliderValue = Double(
+                    availableThinkingLevels.firstIndex(of: selectedThinkingLevel) ?? 0
+                )
+            }
             isModelPickerPresented.toggle()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                if isFastModeEnabled {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.orange)
+                        .accessibilityHidden(true)
+                }
+
                 Text(selectedModelName)
                     .lineLimit(1)
+
+                if let selectedThinkingLevel {
+                    Text(selectedThinkingLevel.composerTitle)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.primary.opacity(isFastModeEnabled ? 0.48 : 0.44))
+                        .lineLimit(1)
+                }
+
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.primary.opacity(0.42))
@@ -2144,10 +2243,17 @@ private struct SessionComposer: View {
         )
         .fixedSize(horizontal: false, vertical: true)
         .disabled(availableModels.isEmpty)
-        .accessibilityLabel(L10n.string("chat.select_model"))
+        .help(composerModelSummary)
+        .accessibilityLabel(composerModelSummary)
+        .accessibilityIdentifier("session-model-effort")
         .popover(isPresented: $isModelPickerPresented, arrowEdge: .top) {
             modelPickerContent
         }
+    }
+
+    private var composerModelSummary: String {
+        let parts = [selectedModelName, selectedThinkingLevel?.composerTitle, isFastModeEnabled ? L10n.string("chat.fast_mode") : nil]
+        return parts.compactMap { $0 }.joined(separator: " · ")
     }
 
     private var genericConfigMenu: some View {
@@ -2256,8 +2362,40 @@ private struct SessionComposer: View {
             }
             .frame(height: modelPickerListHeight)
             .accessibilityIdentifier("model-picker-scroll-view")
+
+            Divider()
+                .padding(.horizontal, 12)
+
+            effortSection
+
+            Divider()
+                .padding(.horizontal, 12)
+
+            VStack(spacing: 0) {
+                modelOptionRow(
+                    title: L10n.string("chat.fast_mode"),
+                    detail: L10n.string(
+                        modelOptions.fastMode.supported
+                            ? "chat.fast_mode_detail"
+                            : "chat.fast_unsupported"
+                    ),
+                    option: .fastMode,
+                    state: modelOptions.fastMode,
+                    accessibilityIdentifier: "fast-mode-toggle"
+                )
+
+                modelOptionRow(
+                    title: L10n.string("chat.one_million_context"),
+                    detail: nil,
+                    option: .oneMillionContext,
+                    state: modelOptions.oneMillionContext,
+                    accessibilityIdentifier: "one-million-context-toggle"
+                )
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
         }
-        .frame(width: 260)
+        .frame(width: 288)
         .onAppear {
             DispatchQueue.main.async {
                 isModelSearchFocused = true
@@ -2265,128 +2403,28 @@ private struct SessionComposer: View {
         }
     }
 
-    private func modelPickerRow(_ model: PiModelOption) -> some View {
-        HStack(spacing: 4) {
-            Button {
-                onSelectModel(model)
-                isModelPickerPresented = false
-            } label: {
-                HStack(spacing: 8) {
-                    ModelProviderIcon(model: model)
-                    Text(model.displayName)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .opacity(model == selectedModel ? 1 : 0)
-                        .frame(width: 14)
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(Color.primary.opacity(0.84))
-                .padding(.leading, 9)
-                .padding(.trailing, 4)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-            }
-            .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 7))
-
-            fastModeButton(for: model)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func fastModeButton(for model: PiModelOption) -> some View {
-        let isEnabled = model == selectedModel && modelOptions.fastMode.enabled
-
-        return Button {
-            onToggleFastMode(model)
-        } label: {
-            FastModeCapsuleSwitch(
-                isOn: isEnabled,
-                isAvailable: model.supportsFastMode
-            )
-            .frame(width: 34, height: 34)
-            .contentShape(Rectangle())
-            .opacity(model.supportsFastMode ? 1 : 0)
-        }
-        .buttonStyle(.plain)
-        .disabled(!model.supportsFastMode)
-        .help(model.supportsFastMode
-            ? L10n.string("chat.fast_mode")
-            : L10n.string("chat.fast_unsupported"))
-        .accessibilityLabel(L10n.format("chat.fast_accessibility", model.displayName))
-        .accessibilityValue(
-            isEnabled
-                ? L10n.string("chat.enabled")
-                : (model.supportsFastMode
-                    ? L10n.string("chat.disabled")
-                    : L10n.string("chat.unsupported"))
-        )
-        .accessibilityIdentifier("fast-mode-\(model.id)")
-    }
-
-    private var filteredModels: [PiModelOption] {
-        SessionComposerState.filteredModels(
-            availableModels,
-            query: modelSearchQuery
-        )
-    }
-
-    private var modelPickerListHeight: CGFloat {
-        let rowCount = max(
-            SessionComposerState.visibleModelRowCount(
-                resultCount: filteredModels.count
-            ),
-            1
-        )
-        return CGFloat(rowCount * 36 + 10)
-    }
-
-    private func thinkingLevelMenu(
-        _ selectedThinkingLevel: AgentHostThinkingLevel
-    ) -> some View {
-        Button {
-            thinkingSliderValue = Double(
-                availableThinkingLevels.firstIndex(of: selectedThinkingLevel) ?? 0
-            )
-            isThinkingPickerPresented.toggle()
-        } label: {
-            Text(selectedThinkingLevel.composerTitle)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.primary.opacity(0.72))
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-        }
-        .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 9))
-        .fixedSize()
-        .help(L10n.format("chat.thinking_help", selectedThinkingLevel.composerTitle))
-        .accessibilityLabel(L10n.format("chat.thinking_help", selectedThinkingLevel.composerTitle))
-        .accessibilityIdentifier("session-thinking-level")
-        .popover(isPresented: $isThinkingPickerPresented, arrowEdge: .bottom) {
-            thinkingLevelPickerContent(selectedThinkingLevel)
-        }
-    }
-
-    private func thinkingLevelPickerContent(
-        _ selectedThinkingLevel: AgentHostThinkingLevel
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if availableThinkingLevels.count > 1 {
+    /// The reasoning slider lives in the same popover as the model list, directly
+    /// under the row that opens it.
+    @ViewBuilder
+    private var effortSection: some View {
+        if selectedThinkingLevel != nil, availableThinkingLevels.count > 1 {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 5) {
                     Text(L10n.string("chat.effort"))
                         .foregroundStyle(Color.primary.opacity(0.48))
-                    Text(pendingThinkingLevel?.composerTitle ?? selectedThinkingLevel.composerTitle)
+                    Text(pendingThinkingLevel?.composerTitle ?? selectedThinkingLevel?.composerTitle ?? "")
                         .foregroundStyle(Color.primary.opacity(0.82))
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 12.5, weight: .medium))
 
                 HStack {
                     Text(L10n.string("chat.faster"))
                     Spacer(minLength: 0)
                     Text(L10n.string("chat.smarter"))
                 }
-                .font(.system(size: 12))
-                .foregroundStyle(Color.primary.opacity(0.48))
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.primary.opacity(0.44))
 
                 ZStack {
                     HStack(spacing: 0) {
@@ -2416,33 +2454,74 @@ private struct SessionComposer: View {
                     .tint(Color.primary.opacity(0.20))
                     .accessibilityLabel(L10n.string("chat.thinking_accessibility"))
                     .accessibilityValue(
-                        pendingThinkingLevel?.composerTitle ?? selectedThinkingLevel.composerTitle
+                        pendingThinkingLevel?.composerTitle ?? selectedThinkingLevel?.composerTitle ?? ""
                     )
                     .accessibilityIdentifier("thinking-level-slider")
                 }
-                .padding(.horizontal, 8)
-                .frame(height: 38)
+                .padding(.horizontal, 6)
+                .frame(height: 32)
                 .background(
-                    adaptiveRoundedShape(cornerRadius: 12)
-                        .fill(Color.primary.opacity(0.07))
+                    adaptiveRoundedShape(cornerRadius: 10)
+                        .fill(Color.primary.opacity(0.06))
                 )
-
-                Divider()
             }
-
-            modelOptionToggle(
-                Text(L10n.string("chat.one_million_context")),
-                option: .oneMillionContext,
-                state: modelOptions.oneMillionContext,
-                accessibilityIdentifier: "one-million-context-toggle"
-            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .padding(16)
-        .frame(width: 300)
     }
 
-    private func modelOptionToggle(
-        _ title: Text,
+    private func modelPickerRow(_ model: PiModelOption) -> some View {
+        Button {
+            onSelectModel(model)
+            isModelPickerPresented = false
+        } label: {
+            HStack(spacing: 8) {
+                ModelProviderIcon(model: model)
+                Text(model.displayName)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if model.supportsFastMode {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(
+                            Color.orange.opacity(model == selectedModel && isFastModeEnabled ? 1 : 0.35)
+                        )
+                        .help(L10n.string("chat.fast_mode"))
+                }
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(model == selectedModel ? 1 : 0)
+                    .frame(width: 14)
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(Color.primary.opacity(0.84))
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        }
+        .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 7))
+        .frame(maxWidth: .infinity)
+    }
+
+    private var filteredModels: [PiModelOption] {
+        SessionComposerState.filteredModels(
+            availableModels,
+            query: modelSearchQuery
+        )
+    }
+
+    private var modelPickerListHeight: CGFloat {
+        let rowCount = max(
+            SessionComposerState.visibleModelRowCount(
+                resultCount: filteredModels.count
+            ),
+            1
+        )
+        return CGFloat(rowCount * 36 + 10)
+    }
+
+    private func modelOptionRow(
+        title: String,
+        detail: String?,
         option: AgentHostModelOption,
         state: AgentHostModelOptionState,
         accessibilityIdentifier: String
@@ -2453,13 +2532,24 @@ private struct SessionComposer: View {
                 set: { onSelectModelOption(option, $0) }
             )
         ) {
-            title
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(state.supported ? 0.82 : 0.34))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(state.supported ? 0.82 : 0.34))
+
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.primary.opacity(state.supported ? 0.42 : 0.28))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .toggleStyle(.switch)
         .controlSize(.small)
         .disabled(!state.supported)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
@@ -2806,37 +2896,7 @@ private struct ContextUsageIndicator: View {
         .accessibilityIdentifier("context-usage-indicator")
         .onHover { isContextUsagePresented = $0 }
         .popover(isPresented: $isContextUsagePresented, arrowEdge: .top) {
-            VStack(spacing: 9) {
-                if let presentation {
-                    Text(L10n.string("chat.context_window"))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.primary.opacity(0.48))
-
-                    Text(presentation.percentText)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color.primary.opacity(0.68))
-
-                    Text(presentation.detailText)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.primary.opacity(0.88))
-                }
-
-                if presentation != nil, cost != nil {
-                    Divider()
-                }
-
-                if let costText {
-                    Text(L10n.string("chat.session_cost"))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.primary.opacity(0.48))
-                    Text(costText)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color.primary.opacity(0.88))
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(minWidth: 220)
+            ContextUsagePopover(presentation: presentation, cost: cost)
         }
     }
 
@@ -2913,36 +2973,6 @@ private struct ComposerImagePreview: View {
             maxHeight: 800
         )
         .accessibilityIdentifier("image-attachment-preview")
-    }
-}
-
-private struct FastModeCapsuleSwitch: View {
-    let isOn: Bool
-    let isAvailable: Bool
-
-    private var trackOpacity: Double {
-        guard isAvailable else { return 0.07 }
-        return isOn ? 0.72 : 0.16
-    }
-
-    var body: some View {
-        ZStack {
-            Capsule()
-                .fill(Color.primary.opacity(trackOpacity))
-
-            Circle()
-                .fill(AppPalette.raisedSurface)
-                .overlay(
-                    Circle()
-                        .stroke(Color.primary.opacity(isAvailable ? 0.10 : 0.05), lineWidth: 0.5)
-                )
-                .shadow(color: AppPalette.subtleShadow, radius: 1.5, y: 0.5)
-                .frame(width: 14, height: 14)
-                .offset(x: isOn ? 7 : -7)
-        }
-        .frame(width: 32, height: 18)
-        .opacity(isAvailable ? 1 : 0.55)
-        .animation(.easeOut(duration: 0.16), value: isOn)
     }
 }
 
@@ -3693,7 +3723,7 @@ private struct AssistantThinkingView: View {
 
             if isExpanded,
                !thinking.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(verbatim: thinking.text)
+                Text(thinkingMarkdown)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.primary.opacity(0.62))
                     .lineSpacing(3)
@@ -3723,6 +3753,17 @@ private struct AssistantThinkingView: View {
                 .foregroundStyle(Color.primary.opacity(0.32))
                 .frame(width: 16, height: 16)
         }
+    }
+
+    /// Reasoning arrives as light markdown (`**step**`, inline code, links).
+    /// Inline-only parsing keeps the paragraph structure while rendering the
+    /// emphasis markers instead of showing them literally.
+    private var thinkingMarkdown: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: thinking.text, options: options))
+            ?? AttributedString(thinking.text)
     }
 
     private func toggleExpansion() {
@@ -3913,6 +3954,19 @@ private struct AssistantToolStepRow: View {
                             .foregroundStyle(Color.primary.opacity(0.38))
                             .lineLimit(1)
                             .truncationMode(.middle)
+                    }
+
+                    if let edit = editPresentation {
+                        let diff = edit.diffSummary
+                        HStack(spacing: 4) {
+                            Text("+\(diff.additions)")
+                                .foregroundStyle(Color.green)
+                            Text("−\(diff.deletions)")
+                                .foregroundStyle(Color.red)
+                        }
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .fixedSize()
                     }
 
                     if hasDetails {
@@ -4658,10 +4712,11 @@ struct ToolCallPresentation {
     }
 
     var iconName: String {
-        switch tool.name {
+        switch tool.name.lowercased() {
         case "read": return "book"
         case "bash": return "terminal"
-        case "write", "edit": return "square.and.pencil"
+        case "write": return "square.and.pencil"
+        case "edit", "editor": return "pencil"
         case "grep", "find": return "magnifyingglass"
         case "ls": return "folder"
         case "web_search": return "magnifyingglass"

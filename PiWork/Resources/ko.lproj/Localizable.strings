@@ -22,7 +22,6 @@
 /* 설정 */
 "about.menu" = "%@ 정보";
 "settings.title" = "설정";
-"settings.sidebar.section" = "PI-CODING-AGENT";
 "settings.sidebar.general" = "일반";
 "settings.sidebar.agent" = "Agent";
 "settings.sidebar.personal_preferences" = "개인 환경설정";
@@ -81,8 +80,6 @@
 "update.alert.failed.message" = "PiWork에서 GitHub Release에 연결할 수 없습니다. 인터넷 연결을 확인하고 다시 시도하세요.";
 "update.agent.checking" = "pi-coding-agent 업데이트 확인 중…";
 "update.agent.version_unavailable" = "내장 pi-coding-agent 버전을 확인할 수 없습니다.";
-"runtime.current" = "Pi %@ · 런타임 %@";
-"runtime.description" = "PiWork에 포함되어 앱과 함께만 업데이트됩니다.";
 "runtime.available" = "Pi %@ (런타임 %@)을 설치할 수 있습니다.";
 "runtime.pending" = "Pi %@이(가) 설치되었습니다. 다음 PiWork 실행 시 적용됩니다.";
 "runtime.downloading" = "런타임 다운로드 중…";
@@ -306,9 +303,9 @@
 "chat.slash.remove" = "%@ 제거";
 "chat.search_models" = "모델 검색";
 "chat.no_models" = "모델을 찾을 수 없음";
-"chat.fast_mode" = "Fast 모드";
+"chat.fast_mode" = "빠른 모드";
+"chat.fast_mode_detail" = "우선 서비스 대기열을 사용해 응답이 빨라집니다. 요금은 조금 더 높습니다";
 "chat.fast_unsupported" = "이 모델은 Fast 모드를 지원하지 않습니다";
-"chat.fast_accessibility" = "%@ Fast 모드";
 "chat.agent_settings" = "Agent 설정";
 "chat.session_plan" = "계획";
 "chat.activity.title" = "상태";
@@ -317,12 +314,9 @@
 "chat.session_cost" = "비용";
 "chat.agent_mode" = "모드";
 "chat.enabled" = "켬";
-"chat.disabled" = "끔";
-"chat.unsupported" = "지원 안 됨";
 "chat.effort" = "사고 수준";
 "chat.faster" = "더 빠르게";
 "chat.smarter" = "더 정교하게";
-"chat.thinking_help" = "사고 수준: %@";
 "chat.thinking_accessibility" = "사고 수준";
 "chat.thinking.running" = "생각 중…";
 "chat.thinking.title" = "심층 사고";
@@ -332,7 +326,6 @@
 "chat.access_help" = "접근 권한: %@";
 "chat.send" = "보내기";
 "chat.stop" = "중지";
-"chat.context_window" = "컨텍스트 창";
 "chat.suggestion.explore.title" = "코드 탐색 및 이해";
 "chat.suggestion.explore.prompt" = "이 프로젝트의 코드 구조를 탐색하고 이해할 수 있게 설명해 주세요";
 "chat.suggestion.build.title" = "기능, 앱 또는 도구 만들기";
@@ -396,7 +389,6 @@
 "context.recalculating" = "사용량 다시 계산 중";
 "context.percent_used" = "%ld%% 사용됨";
 "context.total" = "총 %@ 토큰";
-"context.used_total" = "%@/%@ 토큰 사용됨";
 "context.accessibility" = "컨텍스트 창, %@, %@";
 
 /* 스킬 */
@@ -853,3 +845,51 @@
 "update.sidebar.restarting" = "재시작 중";
 
 "changes.no_matches" = "필터와 일치하는 파일이 없습니다.";
+
+/* 대화 오류 */
+"chat.error.upstream.title" = "모델 서비스에 연결하지 못했습니다";
+"chat.error.upstream.detail" = "요청이 업스트림 엔드포인트에 도달하지 않았으며, 이번 턴은 아무것도 변경하지 않았습니다.";
+"chat.error.upstream.recovery" = "네트워크나 프록시를 확인한 뒤 다시 시도하거나 다른 모델로 바꿔 보세요.";
+
+"chat.error.auth.title" = "모델 서비스 인증에 실패했습니다";
+"chat.error.auth.detail" = "자격 증명이 유효하지 않거나 만료되어 업스트림이 요청을 거부했습니다.";
+"chat.error.auth.recovery" = "설정 → 모델 서비스에서 다시 로그인하거나 키를 업데이트하세요.";
+
+"chat.error.rate_limit.title" = "요청이 너무 많습니다";
+"chat.error.rate_limit.detail" = "업스트림이 잠시 새 요청을 받지 않고 있습니다.";
+"chat.error.rate_limit.recovery" = "잠시 후 다시 시도하세요.";
+
+"chat.error.timeout.title" = "요청 시간이 초과되었습니다";
+"chat.error.timeout.detail" = "업스트림이 제때 응답하지 않았습니다.";
+"chat.error.timeout.recovery" = "다시 시도하거나 더 빠른 모델로 바꿔 보세요.";
+
+"chat.error.connection.title" = "에이전트 연결이 끊겼습니다";
+"chat.error.connection.detail" = "백그라운드 런타임이 종료되어 이번 턴이 중단되었습니다.";
+"chat.error.connection.recovery" = "다시 시도하면 연결하고 이 세션을 이어갑니다.";
+
+"chat.error.busy.title" = "세션이 아직 실행 중입니다";
+"chat.error.busy.detail" = "이전 지시가 끝나지 않아 이 작업은 전송되지 않았습니다.";
+"chat.error.busy.recovery" = "현재 단계가 끝난 뒤 다시 시도하세요.";
+
+"chat.error.internal.title" = "이 단계를 완료하지 못했습니다";
+"chat.error.internal.detail" = "에이전트에서 예기치 않은 오류가 발생해 이번 턴이 중지되었습니다.";
+"chat.error.internal.recovery" = "한 번 더 시도해 보세요. 반복되면 세부 정보를 열어 알려 주세요.";
+
+"chat.error.details.show" = "세부 정보 보기";
+"chat.error.details.hide" = "세부 정보 닫기";
+
+/* 컨텍스트 사용량 */
+"context.title" = "컨텍스트 사용량";
+"context.used_of_window" = "%@ / %@ 사용";
+"context.segment.system" = "시스템 프롬프트";
+"context.segment.tools" = "도구 정의";
+"context.segment.messages" = "대화";
+"context.segment.mcp" = "커넥터 및 MCP";
+"context.segment.skills" = "스킬";
+"context.segment.context" = "프로젝트 컨텍스트";
+"chat.prompt_rail.title" = "프롬프트";
+"chat.prompt_rail.open" = "프롬프트 목록 열기";
+"chat.prompt_rail.position" = "%1$d / %2$d";
+"chat.prompt_rail.image_only" = "이미지 ×%d";
+"chat.prompt_rail.image_count" = "이미지 %d개";
+"chat.prompt_rail.mark" = "%1$d번째 프롬프트: %2$@";

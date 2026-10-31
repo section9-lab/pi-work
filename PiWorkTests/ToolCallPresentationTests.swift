@@ -2,6 +2,13 @@ import XCTest
 @testable import PiWork
 
 final class ToolCallPresentationTests: XCTestCase {
+    func testEditUsesPencilIconIncludingEditorAlias() {
+        for name in ["edit", "editor", "Editor"] {
+            let tool = SessionToolRecord(id: name, name: name, summary: "", state: .completed, isError: nil)
+            XCTAssertEqual(ToolCallPresentation(tool: tool).iconName, "pencil")
+        }
+    }
+
     func testBashInputShowsOnlyCommand() throws {
         let input = try JSONDecoder().decode(AgentHostJSONValue.self, from: Data(
             #"{"command":"echo \"hello\"\npwd","timeout":120}"#.utf8

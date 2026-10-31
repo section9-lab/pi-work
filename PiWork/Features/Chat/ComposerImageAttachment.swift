@@ -41,22 +41,24 @@ enum ComposerImageAttachmentError: Error, Equatable {
     case tooManyImages
     case totalTooLarge
 
-    var message: String {
+    var localizationKey: String {
         switch self {
         case .unsupportedImage:
-            return L10n.string("chat.image.error.unsupported")
+            return "chat.image.error.unsupported"
         case .sourceTooLarge:
-            return L10n.string("chat.image.error.source_too_large")
+            return "chat.image.error.source_too_large"
         case .imageDimensionsTooLarge:
-            return L10n.string("chat.image.error.dimensions_too_large")
+            return "chat.image.error.dimensions_too_large"
         case .imageTooLarge:
-            return L10n.string("chat.image.error.image_too_large")
+            return "chat.image.error.image_too_large"
         case .tooManyImages:
-            return L10n.string("chat.image.error.too_many")
+            return "chat.image.error.too_many"
         case .totalTooLarge:
-            return L10n.string("chat.image.error.total_too_large")
+            return "chat.image.error.total_too_large"
         }
     }
+
+    var message: String { L10n.string(localizationKey) }
 }
 
 enum ComposerImagePasteboard {

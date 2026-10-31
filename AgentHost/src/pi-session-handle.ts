@@ -1,5 +1,6 @@
 import {
   createAgentSession,
+  estimateTokens,
   type AgentSession,
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
@@ -28,6 +29,8 @@ import {
   type QueuedInput,
   type SessionHandleEvent,
   type SessionHandleSnapshot,
+  type SessionContextSegment,
+  type SessionContextSegmentId,
   type SessionContextUsage,
   type SessionMessage,
   type SessionMessageContent,
@@ -85,6 +88,36 @@ const oneMillionContextWindow = 1_050_000;
 const gitBranchEntryType = "pi-work.git-branch";
 const builtInPiToolNames = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const snapshotToolOutputPreviewBytes = 16 * 1024;
+
+/** Display order of the context breakdown; the largest slice also absorbs rounding. */
+const contextSegmentOrder: SessionContextSegmentId[] = [
+  "system",
+  "tools",
+  "messages",
+  "mcp",
+  "skills",
+  "context",
+];
+
+/** Named system prompt sections map onto the categories the popover shows. */
+function contextSegmentForSection(name: string): SessionContextSegmentId {
+  switch (name) {
+    case "skills":
+      return "skills";
+    case "project_context":
+      return "context";
+    case "tools":
+      return "tools";
+    default:
+      return "system";
+  }
+}
+
+/** Rough token estimate for a chunk of text (4 characters per token). */
+function estimateChars(value: unknown): number {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return Math.ceil((text?.length ?? 0) / 4);
+}
 
 function transcriptPageStart(
   messages: ReadonlyArray<AgentSession["messages"][number]>,
@@ -490,11 +523,57 @@ export class PiSessionHandle implements SessionHandle {
   contextUsage(): SessionContextUsage | undefined {
     const usage = this.session.getContextUsage();
     if (!usage) return undefined;
-    return {
+    const base: SessionContextUsage = {
       tokens: usage.tokens,
       contextWindow: usage.contextWindow,
       percent: usage.percent,
     };
+    if (!usage.tokens || usage.tokens <= 0) return base;
+    const segments = this.contextSegments(usage.tokens);
+    return segments.length > 0 ? { ...base, segments } : base;
+  }
+
+  /**
+   * Splits the context into the parts the model actually receives: the named
+   * sections of the system message, the tool declarations attached to it, and
+   * the conversation itself. Token counts are character estimates, then scaled
+   * onto the reported total so the rows add up to the headline number.
+   */
+  private contextSegments(totalTokens: number): SessionContextSegment[] {
+    const tokens = new Map<SessionContextSegmentId, number>();
+    const add = (id: SessionContextSegmentId, count: number) => {
+      if (count <= 0) return;
+      tokens.set(id, (tokens.get(id) ?? 0) + count);
+    };
+
+    for (const message of this.session.messages) {
+      if (message.role === "system") {
+        add("system", estimateChars(message.content));
+        for (const [name, section] of Object.entries(message.sections ?? {})) {
+          if (section) add(contextSegmentForSection(name), estimateChars(section));
+        }
+        for (const tool of message.toolsAdded ?? []) {
+          add(isMcpToolName(tool.name) ? "mcp" : "tools", estimateChars(JSON.stringify(tool)));
+        }
+        continue;
+      }
+      add("messages", estimateTokens(message));
+    }
+
+    const entries = contextSegmentOrder
+      .map((id) => ({ id, estimate: tokens.get(id) ?? 0 }))
+      .filter((entry) => entry.estimate > 0);
+    const estimated = entries.reduce((sum, entry) => sum + entry.estimate, 0);
+    if (estimated <= 0) return [];
+
+    const segments: SessionContextSegment[] = entries.map((entry) => ({
+      id: entry.id,
+      tokens: Math.floor((entry.estimate / estimated) * totalTokens),
+    }));
+    // Push the rounding remainder onto the largest slice so the rows sum to the total.
+    const largest = segments.reduce((best, entry) => (entry.tokens > best.tokens ? entry : best), segments[0]);
+    largest.tokens += totalTokens - segments.reduce((sum, entry) => sum + entry.tokens, 0);
+    return segments;
   }
 
   commands(): SessionSlashCommand[] {
