@@ -302,8 +302,8 @@ struct SkillsCatalogView: View {
                             Task { await installedSkillsStore.install(item) }
                         }
                     )
-                        .task(id: item.summary == nil) {
-                            guard item.summary == nil else { return }
+                        .task(id: item.needsSummary) {
+                            guard item.needsSummary else { return }
                             await store.loadSummary(for: item.id)
                         }
                 }
@@ -801,14 +801,7 @@ private struct SkillsCatalogCard: View {
                 downloadControl
             }
 
-            Text(item.summary ?? L10n.string("skills.loading_description"))
-                .font(.system(size: 13))
-                .foregroundStyle(Color.primary.opacity(0.54))
-                .lineSpacing(3)
-                .lineLimit(3, reservesSpace: true)
-                .truncationMode(.tail)
-                .redacted(reason: item.summary == nil ? .placeholder : [])
-                .padding(.top, 10)
+            summaryArea
 
             Spacer(minLength: 18)
 
@@ -896,6 +889,40 @@ private struct SkillsCatalogCard: View {
             .help(L10n.string("skills.download_help"))
             .accessibilityLabel(L10n.format("skills.download_accessibility", displayName))
         }
+    }
+
+    /// Loading reads as a two-line skeleton and a page without a description
+    /// reads as a muted sentence, so neither state is an empty gap.
+    @ViewBuilder
+    private var summaryArea: some View {
+        if item.needsSummary {
+            VStack(alignment: .leading, spacing: 7) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.primary.opacity(0.09))
+                    .frame(height: 11)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(width: 132, height: 11)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 48, alignment: .top)
+            .padding(.top, 12)
+            .accessibilityLabel(L10n.string("skills.loading_description"))
+        } else {
+            Text(displaySummary)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.primary.opacity(item.summaryUnavailable ? 0.40 : 0.54))
+                .lineSpacing(3)
+                .lineLimit(3, reservesSpace: true)
+                .truncationMode(.tail)
+                .padding(.top, 10)
+        }
+    }
+
+    /// A card whose page carries no description says so instead of showing a
+    /// skeleton bar forever.
+    private var displaySummary: String {
+        item.summary ?? L10n.string("skills.summary_unavailable")
     }
 
     private var displayName: String {

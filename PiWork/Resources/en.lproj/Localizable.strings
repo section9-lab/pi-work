@@ -420,6 +420,7 @@
 "skills.search_failed" = "Unable to search skills.sh";
 "skills.search_again" = "Search Again";
 "skills.loading_description" = "Loading skill description";
+"skills.summary_unavailable" = "No description published for this skill";
 "skills.official" = "Official";
 "skills.install_accessibility" = "%@, %@ installs";
 "skills.open_hint" = "Open on skills.sh";

@@ -478,10 +478,12 @@ final class SkillsCatalogTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Text(item.summary"))
+        XCTAssertTrue(source.contains("Text(displaySummary)"))
+        XCTAssertTrue(source.contains("L10n.string(\"skills.summary_unavailable\")"))
         XCTAssertTrue(source.contains(".lineLimit(3, reservesSpace: true)"))
         XCTAssertTrue(source.contains(".truncationMode(.tail)"))
         XCTAssertTrue(source.contains("await store.loadSummary(for: item.id)"))
+        XCTAssertTrue(source.contains(".task(id: item.needsSummary)"))
         XCTAssertFalse(source.contains("的可复用 Agent 技能"))
     }
 
@@ -771,6 +773,83 @@ final class SkillsCatalogTests: XCTestCase {
     }
 
     @MainActor
+    func testSummarylessSkillIsRememberedInsteadOfRefetched() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let snapshot = SkillsCatalogSnapshot(items: fixtureItems(), fetchedAt: now)
+        let summaryClient = StubSkillsSummaryFetcher(
+            result: .failure(SkillsCatalogParsingError.noSummary)
+        )
+        let cache = MemorySkillsCatalogCache(snapshot: snapshot)
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            summaryClient: summaryClient,
+            cache: cache
+        )
+
+        await store.loadIfNeeded(now: now)
+        await store.loadSummary(for: "openai/skills/openai-docs")
+        await store.loadSummary(for: "openai/skills/openai-docs")
+
+        XCTAssertEqual(summaryClient.requestedIDs, ["openai/skills/openai-docs"])
+        XCTAssertTrue(store.items.first?.summaryUnavailable ?? false)
+        XCTAssertFalse(store.items.first?.needsSummary ?? true)
+        XCTAssertTrue(cache.savedSnapshots.last?.items.first?.summaryUnavailable ?? false)
+    }
+
+    @MainActor
+    func testSummaryFetchingKeepsOnlyAFewPagesOpenAtOnce() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let items = (0..<12).map { index in
+            SkillsCatalogItem(
+                source: "owner/skills",
+                slug: "skill-\(index)",
+                name: "Skill \(index)",
+                installs: index,
+                isOfficial: false
+            )
+        }
+        let summaryClient = ConcurrencyTrackingSummaryFetcher()
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            summaryClient: summaryClient,
+            cache: MemorySkillsCatalogCache(
+                snapshot: SkillsCatalogSnapshot(items: items, fetchedAt: now)
+            )
+        )
+
+        await store.loadIfNeeded(now: now)
+        await withTaskGroup(of: Void.self) { group in
+            for item in items {
+                group.addTask { @MainActor in
+                    await store.loadSummary(for: item.id)
+                }
+            }
+        }
+
+        let peak = await summaryClient.peakConcurrency
+        let completed = await summaryClient.completedCount
+        XCTAssertLessThanOrEqual(peak, 4)
+        XCTAssertEqual(completed, items.count)
+        XCTAssertEqual(store.items.filter(\.needsSummary).count, 0)
+    }
+
+    func testCatalogItemDecodesSnapshotsWrittenBeforeTheUnavailableFlag() throws {
+        let legacy = """
+        {"source":"openai/skills","slug":"openai-docs","name":"OpenAI Docs",\
+        "installs":3200,"isOfficial":true,"summary":"Existing summary"}
+        """
+
+        let item = try JSONDecoder().decode(
+            SkillsCatalogItem.self,
+            from: Data(legacy.utf8)
+        )
+
+        XCTAssertEqual(item.summary, "Existing summary")
+        XCTAssertFalse(item.summaryUnavailable)
+        XCTAssertFalse(item.needsSummary)
+    }
+
+    @MainActor
     func testStoreSearchesRemoteAndReusesNormalizedInMemoryCache() async {
         let remoteItem = SkillsCatalogItem(
             source: "citrolabs/ego-lite",
@@ -901,6 +980,26 @@ private final class StubSkillsSummaryFetcher: SkillsSummaryFetching {
     func fetchSummary(for item: SkillsCatalogItem) async throws -> String {
         requestedIDs.append(item.id)
         return try result.get()
+    }
+}
+
+/// Records how many summary requests are open at the same time so the store's
+/// gate can be asserted.
+private actor ConcurrencyTrackingSummaryFetcher: SkillsSummaryFetching {
+    private var active = 0
+    private var peak = 0
+    private var completed = 0
+
+    var peakConcurrency: Int { peak }
+    var completedCount: Int { completed }
+
+    func fetchSummary(for item: SkillsCatalogItem) async throws -> String {
+        active += 1
+        peak = max(peak, active)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        active -= 1
+        completed += 1
+        return "Summary for \(item.name)"
     }
 }
 

@@ -10,13 +10,20 @@ struct SkillsCatalogItem: Codable, Equatable, Identifiable {
     let isOfficial: Bool
     let summary: String?
 
+    /// Set once the skill page answered without a usable summary — a missing
+    /// section, a 404, or a body we cannot parse. Persisted with the snapshot so
+    /// a relaunch does not spend another round trip on a page that will never
+    /// produce a description.
+    let summaryUnavailable: Bool
+
     init(
         source: String,
         slug: String,
         name: String,
         installs: Int,
         isOfficial: Bool,
-        summary: String? = nil
+        summary: String? = nil,
+        summaryUnavailable: Bool = false
     ) {
         self.source = source
         self.slug = slug
@@ -24,9 +31,38 @@ struct SkillsCatalogItem: Codable, Equatable, Identifiable {
         self.installs = installs
         self.isOfficial = isOfficial
         self.summary = summary
+        self.summaryUnavailable = summaryUnavailable
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case slug
+        case name
+        case installs
+        case isOfficial
+        case summary
+        case summaryUnavailable
+    }
+
+    /// Snapshots written before the flag existed must still decode.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(String.self, forKey: .source)
+        slug = try container.decode(String.self, forKey: .slug)
+        name = try container.decode(String.self, forKey: .name)
+        installs = try container.decode(Int.self, forKey: .installs)
+        isOfficial = try container.decode(Bool.self, forKey: .isOfficial)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        summaryUnavailable = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .summaryUnavailable
+        ) ?? false
     }
 
     var id: String { "\(source)/\(slug)" }
+
+    /// Whether the card should still ask the site for a description.
+    var needsSummary: Bool { summary == nil && !summaryUnavailable }
 
     var pageURL: URL? {
         let path = source.contains("/") ? id : "site/\(id)"
@@ -41,6 +77,18 @@ struct SkillsCatalogItem: Codable, Equatable, Identifiable {
             installs: installs,
             isOfficial: isOfficial,
             summary: summary
+        )
+    }
+
+    func withSummaryUnavailable() -> SkillsCatalogItem {
+        SkillsCatalogItem(
+            source: source,
+            slug: slug,
+            name: name,
+            installs: installs,
+            isOfficial: isOfficial,
+            summary: nil,
+            summaryUnavailable: true
         )
     }
 }
@@ -452,7 +500,10 @@ struct RemoteSkillsSummaryClient: SkillsSummaryFetching {
         var request = URLRequest(
             url: url,
             cachePolicy: .useProtocolCachePolicy,
-            timeoutInterval: 30
+            // A page that has not answered in twelve seconds is not worth
+            // holding a grid slot for; the card falls back and the next visit
+            // retries it.
+            timeoutInterval: 12
         )
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
 
@@ -497,6 +548,37 @@ struct DiskSkillsCatalogCache: SkillsCatalogCaching {
     }
 }
 
+/// Caps how many skill pages are open at once. Descriptions only exist on the
+/// per-skill page, so a grid of 120 cards used to open 120 HTML requests and
+/// the ones the reader was actually looking at had to queue behind the rest.
+actor SkillsSummaryGate {
+    private let limit: Int
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func acquire() async {
+        if active < limit {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+        active += 1
+    }
+
+    func release() {
+        guard active > 0 else { return }
+        active -= 1
+        guard !waiters.isEmpty else { return }
+        waiters.removeFirst().resume()
+    }
+}
+
 @MainActor
 final class SkillsCatalogStore: ObservableObject {
     @Published private(set) var items: [SkillsCatalogItem] = []
@@ -514,6 +596,7 @@ final class SkillsCatalogStore: ObservableObject {
     private let summaryClient: SkillsSummaryFetching
     private let cache: SkillsCatalogCaching
     private let cachePolicy: SkillsCatalogCachePolicy
+    private let summaryGate = SkillsSummaryGate(limit: 4)
     private var didLoad = false
     private var loadingSummaryIDs: Set<String> = []
     private var searchCache: [String: [SkillsCatalogItem]] = [:]
@@ -606,40 +689,80 @@ final class SkillsCatalogStore: ObservableObject {
         guard
             let item = items.first(where: { $0.id == id })
                 ?? searchResults.first(where: { $0.id == id }),
-            item.summary == nil,
+            item.needsSummary,
             loadingSummaryIDs.insert(id).inserted
         else { return }
         defer { loadingSummaryIDs.remove(id) }
 
-        do {
-            let summary = try await summaryClient.fetchSummary(for: item)
-            guard !Task.isCancelled else { return }
+        await summaryGate.acquire()
+        let outcome = await resolveSummary(for: item)
+        await summaryGate.release()
 
-            var updatedCatalog = false
-            if let index = items.firstIndex(where: { $0.id == id }), items[index].summary == nil {
-                items[index] = items[index].withSummary(summary)
-                updatedCatalog = true
-            }
-            if let index = searchResults.firstIndex(where: { $0.id == id }),
-               searchResults[index].summary == nil {
-                searchResults[index] = searchResults[index].withSummary(summary)
-            }
-            for query in Array(searchCache.keys) {
-                guard
-                    var cachedResults = searchCache[query],
-                    let index = cachedResults.firstIndex(where: { $0.id == id }),
-                    cachedResults[index].summary == nil
-                else { continue }
-                cachedResults[index] = cachedResults[index].withSummary(summary)
-                searchCache[query] = cachedResults
-            }
-
-            if updatedCatalog, let lastUpdated {
-                try? cache.save(SkillsCatalogSnapshot(items: items, fetchedAt: lastUpdated))
-            }
-        } catch {
+        switch outcome {
+        case .cancelled:
             return
+        case .summary(let summary):
+            storeSummaryChange(id: id) { $0.withSummary(summary) }
+        case .unavailable:
+            storeSummaryChange(id: id) { $0.withSummaryUnavailable() }
         }
+    }
+
+    private enum SummaryOutcome {
+        case summary(String)
+        case unavailable
+        case cancelled
+    }
+
+    private func resolveSummary(for item: SkillsCatalogItem) async -> SummaryOutcome {
+        for attempt in 0..<2 {
+            do {
+                let summary = try await summaryClient.fetchSummary(for: item)
+                return Task.isCancelled ? .cancelled : .summary(summary)
+            } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                    return .cancelled
+                }
+                // Only a transport hiccup deserves a second try. A page that
+                // answered without a summary will answer the same way again.
+                if error is URLError, attempt == 0 {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    if Task.isCancelled { return .cancelled }
+                    continue
+                }
+                return .unavailable
+            }
+        }
+        return .unavailable
+    }
+
+    /// Writes the resolved description into the catalog, live search results and
+    /// cached queries, then persists it so the next launch starts warm.
+    private func storeSummaryChange(
+        id: String,
+        transform: (SkillsCatalogItem) -> SkillsCatalogItem
+    ) {
+        var updatedCatalog = false
+        if let index = items.firstIndex(where: { $0.id == id }), items[index].needsSummary {
+            items[index] = transform(items[index])
+            updatedCatalog = true
+        }
+        if let index = searchResults.firstIndex(where: { $0.id == id }),
+           searchResults[index].needsSummary {
+            searchResults[index] = transform(searchResults[index])
+        }
+        for query in Array(searchCache.keys) {
+            guard
+                var cachedResults = searchCache[query],
+                let index = cachedResults.firstIndex(where: { $0.id == id }),
+                cachedResults[index].needsSummary
+            else { continue }
+            cachedResults[index] = transform(cachedResults[index])
+            searchCache[query] = cachedResults
+        }
+
+        guard updatedCatalog, let lastUpdated else { return }
+        try? cache.save(SkillsCatalogSnapshot(items: items, fetchedAt: lastUpdated))
     }
 
     private func fetch(ignoringCache: Bool, now: Date) async -> Bool {

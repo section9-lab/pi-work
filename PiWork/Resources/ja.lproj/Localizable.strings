@@ -420,6 +420,7 @@
 "skills.search_failed" = "skills.sh を検索できません";
 "skills.search_again" = "再検索";
 "skills.loading_description" = "スキルの説明を読み込み中";
+"skills.summary_unavailable" = "このスキルには説明がありません";
 "skills.official" = "公式";
 "skills.install_accessibility" = "%@、%@ 回インストール";
 "skills.open_hint" = "skills.sh で開く";

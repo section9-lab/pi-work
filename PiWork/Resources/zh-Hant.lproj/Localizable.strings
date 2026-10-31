@@ -420,6 +420,7 @@
 "skills.search_failed" = "無法搜尋 skills.sh";
 "skills.search_again" = "重新搜尋";
 "skills.loading_description" = "正在讀取技能描述";
+"skills.summary_unavailable" = "這個技能沒有提供簡介";
 "skills.official" = "官方";
 "skills.install_accessibility" = "%@，安裝 %@ 次";
 "skills.open_hint" = "在 skills.sh 中開啟";

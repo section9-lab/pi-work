@@ -420,6 +420,7 @@
 "skills.search_failed" = "No se puede buscar en skills.sh";
 "skills.search_again" = "Buscar de nuevo";
 "skills.loading_description" = "Cargando descripción de la habilidad";
+"skills.summary_unavailable" = "Esta habilidad no tiene descripción";
 "skills.official" = "Oficial";
 "skills.install_accessibility" = "%@, %@ instalaciones";
 "skills.open_hint" = "Abrir en skills.sh";

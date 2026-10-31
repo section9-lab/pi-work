@@ -420,6 +420,7 @@
 "skills.search_failed" = "skills.sh를 검색할 수 없습니다";
 "skills.search_again" = "다시 검색";
 "skills.loading_description" = "스킬 설명 불러오는 중";
+"skills.summary_unavailable" = "이 스킬에는 설명이 없습니다";
 "skills.official" = "공식";
 "skills.install_accessibility" = "%@, 설치 %@회";
 "skills.open_hint" = "skills.sh에서 열기";
