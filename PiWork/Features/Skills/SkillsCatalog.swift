@@ -91,6 +91,19 @@ struct SkillsCatalogItem: Codable, Equatable, Identifiable {
             summaryUnavailable: true
         )
     }
+
+    /// Forgets a "no description" verdict so the card asks the site again.
+    func withSummaryReload() -> SkillsCatalogItem {
+        SkillsCatalogItem(
+            source: source,
+            slug: slug,
+            name: name,
+            installs: installs,
+            isOfficial: isOfficial,
+            summary: summary,
+            summaryUnavailable: false
+        )
+    }
 }
 
 struct SkillsCLIInstallCommand: Equatable {
@@ -247,51 +260,143 @@ struct SkillsCatalogSearchParser {
 }
 
 struct SkillsSummaryPageParser {
+    /// Skill pages publish their description in one of two places: a rendered
+    /// `Summary` block, or — for pages without that block — the document's
+    /// `description` meta tag, which every skill page carries. Reading only the
+    /// first form left most of the catalog looking undescribed.
     func parse(_ data: Data) throws -> String {
         guard let html = String(data: data, encoding: .utf8) else {
             throw SkillsCatalogParsingError.invalidEncoding
         }
 
-        let headerExpression = try NSRegularExpression(
-            pattern: #">\s*Summary\s*</div>"#,
-            options: .caseInsensitive
-        )
-        let fullRange = NSRange(html.startIndex..<html.endIndex, in: html)
-        guard
-            let headerMatch = headerExpression.firstMatch(in: html, range: fullRange),
-            let headerRange = Range(headerMatch.range, in: html)
-        else {
-            throw SkillsCatalogParsingError.noSummary
+        if let summary = summarySection(in: html) {
+            return summary
         }
+        if let description = metaDescription(in: html) {
+            return description
+        }
+        throw SkillsCatalogParsingError.noSummary
+    }
+
+    private func summarySection(in html: String) -> String? {
+        guard
+            let headerExpression = try? NSRegularExpression(
+                pattern: #">\s*Summary\s*</div>"#,
+                options: .caseInsensitive
+            ),
+            let headerMatch = headerExpression.firstMatch(
+                in: html,
+                range: NSRange(html.startIndex..<html.endIndex, in: html)
+            ),
+            let headerRange = Range(headerMatch.range, in: html)
+        else { return nil }
 
         let section = String(html[headerRange.upperBound...])
-        let paragraphExpression = try NSRegularExpression(
-            pattern: #"<p(?:\s[^>]*)?>([\s\S]*?)</p>"#,
-            options: .caseInsensitive
-        )
-        let sectionRange = NSRange(section.startIndex..<section.endIndex, in: section)
         guard
-            let paragraphMatch = paragraphExpression.firstMatch(in: section, range: sectionRange),
+            let paragraphExpression = try? NSRegularExpression(
+                pattern: #"<p(?:\s[^>]*)?>([\s\S]*?)</p>"#,
+                options: .caseInsensitive
+            ),
+            let paragraphMatch = paragraphExpression.firstMatch(
+                in: section,
+                range: NSRange(section.startIndex..<section.endIndex, in: section)
+            ),
             let paragraphRange = Range(paragraphMatch.range(at: 1), in: section)
-        else {
-            throw SkillsCatalogParsingError.noSummary
+        else { return nil }
+
+        let stripped = String(section[paragraphRange]).strippingHTMLTags()
+        let normalized = normalize(stripped)
+        guard !normalized.isEmpty, !isPlaceholder(normalized) else { return nil }
+        return firstSentence(in: normalized)
+    }
+
+    /// Falls back to `<meta name="description">` (or its Open Graph and Twitter
+    /// twins). Skill pages that publish nothing real fill this tag with a
+    /// generated "… — an installable skill for AI agents" sentence, so that
+    /// wording is treated as absent rather than shown as content.
+    private func metaDescription(in html: String) -> String? {
+        guard
+            let tagExpression = try? NSRegularExpression(
+                pattern: #"<meta\b[^>]*>"#,
+                options: .caseInsensitive
+            )
+        else { return nil }
+
+        var candidates: [String: String] = [:]
+        let matches = tagExpression.matches(
+            in: html,
+            range: NSRange(html.startIndex..<html.endIndex, in: html)
+        )
+        for match in matches {
+            guard
+                let tagRange = Range(match.range, in: html),
+                let attributes = metaAttributes(in: String(html[tagRange])),
+                let key = (attributes["name"] ?? attributes["property"])?.lowercased(),
+                descriptionKeys.contains(key),
+                let content = attributes["content"]
+            else { continue }
+            candidates[key] = content
         }
 
-        let withoutTags = try NSRegularExpression(pattern: #"<[^>]+>"#)
-            .stringByReplacingMatches(
-                in: String(section[paragraphRange]),
-                range: NSRange(location: 0, length: section[paragraphRange].utf16.count),
-                withTemplate: ""
+        for key in ["description", "og:description", "twitter:description"] {
+            guard let content = candidates[key] else { continue }
+            let normalized = normalize(decodeHTMLEntities(in: content))
+            guard !normalized.isEmpty, !isPlaceholder(normalized) else { continue }
+            return normalized
+        }
+        return nil
+    }
+
+    private var descriptionKeys: Set<String> {
+        ["description", "og:description", "twitter:description"]
+    }
+
+    private func metaAttributes(in tag: String) -> [String: String]? {
+        guard
+            let expression = try? NSRegularExpression(
+                pattern: #"([a-zA-Z:-]+)\s*=\s*"([^"]*)""#
             )
-        let normalized = decodeHTMLEntities(in: withoutTags)
+        else { return nil }
+
+        var attributes: [String: String] = [:]
+        for match in expression.matches(
+            in: tag,
+            range: NSRange(tag.startIndex..<tag.endIndex, in: tag)
+        ) {
+            guard
+                let nameRange = Range(match.range(at: 1), in: tag),
+                let valueRange = Range(match.range(at: 2), in: tag)
+            else { continue }
+            attributes[String(tag[nameRange]).lowercased()] = String(tag[valueRange])
+        }
+        return attributes.isEmpty ? nil : attributes
+    }
+
+    /// skill.sh generates two flavours of filler for pages that publish no real
+    /// description — one in the meta tag, one in the Summary block. Neither is
+    /// content, so the card should say the description is missing instead of
+    /// showing generated boilerplate.
+    private func isPlaceholder(_ text: String) -> Bool {
+        if text.contains("an installable skill for AI agents") {
+            return true
+        }
+        guard
+            let expression = try? NSRegularExpression(
+                pattern: #"^Install the .{0,80} skill for your AI agent"#,
+                options: .caseInsensitive
+            )
+        else { return false }
+        return expression.firstMatch(
+            in: text,
+            range: NSRange(text.startIndex..<text.endIndex, in: text)
+        ) != nil
+    }
+
+    private func normalize(_ text: String) -> String {
+        text
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        guard !normalized.isEmpty else {
-            throw SkillsCatalogParsingError.noSummary
-        }
-
-        return firstSentence(in: normalized)
     }
 
     private func firstSentence(in text: String) -> String {
@@ -318,6 +423,19 @@ struct SkillsSummaryPageParser {
         ].reduce(text) { result, entity in
             result.replacingOccurrences(of: entity.0, with: entity.1)
         }
+    }
+}
+
+private extension String {
+    func strippingHTMLTags() -> String {
+        guard
+            let expression = try? NSRegularExpression(pattern: #"<[^>]+>"#)
+        else { return self }
+        return expression.stringByReplacingMatches(
+            in: self,
+            range: NSRange(startIndex..<endIndex, in: self),
+            withTemplate: ""
+        )
     }
 }
 
@@ -354,8 +472,46 @@ struct SkillsCatalogCachePolicy {
 }
 
 struct SkillsCatalogSnapshot: Codable, Equatable {
+    /// Bumped whenever the description reader learns a new place to look. A
+    /// snapshot written by an older reader cannot be trusted to declare a skill
+    /// undescribed, so those verdicts are dropped when it loads.
+    static let currentSummaryVersion = 1
+
     let items: [SkillsCatalogItem]
     let fetchedAt: Date
+    let summaryVersion: Int
+
+    init(
+        items: [SkillsCatalogItem],
+        fetchedAt: Date,
+        summaryVersion: Int = SkillsCatalogSnapshot.currentSummaryVersion
+    ) {
+        self.items = items
+        self.fetchedAt = fetchedAt
+        self.summaryVersion = summaryVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case items
+        case fetchedAt
+        case summaryVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([SkillsCatalogItem].self, forKey: .items)
+        fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
+        summaryVersion = try container.decodeIfPresent(Int.self, forKey: .summaryVersion) ?? 0
+    }
+
+    /// Re-asks for descriptions that a previous build gave up on.
+    func withCurrentSummaryVersion() -> SkillsCatalogSnapshot {
+        guard summaryVersion < Self.currentSummaryVersion else { return self }
+        return SkillsCatalogSnapshot(
+            items: items.map { $0.withSummaryReload() },
+            fetchedAt: fetchedAt
+        )
+    }
 }
 
 private struct RawSkill: Decodable {
@@ -508,11 +664,11 @@ struct RemoteSkillsSummaryClient: SkillsSummaryFetching {
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
-        guard
-            let httpResponse = response as? HTTPURLResponse,
-            (200..<300).contains(httpResponse.statusCode)
-        else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw SkillsCatalogNetworkError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw SkillsCatalogNetworkError.httpStatus(httpResponse.statusCode)
         }
         return try parser.parse(data)
     }
@@ -600,6 +756,10 @@ final class SkillsCatalogStore: ObservableObject {
     private var didLoad = false
     private var loadingSummaryIDs: Set<String> = []
     private var searchCache: [String: [SkillsCatalogItem]] = [:]
+    /// Descriptions keyed by slug. The same skill is republished under several
+    /// owners, and some of those publishers ship an empty page, so a card with
+    /// nothing of its own borrows from a sibling that already has the text.
+    private var summariesBySlug: [String: String] = [:]
 
     init(
         client: SkillsCatalogFetching = RemoteSkillsCatalogClient(),
@@ -621,8 +781,13 @@ final class SkillsCatalogStore: ObservableObject {
 
         let snapshot = try? cache.load()
         if let snapshot {
-            items = snapshot.items
-            lastUpdated = snapshot.fetchedAt
+            let current = snapshot.withCurrentSummaryVersion()
+            items = current.items
+            lastUpdated = current.fetchedAt
+            rememberLoadedSummaries()
+            if current != snapshot {
+                try? cache.save(current)
+            }
         }
 
         guard cachePolicy.shouldRefresh(snapshot, now: now) else { return }
@@ -689,10 +854,18 @@ final class SkillsCatalogStore: ObservableObject {
         guard
             let item = items.first(where: { $0.id == id })
                 ?? searchResults.first(where: { $0.id == id }),
-            item.needsSummary,
+            item.summary == nil,
             loadingSummaryIDs.insert(id).inserted
         else { return }
         defer { loadingSummaryIDs.remove(id) }
+
+        // Another publisher of the same skill may have answered already.
+        if let known = summariesBySlug[item.slug] {
+            storeSummaryAcrossCatalog(known, slug: item.slug)
+            return
+        }
+        // Written off earlier and no sibling to borrow from.
+        guard item.needsSummary else { return }
 
         await summaryGate.acquire()
         let outcome = await resolveSummary(for: item)
@@ -702,15 +875,67 @@ final class SkillsCatalogStore: ObservableObject {
         case .cancelled:
             return
         case .summary(let summary):
-            storeSummaryChange(id: id) { $0.withSummary(summary) }
-        case .unavailable:
-            storeSummaryChange(id: id) { $0.withSummaryUnavailable() }
+            summariesBySlug[item.slug] = summary
+            storeSummaryAcrossCatalog(summary, slug: item.slug)
+        case .missing:
+            if let known = summariesBySlug[item.slug] {
+                // This publisher shipped an empty page, but the same skill is
+                // described elsewhere in the catalog.
+                storeSummaryAcrossCatalog(known, slug: item.slug)
+            } else {
+                // The page answered and had nothing to say. Remember that so
+                // the grid stops asking.
+                storeSummaryChange(id: id) { $0.withSummaryUnavailable() }
+            }
+        case .failed:
+            // A timeout or a dropped connection says nothing about the page.
+            // Leave the card retryable; it fills in on the next visit.
+            return
         }
+    }
+
+    private func rememberLoadedSummaries() {
+        for item in items {
+            guard let summary = item.summary else { continue }
+            summariesBySlug[item.slug] = summary
+        }
+    }
+
+    /// Fills in the other entries for the same skill, including ones already
+    /// written off as undescribed.
+    private func storeSummaryAcrossCatalog(_ summary: String, slug: String) {
+        var updatedCatalog = false
+        for index in items.indices where items[index].slug == slug && items[index].summary == nil {
+            items[index] = items[index].withSummary(summary)
+            updatedCatalog = true
+        }
+        for index in searchResults.indices
+        where searchResults[index].slug == slug && searchResults[index].summary == nil {
+            searchResults[index] = searchResults[index].withSummary(summary)
+        }
+        for query in Array(searchCache.keys) {
+            guard var cachedResults = searchCache[query] else { continue }
+            var changed = false
+            for index in cachedResults.indices
+            where cachedResults[index].slug == slug && cachedResults[index].summary == nil {
+                cachedResults[index] = cachedResults[index].withSummary(summary)
+                changed = true
+            }
+            if changed {
+                searchCache[query] = cachedResults
+            }
+        }
+
+        guard updatedCatalog, let lastUpdated else { return }
+        try? cache.save(SkillsCatalogSnapshot(items: items, fetchedAt: lastUpdated))
     }
 
     private enum SummaryOutcome {
         case summary(String)
-        case unavailable
+        /// The page loaded but published no description.
+        case missing
+        /// The request never produced a verdict.
+        case failed
         case cancelled
     }
 
@@ -723,6 +948,17 @@ final class SkillsCatalogStore: ObservableObject {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
                     return .cancelled
                 }
+                if error is SkillsCatalogParsingError {
+                    return .missing
+                }
+                if case .httpStatus(let status) = error as? SkillsCatalogNetworkError {
+                    // A page that does not exist will not grow a description.
+                    // Rate limits and server errors say nothing about the page.
+                    let isPermanent = (400..<500).contains(status)
+                        && status != 408
+                        && status != 429
+                    return isPermanent ? .missing : .failed
+                }
                 // Only a transport hiccup deserves a second try. A page that
                 // answered without a summary will answer the same way again.
                 if error is URLError, attempt == 0 {
@@ -730,10 +966,10 @@ final class SkillsCatalogStore: ObservableObject {
                     if Task.isCancelled { return .cancelled }
                     continue
                 }
-                return .unavailable
+                return .failed
             }
         }
-        return .unavailable
+        return .failed
     }
 
     /// Writes the resolved description into the catalog, live search results and
@@ -784,6 +1020,7 @@ final class SkillsCatalogStore: ObservableObject {
             searchResults = mergingCatalogMetadata(into: searchResults)
             lastUpdated = now
             errorMessage = nil
+            rememberLoadedSummaries()
             try? cache.save(snapshot)
             return true
         } catch {
@@ -816,12 +1053,15 @@ final class SkillsCatalogStore: ObservableObject {
 enum SkillsCatalogNetworkError: LocalizedError {
     case invalidURL
     case invalidResponse
+    /// The server answered, but not with a page — kept apart from a transport
+    /// failure so the caller can tell "nothing here" from "try again later".
+    case httpStatus(Int)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL:
             return L10n.string("skills.error.invalid_url")
-        case .invalidResponse:
+        case .invalidResponse, .httpStatus:
             return L10n.string("skills.error.unavailable")
         }
     }

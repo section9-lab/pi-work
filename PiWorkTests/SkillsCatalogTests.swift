@@ -600,6 +600,55 @@ final class SkillsCatalogTests: XCTestCase {
         XCTAssertEqual(summary, "Find skills on skills.sh for design & testing.")
     }
 
+    /// Most pages in the catalog never render a Summary block; their only
+    /// description is the meta tag. Reading just the block left those cards
+    /// claiming the skill had no description.
+    func testSummaryParserFallsBackToMetaDescription() throws {
+        let html = #"""
+        <html><head>
+        <meta name="description" content="All animation knowledge for HyperFrames &amp; motion design."/>
+        <meta property="og:description" content="Ignored in favour of the plain tag."/>
+        </head><body><div>SKILL.md</div></body></html>
+        """#
+
+        let summary = try SkillsSummaryPageParser().parse(Data(html.utf8))
+
+        XCTAssertEqual(summary, "All animation knowledge for HyperFrames & motion design.")
+    }
+
+    func testSummaryParserPrefersSummaryBlockOverMetaDescription() throws {
+        let html = #"""
+        <html><head>
+        <meta name="description" content="Generated meta copy."/>
+        </head><body>
+        <div>Summary</div>
+        <div><p>Create, read, edit, and manage Lark documents.</p></div>
+        </body></html>
+        """#
+
+        let summary = try SkillsSummaryPageParser().parse(Data(html.utf8))
+
+        XCTAssertEqual(summary, "Create, read, edit, and manage Lark documents.")
+    }
+
+    /// skill.sh fills both places with generated copy when the publisher
+    /// supplied nothing. Those pages really are undescribed, and the card must
+    /// say so instead of printing the filler.
+    func testSummaryParserTreatsGeneratedFillerAsMissing() {
+        let metaOnly = #"""
+        <html><head>
+        <meta name="description" content="lark-doc — an installable skill for AI agents, published by open.feishu.cn/lark-doc."/>
+        </head><body></body></html>
+        """#
+        let summaryFiller = #"""
+        <div>Summary</div>
+        <div><p>Install the lark-doc skill for your AI agent. Published on open.feishu.cn.</p></div>
+        """#
+
+        XCTAssertThrowsError(try SkillsSummaryPageParser().parse(Data(metaOnly.utf8)))
+        XCTAssertThrowsError(try SkillsSummaryPageParser().parse(Data(summaryFiller.utf8)))
+    }
+
     func testFilterMatchesNameAndSourceCaseInsensitively() {
         let items = fixtureItems()
 
@@ -833,6 +882,144 @@ final class SkillsCatalogTests: XCTestCase {
         XCTAssertEqual(store.items.filter(\.needsSummary).count, 0)
     }
 
+    @MainActor
+    func testTransientSummaryFailureLeavesTheCardRetryable() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let snapshot = SkillsCatalogSnapshot(items: fixtureItems(), fetchedAt: now)
+        let summaryClient = StubSkillsSummaryFetcher(
+            result: .failure(URLError(.timedOut))
+        )
+        let cache = MemorySkillsCatalogCache(snapshot: snapshot)
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            summaryClient: summaryClient,
+            cache: cache
+        )
+
+        await store.loadIfNeeded(now: now)
+        await store.loadSummary(for: "openai/skills/openai-docs")
+
+        // A timeout says nothing about the page: the card must keep asking.
+        XCTAssertFalse(store.items.first?.summaryUnavailable ?? true)
+        XCTAssertTrue(store.items.first?.needsSummary ?? false)
+        XCTAssertTrue(cache.savedSnapshots.isEmpty)
+
+        await store.loadSummary(for: "openai/skills/openai-docs")
+
+        XCTAssertEqual(summaryClient.requestedIDs.count, 4)
+    }
+
+    @MainActor
+    func testStoreReasksForSummariesJudgedMissingByAnOlderParser() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let staleItem = SkillsCatalogItem(
+            source: "openai/skills",
+            slug: "openai-docs",
+            name: "OpenAI Docs",
+            installs: 3_200,
+            isOfficial: true,
+            summaryUnavailable: true
+        )
+        let snapshot = SkillsCatalogSnapshot(
+            items: [staleItem],
+            fetchedAt: now,
+            summaryVersion: 0
+        )
+        let cache = MemorySkillsCatalogCache(snapshot: snapshot)
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            cache: cache
+        )
+
+        await store.loadIfNeeded(now: now)
+
+        XCTAssertTrue(store.items.first?.needsSummary ?? false)
+        XCTAssertFalse(store.items.first?.summaryUnavailable ?? true)
+        XCTAssertEqual(cache.savedSnapshots.last?.summaryVersion, SkillsCatalogSnapshot.currentSummaryVersion)
+    }
+
+    @MainActor
+    func testEmptyPublisherPageBorrowsTheDescriptionOfTheSameSkill() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let described = SkillsCatalogItem(
+            source: "larksuite/cli",
+            slug: "lark-doc",
+            name: "Lark Doc",
+            installs: 483_088,
+            isOfficial: false,
+            summary: "Create, read, edit, and manage Lark documents."
+        )
+        let blank = SkillsCatalogItem(
+            source: "open.feishu.cn/lark-doc",
+            slug: "lark-doc",
+            name: "Lark Doc",
+            installs: 200,
+            isOfficial: false,
+            summaryUnavailable: true
+        )
+        let summaryClient = StubSkillsSummaryFetcher(result: .failure(SkillsCatalogParsingError.noSummary))
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            summaryClient: summaryClient,
+            cache: MemorySkillsCatalogCache(
+                snapshot: SkillsCatalogSnapshot(items: [described, blank], fetchedAt: now)
+            )
+        )
+
+        await store.loadIfNeeded(now: now)
+        await store.loadSummary(for: blank.id)
+
+        XCTAssertTrue(summaryClient.requestedIDs.isEmpty)
+        XCTAssertEqual(
+            store.items.last?.summary,
+            "Create, read, edit, and manage Lark documents."
+        )
+    }
+
+    @MainActor
+    func testLateSiblingSummaryFillsInACardAlreadyWrittenOff() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let blank = SkillsCatalogItem(
+            source: "open.feishu.cn/lark-doc",
+            slug: "lark-doc",
+            name: "Lark Doc",
+            installs: 200,
+            isOfficial: false
+        )
+        let described = SkillsCatalogItem(
+            source: "larksuite/cli",
+            slug: "lark-doc",
+            name: "Lark Doc",
+            installs: 483_088,
+            isOfficial: false
+        )
+        let summaryClient = SequencedSkillsSummaryFetcher(
+            results: [
+                .failure(SkillsCatalogParsingError.noSummary),
+                .success("Create, read, edit, and manage Lark documents.")
+            ]
+        )
+        let store = SkillsCatalogStore(
+            client: StubSkillsFetcher(result: .success([])),
+            summaryClient: summaryClient,
+            cache: MemorySkillsCatalogCache(
+                snapshot: SkillsCatalogSnapshot(items: [blank, described], fetchedAt: now)
+            )
+        )
+
+        await store.loadIfNeeded(now: now)
+        await store.loadSummary(for: blank.id)
+        XCTAssertTrue(store.items.first?.summaryUnavailable ?? false)
+
+        await store.loadSummary(for: described.id)
+
+        XCTAssertEqual(
+            store.items.first?.summary,
+            "Create, read, edit, and manage Lark documents."
+        )
+        XCTAssertFalse(store.items.first?.summaryUnavailable ?? true)
+    }
+
     func testCatalogItemDecodesSnapshotsWrittenBeforeTheUnavailableFlag() throws {
         let legacy = """
         {"source":"openai/skills","slug":"openai-docs","name":"OpenAI Docs",\
@@ -1061,6 +1248,18 @@ private final class SequencedSkillsFetcher: SkillsCatalogFetching {
     func fetchSkills(ignoringCache: Bool) async throws -> [SkillsCatalogItem] {
         requests.append(ignoringCache)
         return try results.removeFirst().get()
+    }
+}
+
+private final class SequencedSkillsSummaryFetcher: SkillsSummaryFetching {
+    private var results: [Result<String, Error>]
+
+    init(results: [Result<String, Error>]) {
+        self.results = results
+    }
+
+    func fetchSummary(for item: SkillsCatalogItem) async throws -> String {
+        try results.removeFirst().get()
     }
 }
 
