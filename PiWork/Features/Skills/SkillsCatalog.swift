@@ -305,7 +305,7 @@ struct SkillsSummaryPageParser {
         else { return nil }
 
         let stripped = String(section[paragraphRange]).strippingHTMLTags()
-        let normalized = normalize(stripped)
+        let normalized = normalize(decodeHTMLEntities(in: stripped))
         guard !normalized.isEmpty, !isPlaceholder(normalized) else { return nil }
         return firstSentence(in: normalized)
     }
