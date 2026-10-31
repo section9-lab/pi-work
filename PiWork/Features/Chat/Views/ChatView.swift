@@ -4038,7 +4038,7 @@ private struct AssistantToolStepRow: View {
                         }
                     }
                 }
-                .padding(.leading, 23)
+                .padding(.leading, 7)
                 .padding(.trailing, 4)
                 .padding(.bottom, 8)
             }
@@ -4112,6 +4112,8 @@ private struct ToolDetailBlock: View {
     let title: String?
     let text: String
 
+    @State private var isHovered = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             if let title {
@@ -4144,6 +4146,8 @@ private struct ToolDetailBlock: View {
                 }
             }
         }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 
     private var contentHeight: CGFloat {
@@ -4164,6 +4168,8 @@ private struct ToolDetailBlock: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color.secondary)
         .accessibilityLabel(L10n.string("chat.tool.copy"))
+        .opacity(isHovered ? 1 : 0)
+        .allowsHitTesting(isHovered)
     }
 }
 
@@ -4304,6 +4310,8 @@ private struct ToolDiffBlock: View {
     let oldText: String?
     let newText: String
 
+    @State private var isHovered = false
+
     var body: some View {
         let diff = ToolDiffPresentation(oldText: oldText, newText: newText)
         VStack(spacing: 0) {
@@ -4325,6 +4333,8 @@ private struct ToolDiffBlock: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(L10n.string("chat.tool.copy"))
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
             }
             .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(Color.secondary)
@@ -4367,6 +4377,8 @@ private struct ToolDiffBlock: View {
             RoundedRectangle(cornerRadius: 9)
                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
         }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 

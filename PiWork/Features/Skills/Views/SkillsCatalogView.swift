@@ -777,6 +777,9 @@ private struct SkillsCatalogCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SkillIconView(source: item.source)
+                .padding(.bottom, 12)
+
             HStack(alignment: .top, spacing: 12) {
                 Button(action: openSkill) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -828,7 +831,7 @@ private struct SkillsCatalogCard: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 156, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 204, alignment: .topLeading)
         .containerShape(
             RoundedRectangle(cornerRadius: AppCornerRadius.card, style: .continuous)
         )
@@ -925,6 +928,9 @@ private struct SkillsCatalogCard: View {
 private struct SkillsCatalogSkeletonCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.10))
+                .frame(width: 36, height: 36)
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color.primary.opacity(0.10))
                 .frame(width: 150, height: 16)
@@ -941,7 +947,7 @@ private struct SkillsCatalogSkeletonCard: View {
                 .frame(width: 92, height: 12)
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 196, alignment: .topLeading)
         .background(
             adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface)

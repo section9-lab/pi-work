@@ -850,6 +850,49 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         XCTAssertTrue(row.contains(".fixedSize()"))
     }
 
+    func testToolDetailsAlignWithTheToolIconLeadingEdge() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(source.range(of: "private struct AssistantToolStepRow"))
+        let end = try XCTUnwrap(source.range(of: "private struct ToolDetailBlock"))
+        let row = String(source[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(row.contains(".padding(.horizontal, 7)"))
+        XCTAssertTrue(row.contains(".padding(.leading, 7)"))
+        XCTAssertFalse(row.contains(".padding(.leading, 23)"))
+    }
+
+    func testToolCopyButtonsOnlyAppearWhenTheirOwnBlockIsHovered() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ChatView.swift"
+            ),
+            encoding: .utf8
+        )
+        for (startMarker, endMarker) in [
+            ("private struct ToolDetailBlock", "private struct ToolStructuredContentView"),
+            ("private struct ToolDiffBlock", "struct ACPElicitationFormState")
+        ] {
+            let start = try XCTUnwrap(source.range(of: startMarker))
+            let end = try XCTUnwrap(source.range(of: endMarker))
+            let block = String(source[start.lowerBound..<end.lowerBound])
+            XCTAssertTrue(block.contains("@State private var isHovered = false"))
+            XCTAssertTrue(block.contains(".contentShape(Rectangle())"))
+            XCTAssertTrue(block.contains(".onHover { isHovered = $0 }"))
+            XCTAssertTrue(block.contains(".opacity(isHovered ? 1 : 0)"))
+            XCTAssertTrue(block.contains(".allowsHitTesting(isHovered)"))
+        }
+    }
+
     func testWriteAndEditUseTheStandardToolIconSize() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
