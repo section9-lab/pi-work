@@ -2218,7 +2218,7 @@ final class SessionComposerTests: XCTestCase {
         )
         let pickerStart = try XCTUnwrap(source.range(of: "private var modelPickerContent"))
         let pickerEnd = try XCTUnwrap(
-            source.range(of: "private func filteredModels", range: pickerStart.upperBound..<source.endIndex)
+            source.range(of: "private var filteredModels", range: pickerStart.upperBound..<source.endIndex)
         )
         let pickerSource = source[pickerStart.lowerBound..<pickerEnd.lowerBound]
 

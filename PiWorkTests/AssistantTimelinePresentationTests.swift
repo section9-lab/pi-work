@@ -618,8 +618,12 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         let thinkingStart = try XCTUnwrap(source.range(of: "private struct AssistantThinkingView"))
         let toolGroupStart = try XCTUnwrap(source.range(of: "private struct AssistantToolGroupView"))
         let thinkingSource = String(source[thinkingStart.lowerBound..<toolGroupStart.lowerBound])
-        XCTAssertTrue(thinkingSource.contains("Text(verbatim: thinking.text)"))
-        XCTAssertFalse(thinkingSource.contains("Markdown(thinking.text)"))
+        XCTAssertTrue(thinkingSource.contains("Text(thinkingMarkdown)"))
+        XCTAssertTrue(thinkingSource.contains("inlineOnlyPreservingWhitespace"))
+        // Reasoning arrives as light markdown, but block syntax would restructure
+        // the paragraphs while the model is still streaming them.
+        XCTAssertFalse(thinkingSource.contains("Text(verbatim: thinking.text)"))
+        XCTAssertFalse(thinkingSource.contains("Markdown("))
         XCTAssertFalse(thinkingSource.contains(".transition("))
         XCTAssertFalse(thinkingSource.contains("withAnimation("))
     }

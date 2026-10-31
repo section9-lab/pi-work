@@ -314,15 +314,20 @@ extension AgentErrorPresentation {
 }
 
 private extension Error {
-    /// `localizedDescription` for the generic "operation couldn't be completed"
-    /// form carries no information, so treat it as absent.
+    /// `localizedDescription` falls back to a locale-dependent template
+    /// ("The operation couldn't be completed. (Domain error N.)") that says
+    /// nothing beyond the domain and code, so treat that template as absent.
+    /// Matching on the domain and code keeps this independent of the UI language.
     var presentableDescription: String? {
         let description = localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !description.isEmpty,
-              !description.hasPrefix("The operation couldn"),
-              !description.hasPrefix("操作无法完成")
-        else { return nil }
-        return description
+        guard !description.isEmpty else { return nil }
+        let error = self as NSError
+        let isTemplate = description.hasPrefix("The operation couldn")
+            || (!error.domain.isEmpty
+                && error.code != 0
+                && description.contains(error.domain)
+                && description.contains("\(error.code)"))
+        return isTemplate ? nil : description
     }
 }
 
