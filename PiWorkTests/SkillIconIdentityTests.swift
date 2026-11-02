@@ -60,7 +60,7 @@ final class SkillIconIdentityTests: XCTestCase {
         XCTAssertNil(SkillIconIdentity(source: "").avatarURL)
     }
 
-    func testCardRendersTheIconTileAboveTheTitleRow() throws {
+    func testCardRendersTheIconTileBesideTheTitle() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -77,7 +77,10 @@ final class SkillIconIdentityTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(cardSource.contains("SkillIconView(source: item.source)"))
+        XCTAssertTrue(cardSource.contains("SkillIconView(source: item.source, size: 32)"))
+        // The tile used to sit on its own row above the title, which cost a
+        // whole line of vertical space on every card.
+        XCTAssertNil(cardSource.range(of: "SkillIconView(source: item.source)\n"))
         XCTAssertTrue(iconSource.contains("struct SkillIconView: View"))
         XCTAssertTrue(iconSource.contains("identity.monogram"))
         XCTAssertTrue(iconSource.contains("SkillIconImageStore.shared.image(for: url)"))

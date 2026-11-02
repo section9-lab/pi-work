@@ -889,6 +889,7 @@
 "context.segment.skills" = "スキル";
 "context.segment.context" = "プロジェクトコンテキスト";
 "chat.prompt_rail.title" = "プロンプト";
+"chat.prompt_rail.current" = "現在の閲覧位置";
 "chat.prompt_rail.open" = "プロンプト一覧を表示";
 "chat.prompt_rail.position" = "%1$d / %2$d";
 "chat.prompt_rail.image_only" = "画像 ×%d";

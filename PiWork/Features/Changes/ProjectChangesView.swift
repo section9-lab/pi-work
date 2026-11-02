@@ -111,7 +111,10 @@ struct ProjectSessionMenuOverlay: View {
                     showsPointer: false,
                     fillsHeight: false
                 ) {
-                    ProjectSessionReviewMenu(project: project) { isReviewPresented = true }
+                    ProjectSessionReviewMenu(project: project) {
+                        showsProjectMenu = false
+                        isReviewPresented = true
+                    }
                         .id(project.path)
                 }
             }

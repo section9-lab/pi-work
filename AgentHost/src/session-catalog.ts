@@ -60,6 +60,16 @@ export class SessionCatalog {
     };
   }
 
+  /** ACP clients use the opaque session ID as a path placeholder. Resolve it
+   * from the catalog only when a real filesystem path was not supplied. */
+  async resolvePath(sessionId: string, path: string, sessionDirectory?: string): Promise<string> {
+    if (path !== sessionId) return path;
+    const session = (await this.list(undefined, sessionDirectory))
+      .find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    return session.path;
+  }
+
   open(path: string, sessionDirectory?: string): SessionManager {
     return SessionManager.open(path, sessionDirectory);
   }

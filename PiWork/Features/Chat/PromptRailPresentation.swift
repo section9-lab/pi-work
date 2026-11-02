@@ -11,6 +11,8 @@ struct PromptRailEntry: Identifiable, Equatable {
     let index: Int
     /// Whitespace-collapsed preview; empty when the turn only carried images.
     let text: String
+    /// Unabridged prompt for the hover preview and native help.
+    let fullText: String
     let imageCount: Int
 
     var hasText: Bool { !text.isEmpty }
@@ -33,6 +35,7 @@ enum PromptRailPresentation {
                     id: message.id,
                     index: result.count + 1,
                     text: text,
+                    fullText: message.copyableText.trimmingCharacters(in: .whitespacesAndNewlines),
                     imageCount: imageCount
                 )
             )
@@ -72,39 +75,39 @@ enum PromptRailPresentation {
     }
 }
 
-/// Geometry for the rail. Kept free of SwiftUI so the spacing rules — the part
-/// that decides whether a 60-turn conversation still reads as separate marks —
-/// can be checked without a running app.
+/// Stable hit targets and bounded geometry, independent of SwiftUI. Long
+/// conversations scroll instead of compressing their marks into a smudge.
 enum PromptRailLayout {
-    static let tickHeight: CGFloat = 2.5
-    static let restingWidth: CGFloat = 9
-    static let currentWidth: CGFloat = 14
-    static let hoveredWidth: CGFloat = 18
-    /// Below this the marks merge into a single smudge.
-    static let minimumStep: CGFloat = 7
+    static let tickHeight: CGFloat = 3
+    static let restingWidth: CGFloat = 6
+    static let expandedWidth: CGFloat = 24
+    static let hoveredWidth: CGFloat = 32
+    static let minimumStep: CGFloat = 22
     static let blockInset: CGFloat = 6
-    /// Column the marks live in; also the hit area around them.
-    static let railWidth: CGFloat = 22
-    static let gripHeight: CGFloat = 26
+    static let railWidth: CGFloat = 44
 
-    static func railHeight(count: Int, available: CGFloat) -> CGFloat {
-        let ideal = CGFloat(max(count, 1)) * 15 + blockInset * 2 + gripHeight
-        let ceiling = max(available, 96)
-        return min(max(ideal, 96), min(ceiling, 460))
+    static func markWidth(isExpanded: Bool, isHovered: Bool) -> CGFloat {
+        guard isExpanded else { return restingWidth }
+        return isHovered ? hoveredWidth : expandedWidth
     }
 
-    /// Evenly distributed within the rail, compressed by `minimumStep` only as
-    /// far as the available height allows. A single turn sits in the middle.
+    static func previewTop(center: CGFloat, cardHeight: CGFloat, height: CGFloat) -> CGFloat {
+        min(max(center - cardHeight / 2, 0), max(height - cardHeight, 0))
+    }
+
+    static func railHeight(count: Int, available: CGFloat) -> CGFloat {
+        let ideal = CGFloat(max(count, 1)) * minimumStep + blockInset * 2
+        return min(max(ideal, 96), min(max(available, 0), 360))
+    }
+
+    /// Centers in the scrollable content, not the clipped viewport. Hit targets
+    /// never move or shrink when the rail expands.
     static func tickCenters(count: Int, height: CGFloat) -> [CGFloat] {
         guard count > 0, height > 0 else { return [] }
-        guard count > 1 else { return [height / 2] }
-        let usable = max(height - blockInset * 2 - tickHeight, tickHeight)
-        let widest = usable / CGFloat(count - 1)
-        let preferred = max(usable / CGFloat(count), minimumStep)
-        let step = min(preferred, max(widest, tickHeight))
-        let block = step * CGFloat(count - 1)
-        let start = (height - block) / 2
-        return (0..<count).map { start + step * CGFloat($0) }
+        let contentHeight = max(height, CGFloat(count) * minimumStep + blockInset * 2)
+        let block = minimumStep * CGFloat(count - 1)
+        let start = (contentHeight - block) / 2
+        return (0..<count).map { start + minimumStep * CGFloat($0) }
     }
 
     /// Slot height per tick, used for hit testing and for the hover preview's

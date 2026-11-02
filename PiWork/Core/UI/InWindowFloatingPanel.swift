@@ -147,6 +147,15 @@ struct InWindowFloatingPanel<Panel: View>: View {
                                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
                         )
                         .shadow(color: AppPalette.raisedShadow, radius: 18, y: 8)
+                        .background {
+                            FloatingPanelDismissMonitor(
+                                anchorFrame: anchorFrame?.offsetBy(
+                                    dx: -placement.origin.x,
+                                    dy: -placement.origin.y
+                                ),
+                                onDismiss: dismiss
+                            )
+                        }
                         .offset(x: placement.origin.x, y: placement.origin.y)
 
                     if showsPointer, let pointerX = placement.pointerX {
@@ -163,7 +172,6 @@ struct InWindowFloatingPanel<Panel: View>: View {
                             )
                     }
                 }
-                .background(EscapeKeyMonitor(onEscape: dismiss))
                 .onExitCommand(perform: dismiss)
                 .clipped()
             }
@@ -186,57 +194,102 @@ private struct FloatingPanelPointer: Shape {
     }
 }
 
-private struct EscapeKeyMonitor: NSViewRepresentable {
-    let onEscape: () -> Void
+enum FloatingPanelDismissal {
+    static func shouldDismiss(click: CGPoint, panelBounds: CGRect, anchorFrame: CGRect?) -> Bool {
+        !panelBounds.contains(click) && !(anchorFrame?.contains(click) ?? false)
+    }
+}
+
+private struct FloatingPanelDismissMonitor: NSViewRepresentable {
+    let anchorFrame: CGRect?
+    let onDismiss: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onEscape: onEscape)
+        Coordinator(anchorFrame: anchorFrame, onDismiss: onDismiss)
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+        let view = PanelBoundsView(frame: .zero)
         context.coordinator.view = view
         context.coordinator.start()
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.onEscape = onEscape
+        context.coordinator.anchorFrame = anchorFrame
+        context.coordinator.onDismiss = onDismiss
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.stop()
     }
 
+    private final class PanelBoundsView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     final class Coordinator {
         weak var view: NSView?
-        var onEscape: () -> Void
+        var anchorFrame: CGRect?
+        var onDismiss: () -> Void
         private var monitor: Any?
+        private var observers: [NSObjectProtocol] = []
 
-        init(onEscape: @escaping () -> Void) {
-            self.onEscape = onEscape
+        init(anchorFrame: CGRect?, onDismiss: @escaping () -> Void) {
+            self.anchorFrame = anchorFrame
+            self.onDismiss = onDismiss
         }
 
         func start() {
             guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard
-                    event.keyCode == 53,
-                    let self,
-                    event.window === self.view?.window
-                else {
-                    return event
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                guard let self, let view = self.view, let window = view.window else { return event }
+                if event.type == .keyDown {
+                    guard event.keyCode == 53, event.window === window else { return event }
+                    self.onDismiss()
+                    return nil
                 }
-
-                self.onEscape()
-                return nil
+                if event.window === window {
+                    let point = view.convert(event.locationInWindow, from: nil)
+                    if FloatingPanelDismissal.shouldDismiss(
+                        click: point, panelBounds: view.bounds, anchorFrame: self.anchorFrame
+                    ) {
+                        self.onDismiss()
+                    }
+                } else if let otherWindow = event.window, otherWindow.level == .normal {
+                    self.onDismiss()
+                }
+                // Outside controls still receive the click that dismissed us.
+                return event
             }
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.onDismiss() })
+            observers.append(center.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let self, let window = self.view?.window,
+                      notification.object as? NSWindow === window else { return }
+                // Let AppKit finish switching key windows. Menus and sheets
+                // belonging to the panel are not clicks outside the panel.
+                DispatchQueue.main.async { [weak self, weak window] in
+                    guard let self, let window, let keyWindow = NSApp.keyWindow,
+                          keyWindow !== window, keyWindow.level == .normal,
+                          keyWindow.sheetParent !== window else { return }
+                    self.onDismiss()
+                }
+            })
         }
 
         func stop() {
-            guard let monitor else { return }
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers.removeAll()
         }
 
         deinit {

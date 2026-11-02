@@ -428,12 +428,12 @@ private struct ChatSessionRow: View {
                 tracksHover: false
             )
         )
+        .sessionContextMenu(sessionID: session.id, onDelete: onDelete)
         .padding(.horizontal, 4)
         .compositingGroup()
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .accessibilityIdentifier("chat-session-\(session.id)")
-        .sessionContextMenu(sessionID: session.id, onDelete: onDelete)
     }
 }
 
@@ -579,30 +579,35 @@ private struct WorkSessionRow: View {
                 tracksHover: false
             )
         )
+        // The menu preview must share the styled button's bounds, excluding
+        // the outer indentation, so its outline matches the selected fill.
+        .sessionContextMenu(
+            sessionID: session.id,
+            cornerRadius: 9,
+            onExport: onExport,
+            canExport: !showsActivity && !showsOpening,
+            onDelete: onDelete
+        )
         .padding(.leading, 12)
         .padding(.trailing, 4)
         .compositingGroup()
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .accessibilityIdentifier("work-session-\(session.id)")
-        .sessionContextMenu(
-            sessionID: session.id,
-            onExport: onExport,
-            canExport: !showsActivity && !showsOpening,
-            onDelete: onDelete
-        )
     }
 }
 
 private extension View {
     func sessionContextMenu(
         sessionID: String,
+        cornerRadius: CGFloat = 10,
         onExport: (() -> Void)? = nil,
         canExport: Bool = true,
         onDelete: @escaping () -> Void
     ) -> some View {
         modifier(SessionContextMenuModifier(
             sessionID: sessionID,
+            cornerRadius: cornerRadius,
             onExport: onExport,
             canExport: canExport,
             onDelete: onDelete
@@ -612,12 +617,14 @@ private extension View {
 
 private struct SessionContextMenuModifier: ViewModifier {
     let sessionID: String
+    let cornerRadius: CGFloat
     let onExport: (() -> Void)?
     let canExport: Bool
     let onDelete: () -> Void
 
     func body(content: Content) -> some View {
         content
+            .contentShape(.interaction, adaptiveRoundedShape(cornerRadius: cornerRadius))
             .contextMenu {
                 Button(action: copySessionID) {
                     Label {

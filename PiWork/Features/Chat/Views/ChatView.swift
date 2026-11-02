@@ -8,6 +8,7 @@ import SwiftUI
 struct ChatView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @ObservedObject private var sessionStore: SessionStore
+    @ObservedObject private var composerDrafts: SessionComposerDraftStore
     @Binding private var selectedProject: PiProject?
 
     let mode: SidebarTab
@@ -19,13 +20,34 @@ struct ChatView: View {
     private let computerUseStore: ComputerUseStore?
 
     @AppStorage(RunningMessageBehavior.preferenceKey) private var runningMessageBehavior = RunningMessageBehavior.followUp.rawValue
-    @State private var pendingInputSessionIDs: Set<String> = []
-    @State private var draft = ""
-    @State private var selectedSlashCommand: AgentHostSlashCommand?
     @State private var slashCommands: [AgentHostSlashCommand] = []
-    @State private var imageAttachments: [ComposerImageAttachment] = []
-    @State private var isProcessingImageAttachments = false
-    @State private var imageProcessingID: UUID?
+
+    private var composerDraftKey: SessionComposerDraftKey {
+        SessionComposerDraftKey(
+            mode: mode == .work ? "work" : "chat",
+            projectPath: mode == .work ? selectedProject?.path : nil,
+            sessionID: activeSessionId
+        )
+    }
+
+    private var draft: String {
+        get { composerDrafts.draft(for: composerDraftKey).text }
+        nonmutating set { composerDrafts.set(newValue, at: \.text, for: composerDraftKey) }
+    }
+
+    private var selectedSlashCommand: AgentHostSlashCommand? {
+        get { composerDrafts.draft(for: composerDraftKey).selectedCommand }
+        nonmutating set { composerDrafts.set(newValue, at: \.selectedCommand, for: composerDraftKey) }
+    }
+
+    private var imageAttachments: [ComposerImageAttachment] {
+        get { composerDrafts.draft(for: composerDraftKey).attachments }
+        nonmutating set { composerDrafts.set(newValue, at: \.attachments, for: composerDraftKey) }
+    }
+
+    private var isProcessingImageAttachments: Bool {
+        composerDrafts.draft(for: composerDraftKey).imageProcessingID != nil
+    }
     @State private var actionFailure: AgentErrorPresentation?
     @State private var gitBranches = AgentHostGitBranchesResult.unavailable
     @State private var isFollowingTranscriptTail = true
@@ -50,6 +72,7 @@ struct ChatView: View {
         projects: [PiProject],
         selectedProject: Binding<PiProject?>,
         sessionStore: SessionStore,
+        composerDrafts: SessionComposerDraftStore,
         computerUseStore: ComputerUseStore? = nil,
         hostError: AgentErrorPresentation? = nil,
         isLoadingSession: Bool = false,
@@ -61,6 +84,7 @@ struct ChatView: View {
         self.projects = projects
         self._selectedProject = selectedProject
         self._sessionStore = ObservedObject(wrappedValue: sessionStore)
+        self._composerDrafts = ObservedObject(wrappedValue: composerDrafts)
         self.hostError = hostError
         self.isLoadingSession = isLoadingSession
         self.onSelectProject = onSelectProject
@@ -72,6 +96,7 @@ struct ChatView: View {
         let _ = recordUpdateGeneration
         let messagePresentation = messagePresentation
         let allMessages = messagePresentation.messages
+        let draftKey = composerDraftKey
         VStack(spacing: 0) {
             ZStack {
                 Group {
@@ -118,15 +143,21 @@ struct ChatView: View {
                 mode: mode,
                 projects: projects,
                 selectedProject: $selectedProject,
-                draft: $draft,
-                selectedSlashCommand: $selectedSlashCommand,
+                draft: Binding(
+                    get: { composerDrafts.draft(for: draftKey).text },
+                    set: { composerDrafts.set($0, at: \.text, for: draftKey) }
+                ),
+                selectedSlashCommand: Binding(
+                    get: { composerDrafts.draft(for: draftKey).selectedCommand },
+                    set: { composerDrafts.set($0, at: \.selectedCommand, for: draftKey) }
+                ),
                 slashCommands: slashCommands,
                 promptHistory: SessionComposerState.promptHistory(in: allMessages),
                 imageAttachments: imageAttachments,
                 isProcessingImageAttachments: isProcessingImageAttachments,
                 selectedModelSupportsImages: selectedModelSupportsImages,
                 isExecuting: isExecuting,
-                isSubmittingInput: activeSessionId.map { pendingInputSessionIDs.contains($0) } ?? false,
+                isSubmittingInput: activeSessionId.map { composerDrafts.isSubmitting(sessionID: $0) } ?? false,
                 runningMessageBehavior: RunningMessageBehavior.resolve(runningMessageBehavior),
                 canSend: canSend,
                 availableModels: availableModels,
@@ -228,11 +259,6 @@ struct ChatView: View {
             isPreparingSessionPresentation = true
             await Task.yield()
 
-            draft = ""
-            selectedSlashCommand = nil
-            imageAttachments.removeAll()
-            isProcessingImageAttachments = false
-            imageProcessingID = nil
             actionFailure = nil
             gitBranches = .unavailable
             transcriptMessageLimit = TranscriptWindow.batchSize
@@ -292,7 +318,12 @@ struct ChatView: View {
         messages: [PiChatMessage],
         hiddenMessageCount: Int
     ) -> some View {
-        let prompts = PromptRailPresentation.entries(from: messages)
+        // The rail indexes every loaded user turn, not only the recent render
+        // window. Selecting an older mark expands that window before scrolling.
+        let promptMessages = presentedRecord?.transcript
+            .filter { $0.role == .user }
+            .map { PiChatMessage(message: $0, isStreaming: false) } ?? messages
+        let prompts = PromptRailPresentation.entries(from: promptMessages)
         return GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
@@ -373,7 +404,7 @@ struct ChatView: View {
                 .overlay(alignment: .trailing) {
                     // The rail only earns its gutter when the content column has
                     // room to spare; otherwise it would sit on the transcript.
-                    if hasPromptRailGutter(in: viewport.size), prompts.count > 1 {
+                    if hasPromptRailGutter(in: viewport.size), !prompts.isEmpty {
                         PromptRailView(
                             entries: prompts,
                             currentID: currentPromptID,
@@ -384,6 +415,7 @@ struct ChatView: View {
                         ) { entry in
                             jump(to: entry, using: proxy)
                         }
+                        .id(sessionPresentationID)
                         .padding(.trailing, 6)
                         .transition(.opacity)
                     }
@@ -486,6 +518,20 @@ struct ChatView: View {
         isFollowingTranscriptTail = false
         isTranscriptAutoFollowPaused = true
         isAdjustingTranscriptScroll = true
+        if let transcript = presentedRecord?.transcript,
+           let index = transcript.firstIndex(where: { $0.id == entry.id }) {
+            let requiredLimit = transcript.count - index
+            if requiredLimit > min(transcriptMessageLimit, presentedMessageLimit) {
+                transcriptMessageLimit = max(transcriptMessageLimit, requiredLimit)
+                presentedMessageLimit = max(presentedMessageLimit, requiredLimit)
+                let sessionID = activeSessionId
+                DispatchQueue.main.async {
+                    guard activeSessionId == sessionID else { return }
+                    jump(to: entry, using: proxy)
+                }
+                return
+            }
+        }
         withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.3)) {
             proxy.scrollTo(entry.id, anchor: .top)
         }
@@ -753,54 +799,35 @@ struct ChatView: View {
 
         guard let sessionId = activeSessionId else { return }
         let queued = isExecuting
-        let submittedDraft = draft
-        let submittedCommand = selectedSlashCommand
-        let submittedAttachments = imageAttachments
-        let promptImages = submittedAttachments.map(\.promptImage)
+        let draftKey = composerDraftKey
+        let submitted = composerDrafts.draft(for: draftKey)
+        let promptImages = submitted.attachments.map(\.promptImage)
         let behavior = RunningMessageBehavior.resolve(runningMessageBehavior)
-        if queued {
-            pendingInputSessionIDs.insert(sessionId)
-        } else {
-            draft = ""
-            selectedSlashCommand = nil
-            imageAttachments = []
-        }
+        guard let submissionID = composerDrafts.beginSubmission(for: draftKey, awaitsRunning: !queued) else { return }
         isTranscriptAutoFollowPaused = false
         isFollowingTranscriptTail = true
         transcriptScrollRequest &+= 1
         actionFailure = nil
         Task {
+            defer { composerDrafts.endSubmission(submissionID, for: draftKey) }
             do {
                 if queued {
                     try await sessionStore.enqueueInput(sessionId: sessionId, text: text,
                                                         images: promptImages, behavior: behavior)
-                    if activeSessionId == sessionId, draft == submittedDraft,
-                       selectedSlashCommand == submittedCommand, imageAttachments == submittedAttachments {
-                        draft = ""
-                        selectedSlashCommand = nil
-                        imageAttachments = []
-                    }
                 } else {
                     try await sessionStore.submitPrompt(sessionId: sessionId, text: text, images: promptImages)
                 }
+                composerDrafts.clearIfUnchanged(submitted, for: draftKey)
             } catch {
                 if activeSessionId == sessionId {
                     actionFailure = AgentErrorPresentation(error)
                 }
-                if queued && activeSessionId != sessionId {
+                // The original draft is still present on failure. If the user
+                // edited it during submission, retain the failed payload too.
+                if composerDrafts.draft(for: draftKey).revision != submitted.revision {
                     sessionStore.recoverDraft(sessionId: sessionId, text: text, images: promptImages, behavior: behavior)
                 }
-                if !queued {
-                    if activeSessionId == sessionId, draft.isEmpty, imageAttachments.isEmpty, selectedSlashCommand == nil {
-                        draft = submittedDraft
-                        selectedSlashCommand = submittedCommand
-                        imageAttachments = submittedAttachments
-                    } else {
-                        sessionStore.recoverDraft(sessionId: sessionId, text: text, images: promptImages, behavior: behavior)
-                    }
-                }
             }
-            pendingInputSessionIDs.remove(sessionId)
         }
     }
 
@@ -819,7 +846,7 @@ struct ChatView: View {
                                     catch { actionFailure = AgentErrorPresentation(error) }
                                 }
                             }
-                            .disabled(pendingInputSessionIDs.contains(record.id))
+                            .disabled(composerDrafts.isSubmitting(sessionID: record.id))
                         }
                         ForEach(record.queuedInputs) { input in
                             HStack {
@@ -849,7 +876,7 @@ struct ChatView: View {
                                 } catch { actionFailure = AgentErrorPresentation(error) }
                             }
                             .disabled(!draft.isEmpty || !imageAttachments.isEmpty || selectedSlashCommand != nil
-                                      || pendingInputSessionIDs.contains(record.id))
+                                      || composerDrafts.isSubmitting(sessionID: record.id))
                         }
                     }
                 }
@@ -871,10 +898,9 @@ struct ChatView: View {
             return true
         }
 
-        let processingID = UUID()
+        let draftKey = composerDraftKey
         let existingAttachments = imageAttachments
-        imageProcessingID = processingID
-        isProcessingImageAttachments = true
+        guard let processingID = composerDrafts.beginImageProcessing(for: draftKey) else { return true }
         actionFailure = nil
 
         Task { @MainActor in
@@ -885,15 +911,11 @@ struct ChatView: View {
                         existingAttachments: existingAttachments
                     )
                 }.value
-                guard imageProcessingID == processingID else { return }
-                imageAttachments.append(contentsOf: attachments)
-                imageProcessingID = nil
-                isProcessingImageAttachments = false
-                actionFailure = nil
+                guard composerDrafts.finishImageProcessing(processingID, attachments: attachments, for: draftKey) else { return }
+                if composerDraftKey == draftKey { actionFailure = nil }
             } catch {
-                guard imageProcessingID == processingID else { return }
-                imageProcessingID = nil
-                isProcessingImageAttachments = false
+                guard composerDrafts.finishImageProcessing(processingID, attachments: [], for: draftKey),
+                      composerDraftKey == draftKey else { return }
                 let key = (error as? ComposerImageAttachmentError)?.localizationKey
                     ?? "chat.image.error.unsupported"
                 actionFailure = AgentErrorPresentation(informationalKey: key)
@@ -1213,7 +1235,7 @@ struct ChatView: View {
     private var canSend: Bool {
         guard let record = activeRecord, let model = record.model,
               record.runState == .idle || record.runState == .failed || record.runState == .running,
-              !pendingInputSessionIDs.contains(record.id) else { return false }
+              !composerDrafts.isSubmitting(sessionID: record.id) else { return false }
         if record.runState == .running && !sessionStore.supportsRunningInput { return false }
         let baseCanSend = sessionStore.availableModels.contains {
             $0.provider == model.provider && $0.id == model.id

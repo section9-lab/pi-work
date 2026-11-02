@@ -59,6 +59,18 @@ describe("SessionCatalog", () => {
       messageCount: 2,
     });
     expect(sessions[0]?.path).toBe(manager.getSessionFile()!);
+    expect(await catalog.resolvePath("session-one", "session-one", sessionDirectory))
+      .toBe(manager.getSessionFile()!);
+  });
+
+  test("preserves explicit paths and rejects unknown opaque IDs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-work-export-path-test-"));
+    temporaryDirectories.push(root);
+    const catalog = new SessionCatalog();
+    expect(await catalog.resolvePath("session-one", join(root, "explicit.jsonl"), root))
+      .toBe(join(root, "explicit.jsonl"));
+    await expect(catalog.resolvePath("missing", "missing", root))
+      .rejects.toThrow("Session not found: missing");
   });
 
   test("creates a native Pi draft without writing empty history", () => {

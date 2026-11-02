@@ -889,6 +889,7 @@
 "context.segment.skills" = "Habilidades";
 "context.segment.context" = "Contexto del proyecto";
 "chat.prompt_rail.title" = "Prompts";
+"chat.prompt_rail.current" = "Posición de lectura actual";
 "chat.prompt_rail.open" = "Mostrar índice de prompts";
 "chat.prompt_rail.position" = "%1$d / %2$d";
 "chat.prompt_rail.image_only" = "Imagen ×%d";

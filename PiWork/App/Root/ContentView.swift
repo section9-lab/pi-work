@@ -9,6 +9,7 @@ struct ContentView: View {
     private let computerUseStore: ComputerUseStore?
     private let updateController: AppUpdateController?
     @StateObject private var projectStore = ProjectStore()
+    @StateObject private var composerDrafts = SessionComposerDraftStore()
     @State private var workSession = WorkSessionSelection()
     @State private var selectedTab: SidebarTab = .work
     @State private var selectedCustomDestination: SidebarCustomDestination?
@@ -46,6 +47,11 @@ struct ContentView: View {
                     ProjectSessionMenuOverlay(project: project, reviewTrailingInset: trailingInset,
                         isReviewPresented: $showsProjectChanges)
                         .id(project.path)
+                }
+            }
+            .onReceive(sessionStore.recordUpdates) { changedIDs in
+                for id in changedIDs where sessionStore.records[id]?.runState == .running {
+                    composerDrafts.acceptSubmission(sessionID: id)
                 }
             }
             .task {
@@ -112,6 +118,7 @@ struct ContentView: View {
                 projects: projectStore.projects,
                 selectedProject: $workSession.selectedProject,
                 sessionStore: sessionStore,
+                composerDrafts: composerDrafts,
                 computerUseStore: computerUseStore,
                 hostError: agentError,
                 isLoadingSession: isOpeningSelectedSession,
@@ -390,6 +397,7 @@ struct ContentView: View {
                     profile: .chat,
                     sessionDirectory: nil
                 )
+                composerDrafts.removeSession(session.id)
                 agentError = nil
             } catch {
                 agentError = AgentErrorPresentation(error)
@@ -409,6 +417,7 @@ struct ContentView: View {
                     profile: .work,
                     sessionDirectory: nil
                 )
+                composerDrafts.removeSession(session.id)
                 agentError = nil
             } catch {
                 agentError = AgentErrorPresentation(error)
@@ -432,9 +441,17 @@ struct ContentView: View {
                     profile: .work,
                     sessionDirectory: nil
                 )
-                guard NSWorkspace.shared.open(reportURL) else {
+                // HTML may be associated with an editor. Resolve the default
+                // HTTPS handler explicitly and open the local report in it.
+                guard let webURL = URL(string: "https://localhost"),
+                      let browserURL = NSWorkspace.shared.urlForApplication(toOpen: webURL) else {
                     throw SessionStoreError.cannotOpenExportedReport(reportURL.path)
                 }
+                _ = try await NSWorkspace.shared.open(
+                    [reportURL],
+                    withApplicationAt: browserURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                )
                 agentError = nil
             } catch {
                 agentError = AgentErrorPresentation(error)
@@ -453,6 +470,7 @@ struct ContentView: View {
                     workSession.startNewSession()
                 }
                 bootstrappedWorkProjectPaths.remove(project.path)
+                composerDrafts.removeProject(project.path)
                 projectStore.removeProject(project)
                 agentError = nil
             } catch {

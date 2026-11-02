@@ -567,7 +567,9 @@ final class SidebarHoverActionsTests: XCTestCase {
 
         XCTAssertTrue(source.contains("onExportWorkSession: exportWorkSession"))
         XCTAssertTrue(source.contains("try await sessionStore.exportHTMLReport("))
-        XCTAssertTrue(source.contains("NSWorkspace.shared.open(reportURL)"))
+        XCTAssertTrue(source.contains("NSWorkspace.shared.urlForApplication(toOpen: webURL)"))
+        XCTAssertTrue(source.contains("withApplicationAt: browserURL"))
+        XCTAssertFalse(source.contains("NSWorkspace.shared.open(reportURL)"))
     }
 
     func testChatSessionContextMenuOffersCopyAndDelete() throws {
@@ -582,6 +584,20 @@ final class SidebarHoverActionsTests: XCTestCase {
         XCTAssertTrue(sessionRow.contains("sessionID: session.id"))
         XCTAssertTrue(sessionRow.contains("onDelete: onDelete"))
         XCTAssertTrue(source.contains("onDeleteChatSession(session)"))
+    }
+
+    func testSessionContextMenuOutlineExcludesOuterRowInsets() throws {
+        let source = try sidebarSource()
+        let work = try XCTUnwrap(source.components(separatedBy: "private struct WorkSessionRow").last?
+            .components(separatedBy: "private extension View").first)
+        let chat = try XCTUnwrap(source.components(separatedBy: "private struct ChatSessionRow").last?
+            .components(separatedBy: "private struct FolderRow").first)
+        XCTAssertLessThan(try XCTUnwrap(work.range(of: ".sessionContextMenu(")).lowerBound,
+                          try XCTUnwrap(work.range(of: ".padding(.leading, 12)")).lowerBound)
+        XCTAssertLessThan(try XCTUnwrap(chat.range(of: ".sessionContextMenu(")).lowerBound,
+                          try XCTUnwrap(chat.range(of: ".padding(.horizontal, 4)")).lowerBound)
+        XCTAssertTrue(work.contains("cornerRadius: 9"))
+        XCTAssertTrue(source.contains(".contentShape(.interaction, adaptiveRoundedShape(cornerRadius: cornerRadius))"))
     }
 
     func testSessionContextMenuDoesNotDrawTheDefaultFocusRing() throws {

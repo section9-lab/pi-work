@@ -16,6 +16,26 @@ final class BoundedFloatingPanelLayoutTests: XCTestCase {
         XCTAssertTrue(source.contains("pointerX"))
     }
 
+    func testDismissalKeepsPanelAndTriggerClicksButClosesForChromeClicks() {
+        let panel = CGRect(x: 0, y: 0, width: 320, height: 100)
+        let trigger = CGRect(x: 280, y: -40, width: 32, height: 30)
+        XCTAssertFalse(FloatingPanelDismissal.shouldDismiss(click: CGPoint(x: 100, y: 50), panelBounds: panel, anchorFrame: trigger))
+        XCTAssertFalse(FloatingPanelDismissal.shouldDismiss(click: CGPoint(x: 296, y: -25), panelBounds: panel, anchorFrame: trigger))
+        XCTAssertTrue(FloatingPanelDismissal.shouldDismiss(click: CGPoint(x: 20, y: -25), panelBounds: panel, anchorFrame: trigger))
+        XCTAssertTrue(FloatingPanelDismissal.shouldDismiss(click: CGPoint(x: -200, y: 50), panelBounds: panel, anchorFrame: trigger))
+    }
+
+    func testPanelMonitorsWindowWideClicksAndAppDeactivation() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("PiWork/Core/UI/InWindowFloatingPanel.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains(".leftMouseDown, .rightMouseDown, .otherMouseDown"))
+        XCTAssertTrue(source.contains("NSApplication.didResignActiveNotification"))
+        XCTAssertTrue(source.contains("NSWindow.didResignKeyNotification"))
+        XCTAssertTrue(source.contains("NSEvent.removeMonitor(monitor)"))
+        XCTAssertTrue(source.contains("observers.removeAll()"))
+    }
+
     func testPanelShrinksInsideAvailableContentBounds() {
         let layout = BoundedFloatingPanelLayout(
             idealWidth: 460,

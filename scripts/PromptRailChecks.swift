@@ -33,6 +33,7 @@ enum PromptRailChecks {
         let longPreview = PromptRailPresentation.previewText(for: long)
         try expect(longPreview.count == PromptRailPresentation.previewLimit + 1, "Long previews must be clipped with a single ellipsis")
         try expect(longPreview.hasSuffix("…"), "Clipped preview lost its ellipsis")
+        try expect(PromptRailPresentation.entries(from: [long]).first?.fullText == long.copyableText, "Hover preview must retain the full prompt")
 
         try expect(PromptRailLayout.tickCenters(count: 0, height: 200).isEmpty, "Empty rail must have no marks")
         try expect(PromptRailLayout.tickCenters(count: 1, height: 200) == [100], "A single mark belongs in the middle")
@@ -45,10 +46,17 @@ enum PromptRailChecks {
         let many = PromptRailLayout.tickCenters(count: 80, height: 200)
         let manyStep = PromptRailLayout.step(for: many)
         try expect(manyStep >= PromptRailLayout.tickHeight, "Compressed marks must not overlap")
-        try expect(many.first! >= 0 && many.last! <= 200, "Compressed block must stay inside the rail")
+        try expect(manyStep == PromptRailLayout.minimumStep, "Long sessions must retain stable hit targets")
+        try expect(many.last! > 200, "Long sessions must scroll instead of merging marks")
 
         let tall = PromptRailLayout.tickCenters(count: 3, height: 460)
-        try expect(PromptRailLayout.step(for: tall) > few[1] - few[0], "A taller rail must spread the marks out")
+        try expect(PromptRailLayout.step(for: tall) == few[1] - few[0], "Hit targets must stay fixed across viewport sizes")
+        try expect(PromptRailLayout.markWidth(isExpanded: false, isHovered: true) == PromptRailLayout.restingWidth, "Resting marks must remain short")
+        try expect(PromptRailLayout.markWidth(isExpanded: true, isHovered: false) > PromptRailLayout.restingWidth, "Every mark must expand on region hover")
+        try expect(PromptRailLayout.markWidth(isExpanded: true, isHovered: true) > PromptRailLayout.expandedWidth, "The pointed mark must be distinct")
+        try expect(PromptRailLayout.previewTop(center: 0, cardHeight: 80, height: 200) == 0, "Top preview escaped")
+        try expect(PromptRailLayout.previewTop(center: 200, cardHeight: 80, height: 200) == 120, "Bottom preview escaped")
+        try expect(PromptRailLayout.railHeight(count: 20, available: 40) <= 40, "Small windows must bound the rail")
 
         guard let nearest = PromptRailLayout.index(atY: few[2] + 1, centers: few) else {
             throw MCPChecks.Failure(message: "Pointing beside a mark missed it")

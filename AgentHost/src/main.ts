@@ -785,7 +785,9 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
 
     const existing = sessionRegistry.descriptor(sessionId);
     if (existing) {
-      if (existing.path !== path) {
+      // ACP session/list and session/new expose an opaque ID, not a file path.
+      // Explicit filesystem paths still have to match the registered session.
+      if (path !== sessionId && existing.path !== path) {
         throw new Error(`Session path does not match open session: ${sessionId}`);
       }
       return {
@@ -797,8 +799,9 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       };
     }
 
+    const resolvedPath = await sessionCatalog.resolvePath(sessionId, path, sessionDirectory);
     await getExtensionPackagesCoordinator().list();
-    const manager = sessionCatalog.open(path, sessionDirectory);
+    const manager = sessionCatalog.open(resolvedPath, sessionDirectory);
     if (manager.getSessionId() !== sessionId) {
       throw new Error(`Session ID does not match file: ${sessionId}`);
     }

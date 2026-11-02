@@ -889,6 +889,7 @@
 "context.segment.skills" = "技能";
 "context.segment.context" = "项目上下文";
 "chat.prompt_rail.title" = "提问";
+"chat.prompt_rail.current" = "当前阅读位置";
 "chat.prompt_rail.open" = "展开提问目录";
 "chat.prompt_rail.position" = "%1$d / %2$d";
 "chat.prompt_rail.image_only" = "图片 ×%d";

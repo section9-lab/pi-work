@@ -33,6 +33,7 @@ final class SessionStoreTests: XCTestCase {
             projects: [project],
             selectedProject: .constant(project),
             sessionStore: store,
+            composerDrafts: SessionComposerDraftStore(),
             onAddFolder: {}
         ))
 

@@ -777,54 +777,60 @@ private struct SkillsCatalogCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SkillIconView(source: item.source)
-                .padding(.bottom, 12)
+            // Icon and name share one row: stacking them wasted a full line of
+            // vertical space on every card in the grid.
+            HStack(alignment: .center, spacing: 10) {
+                SkillIconView(source: item.source, size: 32)
 
-            HStack(alignment: .top, spacing: 12) {
                 Button(action: openSkill) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(displayName)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color.primary.opacity(0.9))
-                        .lineLimit(2)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(displayName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(0.9))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.primary.opacity(isHovering ? 0.68 : 0.30))
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(isHovering ? 0.68 : 0.30))
                     }
                 }
                 .buttonStyle(.plain)
+                .help(L10n.string("skills.open_hint"))
                 .accessibilityHint(L10n.string("skills.open_hint"))
 
                 Spacer(minLength: 0)
-
-                downloadControl
             }
 
             summaryArea
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 12)
 
-            HStack(spacing: 8) {
-                Label(SkillsCatalogCategory.inferred(for: item).title, systemImage: "tag")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.primary.opacity(0.52))
-
+            // Category lives in the filter row above the grid, so the footer
+            // keeps only trust, reach and the action — four items in this row
+            // truncate on the narrowest 260pt column.
+            HStack(spacing: 7) {
                 if item.isOfficial {
                     Label(L10n.string("skills.official"), systemImage: "checkmark.seal.fill")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.primary.opacity(0.62))
+                        .lineLimit(1)
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
 
                 Label(compactInstallCount, systemImage: "arrow.down.to.line")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.primary.opacity(0.48))
+                    .lineLimit(1)
+
+                downloadControl
+                    .layoutPriority(1)
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 204, alignment: .topLeading)
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
         .containerShape(
             RoundedRectangle(cornerRadius: AppCornerRadius.card, style: .continuous)
         )
@@ -857,8 +863,9 @@ private struct SkillsCatalogCard: View {
             Label(L10n.string("skills.downloaded"), systemImage: "checkmark")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.primary.opacity(0.58))
-                .padding(.horizontal, 10)
-                .frame(height: 30)
+                .lineLimit(1)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
                 .background(
                     Capsule()
                         .fill(Color.primary.opacity(0.06))
@@ -866,22 +873,23 @@ private struct SkillsCatalogCard: View {
                 .accessibilityLabel(L10n.string("skills.downloaded"))
         } else {
             Button(action: onInstall) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     if isInstalling {
                         ProgressView()
                             .controlSize(.mini)
                     } else {
                         Image(systemName: "arrow.down")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                     }
                     Text(isInstalling
                         ? L10n.string("skills.downloading")
                         : L10n.string("skills.download"))
                         .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
                 }
                 .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                .padding(.horizontal, 10)
-                .frame(height: 30)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
                 .background(Capsule().fill(Color.primary.opacity(0.88)))
             }
             .buttonStyle(.plain)
@@ -935,15 +943,22 @@ private struct SkillsCatalogCard: View {
             .joined(separator: " ")
     }
 
+    /// "12.4K" rather than "12.4K"/"331.0K": dropping a trailing ".0" keeps the
+    /// install count inside the footer on the narrowest grid column.
     private var compactInstallCount: String {
         switch item.installs {
         case 1_000_000...:
-            return String(format: "%.1fM", Double(item.installs) / 1_000_000)
+            return Self.trimmed(Double(item.installs) / 1_000_000) + "M"
         case 1_000...:
-            return String(format: "%.1fK", Double(item.installs) / 1_000)
+            return Self.trimmed(Double(item.installs) / 1_000) + "K"
         default:
             return "\(item.installs)"
         }
+    }
+
+    private static func trimmed(_ value: Double) -> String {
+        let text = String(format: "%.1f", value)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
     }
 
     private func openSkill() {
@@ -954,27 +969,46 @@ private struct SkillsCatalogCard: View {
 
 private struct SkillsCatalogSkeletonCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.10))
-                .frame(width: 36, height: 36)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.primary.opacity(0.10))
-                .frame(width: 150, height: 16)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.primary.opacity(0.07))
-                .frame(maxWidth: .infinity)
-                .frame(height: 12)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.primary.opacity(0.07))
-                .frame(width: 190, height: 12)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(width: 32, height: 32)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(width: 128, height: 14)
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 11)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 11)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(width: 150, height: 11)
+            }
+            .padding(.top, 12)
             Spacer(minLength: 12)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.primary.opacity(0.08))
-                .frame(width: 92, height: 12)
+            HStack(spacing: 7) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 68, height: 11)
+                Spacer(minLength: 0)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 46, height: 11)
+                Capsule()
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(width: 56, height: 26)
+            }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 196, alignment: .topLeading)
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
         .background(
             adaptiveRoundedShape(cornerRadius: AppCornerRadius.card)
                 .fill(AppPalette.translucentSurface)

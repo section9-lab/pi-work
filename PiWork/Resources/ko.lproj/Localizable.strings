@@ -889,6 +889,7 @@
 "context.segment.skills" = "스킬";
 "context.segment.context" = "프로젝트 컨텍스트";
 "chat.prompt_rail.title" = "프롬프트";
+"chat.prompt_rail.current" = "현재 읽기 위치";
 "chat.prompt_rail.open" = "프롬프트 목록 열기";
 "chat.prompt_rail.position" = "%1$d / %2$d";
 "chat.prompt_rail.image_only" = "이미지 ×%d";

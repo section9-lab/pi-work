@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 Bun.env.PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL = "1";
 
@@ -146,6 +147,59 @@ describe("ACP agent host process", () => {
   });
 
 });
+
+test("HTML export resolves ACP opaque IDs for both open and closed sessions", async () => {
+  const { child, lines, root } = await startHost();
+  const sessionDirectory = join(root, "sessions");
+  const send = async (id: string, method: string, params: Record<string, unknown>) => {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    await child.stdin.flush();
+    let response;
+    do { response = await lines.read(); } while (response.id !== id);
+    return response;
+  };
+  try {
+    writeFileSync(join(root, "models.json"), JSON.stringify({ providers: { fixture: {
+      baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", apiKey: "synthetic-key",
+      models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 1024 }],
+    } } }));
+    writeFileSync(join(root, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+    const manager = SessionManager.create(root, sessionDirectory);
+    manager.appendMessage({ role: "user", content: "Export regression prompt", timestamp: Date.now() });
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Export regression reply" }],
+      api: "openai-completions", provider: "fixture", model: "fixture",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop", timestamp: Date.now() });
+    const sessionId = manager.getSessionId();
+    const opened = await send("open-export", "session/resume", {
+      sessionId, cwd: root, mcpServers: [], _meta: { piWork: { sessionDirectory, profile: "work" } },
+    });
+    expect(opened.error).toBeUndefined();
+    for (const state of ["open", "closed"] as const) {
+      if (state === "closed") {
+        const closed = await send("close-export", "session/close", { sessionId });
+        expect(closed.error).toBeUndefined();
+      }
+      const outputPath = join(root, `${state}.html`);
+      const exported = await send(`export-${state}`, "_piWork/session/exportHtml", {
+        sessionId, path: sessionId, sessionDirectory, profile: "work", outputPath,
+      });
+      expect(exported.error).toBeUndefined();
+      expect(exported.result).toEqual({ sessionId, path: outputPath });
+      const html = await Bun.file(outputPath).text();
+      const payload = html.match(/<script id="session-data" type="application\/json">([^<]+)<\/script>/)?.[1];
+      expect(payload).toBeDefined();
+      expect(Buffer.from(payload!, "base64").toString("utf8")).toContain("Export regression prompt");
+      if (state === "open") {
+        const wrongPath = await send("export-wrong-path", "_piWork/session/exportHtml", {
+          sessionId, path: join(root, "wrong.jsonl"), sessionDirectory, profile: "work", outputPath,
+        });
+        expect(wrongPath.error?.message).toContain("Session path does not match open session");
+      }
+    }
+  } finally { await stopHost(child, root); }
+}, 15000);
 
 for (const scenario of ["followUp", "steer", "stop"] as const) {
   test(`native running input end-to-end: ${scenario}`, async () => {

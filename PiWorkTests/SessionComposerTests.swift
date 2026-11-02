@@ -2364,6 +2364,7 @@ final class SessionComposerTests: XCTestCase {
             projects: [],
             selectedProject: .constant(nil),
             sessionStore: makeInactiveSessionStore(),
+            composerDrafts: SessionComposerDraftStore(),
             onAddFolder: {}
         )
         .frame(width: 646, height: 600)
@@ -2400,6 +2401,7 @@ final class SessionComposerTests: XCTestCase {
             projects: [],
             selectedProject: .constant(nil),
             sessionStore: makeInactiveSessionStore(),
+            composerDrafts: SessionComposerDraftStore(),
             onAddFolder: {}
         )
         .frame(width: 646, height: 600)
@@ -2426,6 +2428,7 @@ final class SessionComposerTests: XCTestCase {
             projects: [],
             selectedProject: .constant(nil),
             sessionStore: makeInactiveSessionStore(),
+            composerDrafts: SessionComposerDraftStore(),
             onAddFolder: {}
         )
         .frame(width: 646, height: 600)
