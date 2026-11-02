@@ -65,6 +65,7 @@ struct PromptRailView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(L10n.string("chat.prompt_rail.title"))
+            .accessibilityIdentifier("session-prompt-rail")
         }
     }
 
@@ -118,6 +119,7 @@ struct PromptRailView: View {
         }
         .help(title(for: entry))
         .accessibilityLabel(L10n.format("chat.prompt_rail.mark", entry.index, title(for: entry)))
+        .accessibilityIdentifier("prompt-rail-\(entry.id)")
         .accessibilityValue(isCurrent ? L10n.string("chat.prompt_rail.current") : "")
     }
 

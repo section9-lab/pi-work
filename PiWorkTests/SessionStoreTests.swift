@@ -45,6 +45,70 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testPromptRailRemainsVisibleInActualConversationWhenResizingBelowOldWidthThreshold() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(messages: (1...5).map {
+            makeSessionMessage(id: "prompt-\($0)", text: "User question \($0)")
+        }))
+        let store = SessionStore(service: host)
+        try await store.openSession(makeSummary(), profile: .work, sessionDirectory: nil)
+        let controller = NSHostingController(rootView: ChatView(
+            mode: .work,
+            projects: [],
+            selectedProject: .constant(PiProject(name: "Project", path: "/tmp/project")),
+            sessionStore: store,
+            composerDrafts: SessionComposerDraftStore(),
+            onAddFolder: {}
+        ).background(Color.white).environment(\.colorScheme, .light))
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 1000, height: 640),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.orderFront(nil)
+        defer { window.close() }
+
+        for width: CGFloat in [1000, 840, 632, 472, 867, 868, 1000] {
+            window.setContentSize(CGSize(width: width, height: 640))
+            controller.view.layoutSubtreeIfNeeded()
+            var markerPixels = 0
+            for _ in 0..<100 {
+                markerPixels = try renderedPromptRailPixelCount(in: controller.view)
+                if markerPixels > 4 { break }
+                try await Task.sleep(nanoseconds: 20_000_000)
+                controller.view.layoutSubtreeIfNeeded()
+            }
+            XCTAssertGreaterThan(markerPixels, 4, "Rendered prompt navigation disappeared at transcript width \(width)")
+            XCTAssertLessThanOrEqual(controller.view.frame.width, width + 1)
+        }
+        await store.stop()
+    }
+
+    // Render the REAL conversation, not the standalone rail preview. Restrict
+    // detection to the reserved gutter so a blue control elsewhere cannot pass.
+    private func renderedPromptRailPixelCount(in view: NSView) throws -> Int {
+        let size = view.bounds.size
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        bitmap.size = size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let firstX = max(0, Int(size.width - PromptRailLayout.edgeInset - PromptRailLayout.railWidth))
+        var count = 0
+        for x in firstX..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > 0.9,
+                      (0.35...0.65).contains(color.redComponent),
+                      color.greenComponent > color.redComponent + 0.05,
+                      color.blueComponent > color.greenComponent + 0.06 else { continue }
+                count += 1
+            }
+        }
+        return count
+    }
+
     func testOpenSessionEmitsEveryStorePerformanceStage() async throws {
         var events: [SessionOpenPerformanceEvent] = []
         let tracer = SessionOpenPerformanceTracer(

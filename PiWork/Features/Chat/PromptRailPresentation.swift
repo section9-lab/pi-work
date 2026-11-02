@@ -85,6 +85,15 @@ enum PromptRailLayout {
     static let minimumStep: CGFloat = 22
     static let blockInset: CGFloat = 6
     static let railWidth: CGFloat = 44
+    static let edgeInset: CGFloat = 6
+    static let contentGap: CGFloat = 10
+    static let transcriptInset: CGFloat = 24
+
+    /// Reserve the rail's hit area even when the centered transcript has no
+    /// spare gutter. Window width must never decide whether navigation exists.
+    static func transcriptTrailingInset(hasPrompts: Bool) -> CGFloat {
+        hasPrompts ? max(transcriptInset, railWidth + edgeInset + contentGap) : transcriptInset
+    }
 
     static func markWidth(isExpanded: Bool, isHovered: Bool) -> CGFloat {
         guard isExpanded else { return restingWidth }

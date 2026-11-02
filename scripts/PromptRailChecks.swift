@@ -73,6 +73,21 @@ enum PromptRailChecks {
             "The rail must never outgrow the transcript"
         )
 
+        let trailing = PromptRailLayout.transcriptTrailingInset(hasPrompts: true)
+        for width: CGFloat in [360, 472, 632, 760, 840, 867, 868, 1000, 1400] {
+            let railLeadingEdge = width - PromptRailLayout.edgeInset - PromptRailLayout.railWidth
+            try expect(width - trailing + PromptRailLayout.contentGap <= railLeadingEdge,
+                       "Transcript content must not cover the rail at width \(width)")
+            try expect(width - PromptRailLayout.transcriptInset - trailing > 0,
+                       "The rail must leave room for narrow transcripts")
+        }
+        try expect(PromptRailLayout.transcriptTrailingInset(hasPrompts: false) == PromptRailLayout.transcriptInset,
+                   "Empty transcripts must keep their normal inset")
+        let chatSource = try String(contentsOfFile: "PiWork/Features/Chat/Views/ChatView.swift", encoding: .utf8)
+        try expect(!chatSource.contains("hasPromptRailGutter"), "Window width must not hide prompt navigation")
+        try expect(chatSource.contains(".padding(.trailing, PromptRailLayout.transcriptTrailingInset(hasPrompts: !prompts.isEmpty))"),
+                   "The transcript must use the reserved rail gutter")
+
         let frames: [String: CGRect] = [
             "u1": CGRect(x: 0, y: 40, width: 100, height: 30),
             "u2": CGRect(x: 0, y: 320, width: 100, height: 30),
@@ -92,6 +107,6 @@ enum PromptRailChecks {
             "Unmeasured turns must fall back to the first entry"
         )
 
-        print("Prompt rail native checks passed: entry projection, preview clipping, spacing, hover resolution and current-turn tracking.")
+        print("Prompt rail native checks passed: entry projection, previews, spacing, hover resolution, current-turn tracking and narrow-window integration.")
     }
 }

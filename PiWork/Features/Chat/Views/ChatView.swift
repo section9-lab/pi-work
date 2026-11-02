@@ -357,7 +357,8 @@ struct ChatView: View {
                     }
                     .frame(maxWidth: TranscriptLayout.transcriptMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
+                    .padding(.leading, PromptRailLayout.transcriptInset)
+                    .padding(.trailing, PromptRailLayout.transcriptTrailingInset(hasPrompts: !prompts.isEmpty))
                     .padding(.vertical, 16)
                     .background {
                         TranscriptUserScrollObserver(
@@ -402,9 +403,9 @@ struct ChatView: View {
                     }
                 }
                 .overlay(alignment: .trailing) {
-                    // The rail only earns its gutter when the content column has
-                    // room to spare; otherwise it would sit on the transcript.
-                    if hasPromptRailGutter(in: viewport.size), !prompts.isEmpty {
+                    // Space is reserved in the transcript above, so navigation
+                    // remains available beside wide sidebars and review panels.
+                    if !prompts.isEmpty {
                         PromptRailView(
                             entries: prompts,
                             currentID: currentPromptID,
@@ -416,7 +417,7 @@ struct ChatView: View {
                             jump(to: entry, using: proxy)
                         }
                         .id(sessionPresentationID)
-                        .padding(.trailing, 6)
+                        .padding(.trailing, PromptRailLayout.edgeInset)
                         .transition(.opacity)
                     }
                 }
@@ -501,13 +502,6 @@ struct ChatView: View {
         }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.3), value: highlightedPromptID == message.id)
         .id(message.id)
-    }
-
-    /// The rail sits in the gutter the centred column leaves behind, so it needs
-    /// enough of that gutter to avoid landing on the conversation.
-    private func hasPromptRailGutter(in size: CGSize) -> Bool {
-        let gutter = (size.width - TranscriptLayout.transcriptMaxWidth) / 2
-        return gutter >= PromptRailLayout.railWidth + 10
     }
 
     /// Scrolling to an anchor alone leaves the reader wondering whether the jump

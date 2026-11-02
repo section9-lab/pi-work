@@ -50,6 +50,33 @@ final class PromptRailPresentationTests: XCTestCase {
         XCTAssertEqual(PromptRailLayout.previewTop(center: 20, cardHeight: 80, height: 40), 0)
     }
 
+    func testNarrowTranscriptsReserveTheRailHitAreaInsteadOfOverlappingMessages() {
+        let trailing = PromptRailLayout.transcriptTrailingInset(hasPrompts: true)
+        for width: CGFloat in [360, 472, 632, 760, 840, 867, 868, 1000, 1400] {
+            let railLeadingEdge = width - PromptRailLayout.edgeInset - PromptRailLayout.railWidth
+            let transcriptTrailingEdge = width - trailing
+            XCTAssertLessThanOrEqual(transcriptTrailingEdge + PromptRailLayout.contentGap, railLeadingEdge)
+            XCTAssertGreaterThan(width - PromptRailLayout.transcriptInset - trailing, 0)
+        }
+        XCTAssertEqual(PromptRailLayout.transcriptTrailingInset(hasPrompts: false), PromptRailLayout.transcriptInset)
+    }
+
+    func testTranscriptKeepsNavigationVisibleRegardlessOfViewportWidth() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"), encoding: .utf8)
+        let transcript = try XCTUnwrap(source.components(separatedBy: "private func transcript(").last?
+            .components(separatedBy: "private func transcriptRow(").first)
+        let overlay = try XCTUnwrap(transcript.components(separatedBy: ".overlay(alignment: .trailing)").last?
+            .components(separatedBy: ".animation(").first)
+        XCTAssertTrue(overlay.contains("if !prompts.isEmpty {"))
+        XCTAssertTrue(overlay.contains("PromptRailView("))
+        XCTAssertFalse(overlay.contains("viewport.size.width"))
+        XCTAssertFalse(source.contains("hasPromptRailGutter"))
+        XCTAssertTrue(transcript.contains(".padding(.trailing, PromptRailLayout.transcriptTrailingInset(hasPrompts: !prompts.isEmpty))"))
+        XCTAssertTrue(overlay.contains(".padding(.trailing, PromptRailLayout.edgeInset)"))
+    }
+
     func testSmallViewportNeverGetsAnOversizedRail() {
         XCTAssertEqual(PromptRailLayout.railHeight(count: 20, available: 40), 40)
         XCTAssertEqual(PromptRailLayout.railHeight(count: 20, available: -10), 0)
