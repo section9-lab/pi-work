@@ -84,10 +84,13 @@ final class AppPaletteBackdropTests: XCTestCase {
         return NSBitmapImageRep(cgImage: try XCTUnwrap(image))
     }
 
-    private func pixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> [UInt] {
-        var channels = [UInt](repeating: 0, count: 4)
-        bitmap.getPixel(&channels, atX: x, y: y)
-        return channels
+    private func pixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> [CGFloat] {
+        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+            XCTFail("Unable to read pixel at (\(x), \(y))")
+            return [0, 0, 0, 0]
+        }
+        return [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent]
+            .map { $0 * 255 }
     }
 
     private func assertPixelsMatch(
