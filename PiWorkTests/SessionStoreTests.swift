@@ -489,6 +489,151 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testMouseWheelAtTopRevealsCachedHistoryInActualChatView() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(messages: (1...80).map {
+            makeSessionMessage(id: "cached-\($0)", text: "Cached question \($0)")
+        }))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        scrollHistoryToTop(fixture)
+        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        XCTAssertGreaterThan(fixture.scroll.contentView.bounds.minY, 160, "Keep the previously visible row anchored after prepending")
+        XCTAssertLessThan(fixture.scroll.contentView.bounds.maxY, fixture.scroll.documentView?.bounds.maxY ?? 0,
+                          "Reading history must not jump back to the latest message")
+        let requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 0, "Cached history should not require a host round trip")
+        await fixture.store.stop()
+    }
+
+    func testMouseWheelLoadsTwoRemoteHistoryPagesWithoutLeavingConversation() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(messages: (81...120).map {
+            makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
+        }, history: AgentHostSessionHistory(revision: "history-revision", nextCursor: "page-one", hasMore: true)))
+        await host.setTranscriptPage(AgentHostSessionTranscriptPageResult(
+            sessionId: "session-one", messages: (41...80).map {
+                makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
+            }, revision: "history-revision", nextCursor: "page-two", hasMore: true
+        ))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        var oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        scrollHistoryToTop(fixture)
+        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        var requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 80)
+
+        await host.setTranscriptPage(AgentHostSessionTranscriptPageResult(
+            sessionId: "session-one", messages: (1...40).map {
+                makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
+            }, revision: "history-revision", nextCursor: nil, hasMore: false
+        ))
+        oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        scrollHistoryToTop(fixture)
+        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 2)
+        XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 120)
+        XCTAssertEqual(fixture.store.records["session-one"]?.messages.first?.id, "remote-1")
+        XCTAssertEqual(fixture.store.records["session-one"]?.hasEarlierMessages, false)
+        XCTAssertGreaterThan(fixture.scroll.contentView.bounds.minY, 160)
+        await fixture.store.stop()
+    }
+
+    func testFailedHistoryLoadCanRetryWithAnotherWheelNotchAtTheSameTopPosition() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot(messages: (41...80).map {
+            makeSessionMessage(id: "retry-\($0)", text: "Retry question \($0)")
+        }, history: AgentHostSessionHistory(revision: "retry-revision", nextCursor: "retry-cursor", hasMore: true)))
+        await host.setTranscriptPage(AgentHostSessionTranscriptPageResult(
+            sessionId: "session-one", messages: (1...40).map {
+                makeSessionMessage(id: "retry-\($0)", text: "Retry question \($0)")
+            }, revision: "retry-revision", nextCursor: nil, hasMore: false
+        ))
+        await host.rejectTranscriptPages(true)
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        scrollHistoryToTop(fixture)
+        for _ in 0..<100 {
+            if await host.transcriptPageCount > 0 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        var requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 40)
+        await host.rejectTranscriptPages(false)
+        let oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        scrollHistoryToTop(fixture)
+        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 2)
+        XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 80)
+        await fixture.store.stop()
+    }
+
+    private typealias HistoryFixture = (store: SessionStore, window: NSWindow, scroll: NSScrollView, observer: TranscriptUserScrollObserverView)
+
+    private func historyConversation(host: FakeAgentHost) async throws -> HistoryFixture {
+        let store = SessionStore(service: host)
+        try await store.openSession(makeSummary(), profile: .work, sessionDirectory: nil)
+        let controller = NSHostingController(rootView: ChatView(
+            mode: .work, projects: [], selectedProject: .constant(PiProject(name: "Project", path: "/tmp/project")),
+            sessionStore: store, composerDrafts: SessionComposerDraftStore(), onAddFolder: {}
+        ).background(Color.white).environment(\.colorScheme, .light))
+        let window = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 840, height: 640),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.setContentSize(CGSize(width: 840, height: 640))
+        window.orderFront(nil)
+        controller.view.layoutSubtreeIfNeeded()
+        var previousHeight: CGFloat = -1
+        var stableFrames = 0
+        for _ in 0..<100 {
+            controller.view.layoutSubtreeIfNeeded()
+            if let observer = historyDescendants(controller.view).compactMap({ $0 as? TranscriptUserScrollObserverView }).first,
+               let scroll = observer.enclosingScrollView,
+               let height = scroll.documentView?.bounds.height, height > 1000 {
+                stableFrames = abs(height - previousHeight) < 1 ? stableFrames + 1 : 0
+                previousHeight = height
+                if stableFrames >= 3 { return (store, window, scroll, observer) }
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        window.close()
+        throw NSError(domain: "HistoryRenderingTest", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "The initial transcript did not finish rendering"])
+    }
+
+    private func historyDescendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { historyDescendants($0) }
+    }
+
+    private func scrollHistoryToTop(_ fixture: HistoryFixture) {
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        fixture.observer.handleScrollWheel(TestPhaseLessScrollWheelEvent(window: fixture.window, point: point))
+        fixture.scroll.contentView.scroll(to: .zero)
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+    }
+
+    private func waitForHistoryHeight(_ scroll: NSScrollView, greaterThan oldHeight: CGFloat) async throws {
+        for _ in 0..<100 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            scroll.window?.contentView?.layoutSubtreeIfNeeded()
+            if (scroll.documentView?.bounds.height ?? 0) > oldHeight + 100 {
+                // Let the stable-row restoration and loading-header update settle.
+                try await Task.sleep(nanoseconds: 80_000_000)
+                return
+            }
+        }
+        XCTFail("Scrolling to the top did not render earlier messages")
+    }
+
     func testLoadsEarlierTranscriptPageIntoTheOpenSession() async throws {
         let host = FakeAgentHost()
         let latest = makeSessionMessage(id: "message-latest", text: "Latest")
@@ -1265,6 +1410,7 @@ private actor FakeAgentHost: AgentHostServicing {
     private var shouldEmitRunningBeforeResponse = false
     private var shouldRejectPrompts = false
     private var shouldRejectSnapshots = false
+    private var shouldRejectTranscriptPages = false
     private var shouldRejectModelCatalog = false
     private var openSessionTimeoutsRemaining = 0
     private var acpState = AgentHostACPSessionState.empty
@@ -1341,6 +1487,10 @@ private actor FakeAgentHost: AgentHostServicing {
 
     func setTranscriptPage(_ page: AgentHostSessionTranscriptPageResult) {
         transcriptPageResult = page
+    }
+
+    func rejectTranscriptPages(_ enabled: Bool) {
+        shouldRejectTranscriptPages = enabled
     }
 
     func setGitBranches(_ result: AgentHostGitBranchesResult) {
@@ -1497,6 +1647,9 @@ private actor FakeAgentHost: AgentHostServicing {
         requestID: String
     ) async throws -> AgentHostSessionTranscriptPageResult {
         transcriptPageCount += 1
+        if shouldRejectTranscriptPages {
+            throw AgentHostClientError.requestFailed(code: "history_fixture_failure", message: "History transport fixture unavailable")
+        }
         return transcriptPageResult
     }
 

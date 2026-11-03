@@ -591,6 +591,10 @@ struct TranscriptAutoFollowState: Equatable {
 struct TranscriptHistoryLoadTrigger {
     private var hasTriggeredNearTop = false
 
+    mutating func reset() {
+        hasTriggeredNearTop = false
+    }
+
     mutating func update(
         distanceFromTop: CGFloat,
         isUserScrolling: Bool,
@@ -611,7 +615,22 @@ struct TranscriptHistoryLoadTrigger {
     }
 }
 
+struct TranscriptScrollDistances: Equatable {
+    let fromTop: CGFloat
+    let fromBottom: CGFloat
+}
+
 enum TranscriptScrollPresentation {
+    /// Clip/document geometry works with overlay or absent scrollers and with
+    /// both AppKit coordinate orientations. Scroller.floatValue is UI chrome,
+    /// not a reliable source of the transcript's reading position.
+    static func distances(documentBounds: CGRect, visibleRect: CGRect, isFlipped: Bool) -> TranscriptScrollDistances {
+        TranscriptScrollDistances(
+            fromTop: max(0, isFlipped ? visibleRect.minY - documentBounds.minY : documentBounds.maxY - visibleRect.maxY),
+            fromBottom: max(0, isFlipped ? documentBounds.maxY - visibleRect.maxY : visibleRect.minY - documentBounds.minY)
+        )
+    }
+
     static func isNearBottom(
         bottomY: CGFloat,
         viewportHeight: CGFloat,

@@ -888,6 +888,8 @@
 "context.segment.mcp" = "Connectors & MCP";
 "context.segment.skills" = "Skills";
 "context.segment.context" = "Project context";
+"chat.history.load_earlier" = "Load earlier messages";
+"chat.history.loading" = "Loading earlier messages…";
 "chat.prompt_rail.title" = "Prompts";
 "chat.prompt_rail.current" = "Current reading position";
 "chat.prompt_rail.open" = "Show prompt index";

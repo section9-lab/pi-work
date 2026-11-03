@@ -888,6 +888,8 @@
 "context.segment.mcp" = "コネクタと MCP";
 "context.segment.skills" = "スキル";
 "context.segment.context" = "プロジェクトコンテキスト";
+"chat.history.load_earlier" = "以前のメッセージを読み込む";
+"chat.history.loading" = "以前のメッセージを読み込み中…";
 "chat.prompt_rail.title" = "プロンプト";
 "chat.prompt_rail.current" = "現在の閲覧位置";
 "chat.prompt_rail.open" = "プロンプト一覧を表示";
