@@ -73,15 +73,16 @@ final class AppPaletteBackdropTests: XCTestCase {
     @MainActor
     private func render<V: View>(_ view: V, dark: Bool) throws -> NSBitmapImageRep {
         let appearance = try XCTUnwrap(NSAppearance(named: dark ? .darkAqua : .aqua))
-        var image: CGImage?
+        var result: Result<NSBitmapImageRep, Error>?
         appearance.performAsCurrentDrawingAppearance {
-            let renderer = ImageRenderer(content: view
-                .frame(width: 240, height: 320)
-                .environment(\.colorScheme, dark ? .dark : .light))
-            renderer.scale = 1
-            image = renderer.cgImage
+            result = Result {
+                try TestViewRenderer.render(
+                    view.environment(\.colorScheme, dark ? .dark : .light),
+                    size: CGSize(width: 240, height: 320)
+                )
+            }
         }
-        return NSBitmapImageRep(cgImage: try XCTUnwrap(image))
+        return try XCTUnwrap(result).get()
     }
 
     private func pixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> [CGFloat] {
