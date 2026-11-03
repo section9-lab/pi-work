@@ -4,6 +4,7 @@ struct MCPEditorView: View {
     @ObservedObject var store: MCPStore
     let server: MCPServer?
     private let showsLocalCommandNotice: Bool
+    private let setupNotes: [String]
     @Environment(\.dismiss) private var dismiss
     @State private var draft: MCPServerDraft
     @State private var allowInChat: Bool
@@ -15,9 +16,10 @@ struct MCPEditorView: View {
     @State private var permissionsExpanded = false
     @State private var advancedExpanded = false
 
-    init(store: MCPStore, server: MCPServer?, initialDraft: MCPServerDraft? = nil) {
+    init(store: MCPStore, server: MCPServer?, initialDraft: MCPServerDraft? = nil, setupNotes: [String] = []) {
         self.store = store
         self.server = server
+        self.setupNotes = setupNotes
         showsLocalCommandNotice = initialDraft?.transport == .stdio
         _draft = State(initialValue: initialDraft ?? MCPServerDraft(server: server))
         _allowInChat = State(initialValue: server?.allowInChat ?? false)
@@ -29,6 +31,16 @@ struct MCPEditorView: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: MCPMetrics.pagePadding) {
+                    if !setupNotes.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(L10n.string("mcp.market.setup_required"), systemImage: "info.circle")
+                                .font(.callout.weight(.medium))
+                            ForEach(Array(setupNotes.enumerated()), id: \.offset) { _, note in
+                                Text(note).font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
                     if jsonMode {
                         nameField
                         MCPField(title: L10n.string("mcp.configuration")) {

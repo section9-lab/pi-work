@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct MCPSettingsView: View {
     @ObservedObject var store: MCPStore
+    @StateObject private var catalog = MCPMarketCatalogStore()
     @State private var editor: MCPEditorTarget?
     @State private var importing = false
     @State private var removing: MCPServer?
@@ -43,7 +44,7 @@ struct MCPSettingsView: View {
                     VStack(spacing: MCPMetrics.spacing) {
                         if filteredServers.isEmpty { message(L10n.string("mcp.no_results")) }
                         ForEach(filteredServers) { server in
-                            MCPServerCard(server: server, store: store,
+                            MCPServerCard(server: server, preset: catalog.preset(for: server), store: store,
                                           onEdit: { editor = MCPEditorTarget(server: server) },
                                           onRemove: { removing = server })
                         }
@@ -52,8 +53,9 @@ struct MCPSettingsView: View {
                 Text(L10n.string("mcp.footer")).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider()
-                MCPMarketView(store: store) { preset in
-                    editor = MCPEditorTarget(server: nil, initialDraft: preset.draft(name: store.availableName(for: preset)))
+                MCPMarketView(store: store, catalog: catalog) { preset in
+                    editor = MCPEditorTarget(server: nil,
+                        initialDraft: preset.draft(name: store.availableName(for: preset)), setupNotes: preset.setupNotes)
                 }
             }
             .padding(MCPMetrics.pagePadding)
@@ -61,7 +63,7 @@ struct MCPSettingsView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(item: $editor) { target in
-            MCPEditorView(store: store, server: target.server, initialDraft: target.initialDraft)
+            MCPEditorView(store: store, server: target.server, initialDraft: target.initialDraft, setupNotes: target.setupNotes)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             do {
@@ -88,6 +90,9 @@ struct MCPSettingsView: View {
                 do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { break }
                 await store.load(silent: true)
             }
+        }
+        .task(id: store.servers.map { $0.name + $0.configurationJSON }.joined(separator: "\n")) {
+            await catalog.resolveIdentities(for: store.servers)
         }
         .onReceive(store.$authentication.removeDuplicates()) { _ in
             if let url = store.takeAuthorizationURL() { NSWorkspace.shared.open(url) }
@@ -164,10 +169,12 @@ private struct MCPEditorTarget: Identifiable {
     let id = UUID()
     let server: MCPServer?
     var initialDraft: MCPServerDraft? = nil
+    var setupNotes: [String] = []
 }
 
 private struct MCPServerCard: View {
     let server: MCPServer
+    let preset: MCPMarketPreset?
     @ObservedObject var store: MCPStore
     let onEdit: () -> Void
     let onRemove: () -> Void
@@ -196,10 +203,8 @@ private struct MCPServerCard: View {
         MCPCard {
             VStack(alignment: .leading, spacing: MCPMetrics.spacing) {
                 HStack(spacing: MCPMetrics.spacing) {
-                    MCPGlyph(name: server.transport == "stdio" ? "Terminal" : "Globe", size: 20)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 40, height: 40)
-                        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: MCPMetrics.cornerRadius))
+                    MCPBrandIconView(name: preset?.name ?? server.name,
+                        urls: MCPBrandIconView.urls(for: server, preset: preset), size: 36)
                     VStack(alignment: .leading, spacing: 4) {
                         Button(action: onEdit) { Text(server.name).font(.system(.body, weight: .semibold)).lineLimit(1) }
                             .buttonStyle(.plain).help(L10n.string("mcp.edit"))

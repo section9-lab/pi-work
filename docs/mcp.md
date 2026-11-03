@@ -7,24 +7,38 @@ Repository `.pi/mcp.json` files are not loaded in this first release.
 
 ## MCP market
 
-Settings → MCP shows added servers above a searchable, bundled market. The initial
-catalog contains Context7, Playwright, DeepWiki, Exa, Sentry, Linear, Notion,
-Supabase, Stripe, Vercel, Cloudflare Docs, Microsoft Learn, and Hugging Face.
-Browsing presets does not save configurations, contact providers, or execute commands.
-Each card links to the provider's setup guide; provider availability and account limits
-still apply.
+Settings → MCP shows added servers above a live, paginated directory from the official
+[MCP Registry](https://registry.modelcontextprotocol.io). The server list is not bundled
+or restricted to a fixed set of presets. Searches of three or more characters query the
+registry by server name; shorter queries filter the loaded page locally. Remote/local
+filters operate on loaded results. **Load more servers** preserves the registry cursor.
 
-Remote presets can be added directly. Those marked as requiring sign-in start the
-existing browser OAuth flow after saving. A connection failure does not remove the
-saved configuration: retry or sign in from the added server's menu. Playwright opens
-a prefilled editor so users can review the `npx` command before downloading and running
-local code; Node.js/npm must already be available. No preset grants Chat or read-only
-permissions automatically.
+Cards display publisher artwork from registry icon metadata (including native SVG),
+with a repository avatar and finally a stable monogram as fallbacks. Added servers
+resolve the same identity metadata or try their HTTPS origin favicon. Browsing therefore
+contacts the registry and image publishers, but never installs a package, executes a new
+server, sends provider credentials, or grants Chat/read-only access. Images are bounded,
+deduplicated, cached and rasterized once rather than downloaded on every grid refresh.
+Missing artwork does not prevent discovery or configuration.
 
-Existing servers are recognized by endpoint (including renamed/project-scoped HTTP
-configurations) or exact local command and arguments. A conflicting name gets a numeric
-suffix rather than overwriting a custom configuration. Presets are connection recipes,
-not an automatic package updater or a live registry feed.
+Both HTTP and local entries open a prefilled editor before installation. Supported
+recipes use Streamable HTTP, npm/npx or PyPI/uvx, with declared package versions retained.
+Required environment variables, headers and argument placeholders are shown for review;
+secret defaults from the catalog are never accepted. Runtime arguments are preserved in
+the editable command and explicitly flagged for review against the publisher's instructions. Unsupported transports remain visible with a
+setup-guide link, not an executable Add button. Local runtimes must already be installed.
+OAuth remains available from the added server's sign-in action.
+
+The first successful unfiltered page is cached on disk for offline browsing, with an
+explicit offline label. Failed searches and failed pagination never substitute unrelated
+cached results. In-memory browsing results are reused for one hour; refresh explicitly
+revalidates, and there is no market polling. Catalog errors do not affect added servers.
+
+Installed-state matching preserves endpoint query parameters to distinguish projects and
+tenants, or matches exact local commands and arguments. Registry identity and native
+configuration names are separate: names are sanitized and collisions receive a numeric
+suffix, never an overwrite. The registry is a source of third-party recipes, not a trust
+endorsement or an automatic package updater.
 
 ## Configure a server
 

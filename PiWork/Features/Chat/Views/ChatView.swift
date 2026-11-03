@@ -4073,7 +4073,6 @@ private struct AssistantToolGroupView: View {
                             )
                         )
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -4969,7 +4968,7 @@ struct ToolCallPresentation {
         case "read": return "book"
         case "bash": return "terminal"
         case "write": return "square.and.pencil"
-        case "edit", "editor": return "pencil"
+        case "edit", "editor": return "highlighter"
         case "grep", "find": return "magnifyingglass"
         case "ls": return "folder"
         case "web_search": return "magnifyingglass"

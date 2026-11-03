@@ -43,10 +43,10 @@ final class MCPStore: ObservableObject {
 
     func availableName(for preset: MCPMarketPreset) -> String {
         let names = Set(servers.map(\.name))
-        var name = preset.id
+        var name = preset.suggestedName
         var suffix = 2
         while names.contains(name) {
-            name = "\(preset.id)-\(suffix)"
+            name = "\(preset.suggestedName)-\(suffix)"
             suffix += 1
         }
         return name
@@ -57,7 +57,7 @@ final class MCPStore: ObservableObject {
     func addMarketPreset(_ preset: MCPMarketPreset) async -> Bool {
         guard isSupported, !isLoading, !isWorking,
               installedServer(for: preset) == nil,
-              authentication?.state != "authorizing", !preset.isLocal else { return false }
+              authentication?.state != "authorizing", preset.canQuickAdd else { return false }
         do {
             let draft = preset.draft(name: availableName(for: preset))
             let saved = await save(MCPSaveParameters(name: draft.name,

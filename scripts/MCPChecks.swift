@@ -157,20 +157,13 @@ struct MCPChecks {
 
     /// Exercise market recipes without contacting providers or launching npx.
     static func checkMarket() async throws {
-        try expect(MCPMarketPreset.all.map(\.id) == ["context7", "playwright", "deepwiki", "exa", "sentry", "linear", "notion", "supabase", "stripe", "vercel", "cloudflare-docs", "microsoft-learn", "hugging-face"], "Market catalog differs from the selected 13 presets")
-        for preset in MCPMarketPreset.all {
-            try expect(preset.draft().validationError == nil, "Invalid market configuration: \(preset.id)")
-            try expect(MCPStore.webURL(preset.documentationURL) != nil, "Invalid documentation URL")
-            for language in AppLanguage.allCases {
-                let key = "mcp.market.\(preset.id).summary"
-                try expect(L10n.string(key, language: language) != key, "Missing market description: \(key)")
-            }
+        let fixtures = try MCPMarketChecks.page().items
+        guard let context7 = fixtures.first(where: { $0.suggestedName == "context7" }),
+              let playwright = fixtures.first(where: { $0.suggestedName == "playwright" }),
+              var sentry = fixtures.first(where: { $0.suggestedName == "sentry" }) else {
+            throw Failure(message: "Missing registry fixtures")
         }
-        guard let context7 = MCPMarketPreset.all.first(where: { $0.id == "context7" }),
-              let playwright = MCPMarketPreset.all.first(where: { $0.id == "playwright" }),
-              let sentry = MCPMarketPreset.all.first(where: { $0.id == "sentry" }) else {
-            throw Failure(message: "Missing market test presets")
-        }
+        sentry.requiresLogin = true
         let service = MCPMarketTestService()
         let store = MCPStore(service: service)
         await store.load()
@@ -202,6 +195,7 @@ struct MCPChecks {
         await collisionService.setFailure(false)
         let recovered = await collisionStore.addMarketPreset(sentry)
         try expect(recovered && collisionStore.errorMessage == nil, "Market add did not recover after failure")
+        try await MCPMarketChecks.run(store: store)
     }
 
     /// Replay the wire format through the production decoder and reducer. A delta

@@ -2,10 +2,10 @@ import XCTest
 @testable import PiWork
 
 final class ToolCallPresentationTests: XCTestCase {
-    func testEditUsesPencilIconIncludingEditorAlias() {
+    func testEditUsesHighlighterIconIncludingEditorAlias() {
         for name in ["edit", "editor", "Editor"] {
             let tool = SessionToolRecord(id: name, name: name, summary: "", state: .completed, isError: nil)
-            XCTAssertEqual(ToolCallPresentation(tool: tool).iconName, "pencil")
+            XCTAssertEqual(ToolCallPresentation(tool: tool).iconName, "highlighter")
         }
     }
 

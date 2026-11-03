@@ -9,7 +9,7 @@ enum MCPMetrics {
     static let cardRadius: CGFloat = 12
     static let controlHeight: CGFloat = 36
     static let iconSize: CGFloat = 16
-    static let marketCardWidth: CGFloat = 240
+    static let marketCardWidth: CGFloat = 200
 }
 
 struct MCPGlyph: View {
@@ -22,6 +22,7 @@ struct MCPGlyph: View {
         case "Plus": return "plus"
         case "Plug": return "powerplug"
         case "Terminal": return "terminal"
+        case "Monitor": return "rectangle.and.hand.point.up.left"
         case "Globe": return "globe"
         case "ChevronDown": return "chevron.down"
         case "Clipboard": return "clipboard"

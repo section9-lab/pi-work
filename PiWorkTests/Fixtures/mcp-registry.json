@@ -1,0 +1,11 @@
+{
+  "servers": [
+    {"server": {"name": "io.github.upstash/context7", "title": "Context7", "description": "Current library documentation and code examples.", "version": "1.0.0", "repository": {"url": "https://github.com/upstash/context7"}, "icons": [{"src": "https://example.com/context7.svg", "mimeType": "image/svg+xml"}], "remotes": [{"type": "streamable-http", "url": "https://mcp.context7.com/mcp"}]}},
+    {"server": {"name": "io.github.microsoft/playwright", "title": "Playwright", "description": "Browser automation and webpage inspection.", "version": "0.0.1", "repository": {"url": "https://github.com/microsoft/playwright-mcp"}, "packages": [{"registryType": "npm", "identifier": "@playwright/mcp", "version": "0.0.1", "transport": {"type": "stdio"}}]}},
+    {"server": {"name": "io.github.sentry/sentry", "title": "Sentry", "description": "Investigate application errors.", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://mcp.sentry.dev/mcp"}]}},
+    {"server": {"name": "io.github.example/filesystem", "title": "Filesystem", "description": "Read files in a chosen directory.", "version": "1.0.0", "packages": [{"registryType": "pypi", "identifier": "example-filesystem-mcp", "version": "1.0.0", "transport": {"type": "stdio"}, "runtimeArguments": [{"type": "named", "name": "--with", "value": "example-helper==1"}], "packageArguments": [{"type": "positional", "valueHint": "allowed-directory", "isRequired": true}], "environmentVariables": [{"name": "API_KEY", "isRequired": true, "isSecret": true, "value": "must-not-be-used-as-a-secret"}]}]}},
+    {"server": {"name": "io.github.example/legacy", "title": "Legacy service", "description": "An unsupported SSE-only service.", "version": "2", "websiteUrl": "https://example.com/docs", "remotes": [{"type": "sse", "url": "https://example.com/sse"}]}},
+    {"server": {"name": "io.github.example/cloud", "title": "Cloud workspace", "description": "A connection requiring an API key.", "version": "1", "icons": [{"src": "file:///etc/passwd"}, {"src": "https://127.0.0.1/private"}], "remotes": [{"type": "streamable-http", "url": "https://example.com/mcp", "headers": [{"name": "Authorization", "isRequired": true, "isSecret": true, "description": "Supply your API key."}]}]}}
+  ],
+  "metadata": {"nextCursor": "cursor/+ with space", "count": 6}
+}
