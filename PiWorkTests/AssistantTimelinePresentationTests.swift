@@ -765,27 +765,37 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let source = try String(
+        let chatSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent(
                 "PiWork/Features/Chat/Views/ChatView.swift"
             ),
             encoding: .utf8
         )
+        let presentationSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/ToolCallPresentation.swift"
+            ),
+            encoding: .utf8
+        )
 
-        XCTAssertTrue(source.contains("Image(systemName: presentation.iconName)"))
-        XCTAssertTrue(source.contains("case \"read\": return \"book\""))
-        XCTAssertTrue(source.contains("case \"bash\": return \"terminal\""))
-        XCTAssertTrue(source.contains(
-            "case \"write\": return \"square.and.pencil\""
+        XCTAssertTrue(chatSource.contains("Image(systemName: presentation.iconName)"))
+        XCTAssertTrue(presentationSource.contains("case \"read\": iconName = \"book\""))
+        XCTAssertTrue(presentationSource.contains("case \"bash\": iconName = \"terminal\""))
+        XCTAssertTrue(presentationSource.contains(
+            "case \"write\": iconName = \"square.and.pencil\""
         ))
-        XCTAssertTrue(source.contains(
-            "case \"edit\", \"editor\": return \"highlighter\""
+        XCTAssertTrue(presentationSource.contains(
+            "case \"edit\", \"editor\": iconName = \"highlighter\""
         ))
-        XCTAssertTrue(source.contains("case \"grep\", \"find\": return \"magnifyingglass\""))
-        XCTAssertTrue(source.contains("case \"ls\": return \"folder\""))
-        XCTAssertTrue(source.contains("case \"web_search\": return \"magnifyingglass\""))
-        XCTAssertTrue(source.contains(
-            "case \"web_fetch\", \"fetch_content\": return \"globe\""
+        XCTAssertTrue(presentationSource.contains(
+            "case \"grep\", \"find\": iconName = \"magnifyingglass\""
+        ))
+        XCTAssertTrue(presentationSource.contains("case \"ls\": iconName = \"folder\""))
+        XCTAssertTrue(presentationSource.contains(
+            "case \"web_search\": iconName = \"magnifyingglass\""
+        ))
+        XCTAssertTrue(presentationSource.contains(
+            "case \"web_fetch\", \"fetch_content\": iconName = \"globe\""
         ))
     }
 
