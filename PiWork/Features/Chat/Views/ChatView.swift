@@ -668,9 +668,22 @@ struct ChatView: View {
                 transcriptMessageLimit += max(TranscriptWindow.batchSize, additionalCount)
                 presentedMessageLimit = transcriptMessageLimit
                 await Task.yield()
-                guard activeSessionId == sessionID, historyLoadID == loadID else { return }
-                proxy.scrollTo(anchorID, anchor: .top)
-                await Task.yield()
+
+                // Newly prepended LazyVStack rows initially have estimated
+                // heights. On a slower layout pass the first anchor jump can
+                // run before the old first row exists at its final position,
+                // leaving the reader at absolute top. Retry within the first
+                // few frames so the previously visible row stays stable.
+                for delay in [0, 16_000_000, 50_000_000] as [UInt64] {
+                    if delay > 0 {
+                        do {
+                            try await Task.sleep(nanoseconds: delay)
+                        } catch { return }
+                    }
+                    guard activeSessionId == sessionID, historyLoadID == loadID else { return }
+                    proxy.scrollTo(anchorID, anchor: .top)
+                    await Task.yield()
+                }
             } catch {
                 guard activeSessionId == sessionID, historyLoadID == loadID else { return }
                 actionFailure = AgentErrorPresentation(error)
