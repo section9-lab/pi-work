@@ -369,6 +369,8 @@
 "chat.tool.completed" = "완료";
 "chat.tool.failed" = "실패";
 "chat.tool.copy" = "복사";
+"chat.tool.wrap.enable" = "자동 줄바꿈 켜기";
+"chat.tool.wrap.disable" = "자동 줄바꿈 끄기";
 "chat.tool.cancelled" = "취소됨";
 "chat.tool.diff_before" = "변경 전";
 "chat.tool.diff_after" = "변경 후";

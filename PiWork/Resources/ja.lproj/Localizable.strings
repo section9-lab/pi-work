@@ -369,6 +369,8 @@
 "chat.tool.completed" = "完了";
 "chat.tool.failed" = "失敗";
 "chat.tool.copy" = "コピー";
+"chat.tool.wrap.enable" = "折り返しを有効にする";
+"chat.tool.wrap.disable" = "折り返しを無効にする";
 "chat.tool.cancelled" = "キャンセル済み";
 "chat.tool.diff_before" = "変更前";
 "chat.tool.diff_after" = "変更後";

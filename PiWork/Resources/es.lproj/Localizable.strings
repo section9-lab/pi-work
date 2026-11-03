@@ -369,6 +369,8 @@
 "chat.tool.completed" = "Completado";
 "chat.tool.failed" = "Error";
 "chat.tool.copy" = "Copiar";
+"chat.tool.wrap.enable" = "Activar ajuste de línea";
+"chat.tool.wrap.disable" = "Desactivar ajuste de línea";
 "chat.tool.cancelled" = "Cancelado";
 "chat.tool.diff_before" = "Antes";
 "chat.tool.diff_after" = "Después";

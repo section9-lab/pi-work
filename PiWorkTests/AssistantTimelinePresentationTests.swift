@@ -816,7 +816,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             source.range(of: "private struct AssistantToolStepRow")
         )
         let toolDetailStart = try XCTUnwrap(
-            source.range(of: "private struct ToolDetailBlock")
+            source.range(of: "private struct ToolStructuredContentView")
         )
         let toolGroupSource = String(
             source[toolGroupStart.lowerBound..<toolStepStart.lowerBound]
@@ -849,7 +849,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             encoding: .utf8
         )
         let start = try XCTUnwrap(source.range(of: "private struct AssistantToolStepRow"))
-        let end = try XCTUnwrap(source.range(of: "private struct ToolDetailBlock"))
+        let end = try XCTUnwrap(source.range(of: "private struct ToolStructuredContentView"))
         let row = String(source[start.lowerBound..<end.lowerBound])
         let summary = try XCTUnwrap(row.range(of: "Text(presentation.summary)"))
         let diff = try XCTUnwrap(row.range(of: "let diff = edit.diffSummary"))
@@ -874,7 +874,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             encoding: .utf8
         )
         let start = try XCTUnwrap(source.range(of: "private struct AssistantToolStepRow"))
-        let end = try XCTUnwrap(source.range(of: "private struct ToolDetailBlock"))
+        let end = try XCTUnwrap(source.range(of: "private struct ToolStructuredContentView"))
         let row = String(source[start.lowerBound..<end.lowerBound])
         XCTAssertTrue(row.contains(".padding(.horizontal, 7)"))
         XCTAssertTrue(row.contains(".padding(.leading, 7)"))
@@ -891,13 +891,15 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        for (startMarker, endMarker) in [
-            ("private struct ToolDetailBlock", "private struct ToolStructuredContentView"),
-            ("private struct ToolDiffBlock", "struct ACPElicitationFormState")
-        ] {
-            let start = try XCTUnwrap(source.range(of: startMarker))
-            let end = try XCTUnwrap(source.range(of: endMarker))
-            let block = String(source[start.lowerBound..<end.lowerBound])
+        let detailBlock = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "PiWork/Features/Chat/Views/ToolDetailBlock.swift"
+            ),
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(source.range(of: "private struct ToolDiffBlock"))
+        let end = try XCTUnwrap(source.range(of: "struct ACPElicitationFormState"))
+        for block in [detailBlock, String(source[start.lowerBound..<end.lowerBound])] {
             XCTAssertTrue(block.contains("@State private var isHovered = false"))
             XCTAssertTrue(block.contains(".contentShape(Rectangle())"))
             XCTAssertTrue(block.contains(".onHover { isHovered = $0 }"))

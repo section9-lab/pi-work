@@ -369,6 +369,8 @@
 "chat.tool.completed" = "已完成";
 "chat.tool.failed" = "失败";
 "chat.tool.copy" = "复制";
+"chat.tool.wrap.enable" = "开启自动换行";
+"chat.tool.wrap.disable" = "关闭自动换行";
 "chat.tool.cancelled" = "已取消";
 "chat.tool.diff_before" = "修改前";
 "chat.tool.diff_after" = "修改后";

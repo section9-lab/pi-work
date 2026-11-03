@@ -369,6 +369,8 @@
 "chat.tool.completed" = "Completed";
 "chat.tool.failed" = "Failed";
 "chat.tool.copy" = "Copy";
+"chat.tool.wrap.enable" = "Enable line wrapping";
+"chat.tool.wrap.disable" = "Disable line wrapping";
 "chat.tool.cancelled" = "Cancelled";
 "chat.tool.diff_before" = "Before";
 "chat.tool.diff_after" = "After";

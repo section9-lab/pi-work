@@ -4265,13 +4265,15 @@ private struct AssistantToolStepRow: View {
                     } else if tool.rawInput != nil || !tool.summary.isEmpty {
                         ToolDetailBlock(
                             title: nil,
-                            text: presentation.formattedInput
+                            text: presentation.formattedInput,
+                            wrapping: presentation.isBash ? .enabled : .disabled
                         )
                     }
                     if hasOutputDetails {
                         ToolDetailBlock(
                             title: nil,
-                            text: loadedOutput ?? outputForDisplay
+                            text: loadedOutput ?? outputForDisplay,
+                            wrapping: presentation.isBash ? .toggleable : .disabled
                         )
                     }
                     if !tool.content.isEmpty {
@@ -4354,71 +4356,6 @@ private struct AssistantToolStepRow: View {
 
     private var presentation: ToolCallPresentation {
         inputCache.value(for: tool).call
-    }
-}
-
-private struct ToolDetailBlock: View {
-    let title: String?
-    let text: String
-
-    @State private var isHovered = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if let title {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.secondary)
-                        .textCase(.uppercase)
-
-                    Spacer(minLength: 8)
-                    copyButton
-                }
-            }
-
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                Text(text)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(9)
-                    .padding(.trailing, title == nil ? 22 : 0)
-            }
-            .frame(height: contentHeight)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.045))
-            .adaptiveCornerRadius(8)
-            .overlay(alignment: .topTrailing) {
-                if title == nil {
-                    copyButton.padding(7)
-                }
-            }
-        }
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-    }
-
-    private var contentHeight: CGFloat {
-        let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
-        let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        let lineCount = text.components(separatedBy: .newlines).count
-        return min(220, CGFloat(lineCount) * lineHeight + 18)
-    }
-
-    private var copyButton: some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        } label: {
-            Image(systemName: "doc.on.doc")
-                .font(.system(size: 10, weight: .medium))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.secondary)
-        .accessibilityLabel(L10n.string("chat.tool.copy"))
-        .opacity(isHovered ? 1 : 0)
-        .allowsHitTesting(isHovered)
     }
 }
 
