@@ -38,6 +38,20 @@ describe("RTK statistics", () => {
 });
 
 describe("RTK integration", () => {
+  test("preserves UTF-8 characters split across real process output chunks", async () => {
+    const { root, path } = await fixture(true);
+    await writeFile(path, `#!${process.execPath}
+      if (process.argv[2] === "--version") console.log("rtk 1.1.0");
+      else {
+        const bytes = Buffer.from("echo 中文");
+        process.stdout.write(bytes.subarray(0, 6));
+        await Bun.sleep(30);
+        process.stdout.write(bytes.subarray(6));
+      }
+    `);
+    const coordinator = new RTKCoordinator(root, { candidates: [path] });
+    expect(await coordinator.rewrite("git status", root)).toBe("echo 中文");
+  });
   test("is opt-in, persists enable/disable, and takes effect on the same shell tool", async () => {
     const { root, path } = await fixture();
     const executions: string[] = [];

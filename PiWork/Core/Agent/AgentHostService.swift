@@ -399,7 +399,7 @@ actor AgentHostService: AgentHostServicing,
 
     static func bundled() throws -> AgentHostService {
         guard
-            let executableURL = AgentHostExecutable.bundledURL(),
+            let hostURL = AgentHostExecutable.bundledURL(),
             let bunExecutableURL = AgentHostExecutable.bundledBunURL()
         else {
             throw AgentHostServiceError.executableNotFound
@@ -407,12 +407,14 @@ actor AgentHostService: AgentHostServicing,
         let authenticationFile = AgentHostExecutable.authenticationFileURL()
         let agentDirectory = AgentHostExecutable.agentDirectoryURL()
         return AgentHostService(
-            executableURL: executableURL,
+            executableURL: bunExecutableURL,
+            arguments: AgentHostExecutable.bunArguments(hostURL: hostURL),
             environment: [
                 "PI_WORK_AUTH_PATH": authenticationFile.path,
                 "PI_WORK_AGENT_DIR": agentDirectory.path,
                 "PI_CODING_AGENT_DIR": agentDirectory.path,
                 "PI_WORK_BUN_PATH": bunExecutableURL.path,
+                "PI_WORK_AGENT_HOST_RESOURCE_DIR": hostURL.deletingLastPathComponent().path,
                 "PI_WORK_COMPUTER_USE_BUNDLE_PATH": Bundle.main.bundleURL
                     .appendingPathComponent("Contents/Resources/ComputerUse/pi-computer-use.app").path,
                 "PI_WORK_APP_PID": String(ProcessInfo.processInfo.processIdentifier)
@@ -520,10 +522,14 @@ actor AgentHostService: AgentHostServicing,
                 do { runtime = try await runtimeStore?.beginLaunch() } catch { runtime = nil }
                 while true {
                     var candidateEnvironment = environment
-                    if let runtime { candidateEnvironment["PI_WORK_BUN_PATH"] = runtime.bunURL.path }
+                    if let runtime {
+                        candidateEnvironment["PI_WORK_BUN_PATH"] = runtime.bunURL.path
+                        candidateEnvironment["PI_WORK_AGENT_HOST_RESOURCE_DIR"] =
+                            runtime.hostURL.deletingLastPathComponent().path
+                    }
                     let candidate = AgentHostClient(
-                        executableURL: runtime?.executableURL ?? executableURL,
-                        arguments: arguments,
+                        executableURL: runtime?.launchExecutableURL ?? executableURL,
+                        arguments: runtime?.launchArguments ?? arguments,
                         environment: candidateEnvironment,
                         handshakeTimeout: handshakeTimeout
                     )
@@ -1617,7 +1623,8 @@ actor AgentHostService: AgentHostServicing,
                     sequence: value.0,
                     used: payload.used,
                     size: payload.size,
-                    cost: payload.cost
+                    cost: payload.cost,
+                    responseModel: payload.responseModel
                 )
             )
         case .sessionAvailableCommandsChanged(let payload):

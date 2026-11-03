@@ -12,6 +12,7 @@ import {
   createAgentSettingsManager,
 } from "./agent-settings.ts";
 import { PiWebAccessSettingsCoordinator } from "./pi-web-access-settings.ts";
+import { readPackageChangelog } from "./package-changelog.ts";
 
 export type ExtensionPackageScope = "user" | "project";
 export const requiredPiWebAccessSource = "npm:pi-web-access";
@@ -25,6 +26,12 @@ export type InstalledExtensionPackage = {
   installedPath?: string;
   version?: string;
   enabled: boolean;
+  updateInfo?: {
+    status: "updated" | "unchanged" | "unknown";
+    fromVersion?: string;
+    toVersion?: string;
+    changelog?: string;
+  };
 };
 
 export type InstalledExtensionPackagesSnapshot = {
@@ -55,14 +62,23 @@ export type ExtensionPackageSettings = {
 };
 
 export class ExtensionPackagesCoordinator {
+  private requiredSetup?: Promise<boolean>;
+
   constructor(
     private readonly packageManager: ExtensionPackageManager,
     private readonly settings?: ExtensionPackageSettings,
     private readonly piWebAccessSettings?: PiWebAccessSettingsCoordinator,
   ) {}
 
+  /** Provision explicitly; concurrent callers share one attempt and failures are retryable. */
+  prepareRequired(): Promise<boolean> {
+    this.requiredSetup ??= this.ensurePiWebAccess()
+      .then(async (changed) => { await this.settings?.flush(); return changed; })
+      .finally(() => { this.requiredSetup = undefined; });
+    return this.requiredSetup;
+  }
+
   async list(): Promise<InstalledExtensionPackagesSnapshot> {
-    await this.ensurePiWebAccess();
     const configured = this.packageManager.listConfiguredPackages();
     const resolved = await this.packageManager.resolve(async () => "skip");
 
@@ -89,6 +105,10 @@ export class ExtensionPackagesCoordinator {
   }
 
   async install(source: string): Promise<InstalledExtensionPackagesSnapshot> {
+    if (source === requiredPiWebAccessSource) {
+      await this.prepareRequired();
+      return this.list();
+    }
     await this.packageManager.installAndPersist(source, { local: false });
     await this.settings?.flush();
     return this.list();
@@ -125,8 +145,18 @@ export class ExtensionPackagesCoordinator {
   }
 
   async update(source: string): Promise<InstalledExtensionPackagesSnapshot> {
+    const before = await this.list();
     await this.packageManager.update(source);
-    return this.list();
+    const after = await this.list();
+    return { packages: await Promise.all(after.packages.map(async (pkg) => {
+      if (pkg.source !== source) return pkg;
+      const previous = before.packages.find((old) => old.source === pkg.source && old.scope === pkg.scope);
+      const fromVersion = previous?.version, toVersion = pkg.version;
+      const status = fromVersion && toVersion ? (fromVersion === toVersion ? "unchanged" : "updated") : "unknown";
+      const changelog = fromVersion && toVersion && status === "updated"
+        ? await readPackageChangelog(pkg.installedPath, fromVersion, toVersion) : undefined;
+      return { ...pkg, updateInfo: { status, fromVersion, toVersion, ...(changelog ? { changelog } : {}) } };
+    })) };
   }
 
   async remove(
@@ -143,8 +173,9 @@ export class ExtensionPackagesCoordinator {
     return this.list();
   }
 
-  private async ensurePiWebAccess(): Promise<void> {
-    if (process.env.PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL === "1") return;
+  private async ensurePiWebAccess(): Promise<boolean> {
+    if (process.env.PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL === "1") return false;
+    let changed = false;
     await this.piWebAccessSettings?.get();
     const configuredPackages = this.packageManager.listConfiguredPackages();
     if (!configuredPackages.some((pkg) => (
@@ -154,12 +185,14 @@ export class ExtensionPackagesCoordinator {
         requiredPiWebAccessRuntimeSource,
         { local: false },
       );
+      changed = true;
     }
     const requiredPackage = this.packageManager.listConfiguredPackages().find((pkg) => (
       pkg.source === requiredPiWebAccessSource && pkg.scope === "user"
     ));
     if (!requiredPackage) {
       await this.packageManager.installAndPersist(requiredPiWebAccessSource, { local: false });
+      changed = true;
     } else if (requiredPackage.filtered && this.settings) {
       const packages = this.settings.getPackages("user");
       const next = packages.map((pkg) => (
@@ -169,7 +202,9 @@ export class ExtensionPackagesCoordinator {
       ));
       this.settings.setPackages("user", next);
       await this.settings.flush();
+      changed = true;
     }
+    return changed;
   }
 }
 

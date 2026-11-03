@@ -31,7 +31,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.2
 
       - name: Install Agent Host dependencies
         working-directory: AgentHost
@@ -96,7 +96,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.2
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -176,7 +176,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.2
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -259,11 +259,18 @@ jobs:
             arm64) host_arch=arm64 ;;
             x86_64) host_arch=x64 ;;
           esac
-          # Hide the original WASM path baked into Photon on the build machine.
-          # Otherwise a broken release can pass by reading node_modules.
+          host_path="$APP_PATH/Contents/Resources/AgentHost/$host_arch/pi-work-agent-host"
+          test ! -x "$host_path"
+          if grep -aFq "$GITHUB_WORKSPACE/AgentHost" "$host_path"; then
+            echo "::error::Agent Host bundle contains a build-machine path"
+            exit 1
+          fi
+          # Hide build dependencies so Photon must resolve its WASM beside the staged bundle.
           mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"
           trap 'mv "$RUNNER_TEMP/image-smoke-node_modules" AgentHost/node_modules' EXIT
-          bun scripts/test-runtime-images.ts "$APP_PATH/Contents/Resources/AgentHost/$host_arch/pi-work-agent-host"
+          bun scripts/test-runtime-images.ts \
+            "$APP_PATH/Contents/Helpers/Bun/$host_arch/bun" \
+            "$host_path"
 
       - name: Reclaim build storage
         run: |

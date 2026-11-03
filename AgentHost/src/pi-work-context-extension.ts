@@ -36,12 +36,10 @@ function renderContext(options: PiWorkContextOptions): string {
     ? "General conversation and web research."
     : "Coding and project work.";
   return [
-    "<pi_work_context>",
     `profile: ${options.profile}`,
     `current_date: ${currentDate(options.now?.() ?? new Date(), timeZone)}`,
     `timezone: ${timeZone}`,
     `purpose: ${purpose}`,
-    "</pi_work_context>",
   ].join("\n");
 }
 
@@ -51,16 +49,16 @@ export function piWorkContextExtension(options: PiWorkContextOptions): InlineExt
     hidden: true,
     factory: (pi) => {
       pi.on("before_agent_start", (event) => {
-        const additions = [renderContext(options)];
+        event.systemPromptOptions.sections.pi_work_context = renderContext(options);
         const branch = options.selectedGitBranch?.();
         if (branch) {
-          additions.push(
-            `The user selected ${JSON.stringify(branch)} as this session's target Git branch in pi-work. You are responsible for checking and managing the Git working state.`,
-          );
+          event.systemPromptOptions.sections.pi_work_git_branch =
+            `The user selected ${JSON.stringify(branch)} as this session's target Git branch in pi-work. You are responsible for checking and managing the Git working state.`;
+        } else {
+          delete event.systemPromptOptions.sections.pi_work_git_branch;
         }
-        return {
-          systemPrompt: `${event.systemPrompt}\n\n${additions.join("\n\n")}`,
-        };
+        // Structured sections let Pi append only changed context, preserving
+        // provider prompt-cache prefixes instead of forcing the entire prompt.
       });
     },
   };

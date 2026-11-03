@@ -44,6 +44,7 @@ struct MCPChecks {
 
     static func run() async throws {
         try checkAgentPaths()
+        try ToolPresentationChecks.run()
         try RunningInputChecks.run()
         try PromptRailChecks.run()
         try checkDrafts()
@@ -59,13 +60,19 @@ struct MCPChecks {
         #else
         let architecture = "x64"
         #endif
-        let host = repository.appendingPathComponent("build/pi-work-agent-host-\(architecture)")
+        let host = repository.appendingPathComponent("build/pi-work-agent-host")
         let bun = repository.appendingPathComponent("build/Bun/\(architecture)/bun")
-        let service = AgentHostService(executableURL: host, environment: [
-            "PI_WORK_AGENT_DIR": root.path, "PI_CODING_AGENT_DIR": root.path,
-            "PI_WORK_AUTH_PATH": root.appendingPathComponent("model-auth.json").path,
-            "PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL": "1"
-        ])
+        let service = AgentHostService(
+            executableURL: bun,
+            arguments: AgentHostExecutable.bunArguments(hostURL: host),
+            environment: [
+                "PI_WORK_AGENT_DIR": root.path, "PI_CODING_AGENT_DIR": root.path,
+                "PI_WORK_AUTH_PATH": root.appendingPathComponent("model-auth.json").path,
+                "PI_WORK_BUN_PATH": bun.path,
+                "PI_WORK_AGENT_HOST_RESOURCE_DIR": host.deletingLastPathComponent().path,
+                "PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL": "1"
+            ]
+        )
         do {
             try await ComputerUseChecks.run(service: service, repository: repository)
             try await RTKChecks.run(service: service, repository: repository)

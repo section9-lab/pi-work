@@ -43,6 +43,7 @@ import {
   type SessionThinkingLevel,
   type SessionThinkingState,
   type SessionTranscriptPage,
+  type SessionUsage,
 } from "./session-registry.ts";
 import { normalizeModel, supportsFastMode } from "./model-catalog.ts";
 import {
@@ -53,6 +54,7 @@ import type { McpCoordinator } from "./mcp-coordinator.ts";
 import { isMcpToolName } from "./mcp-native-adapter.ts";
 import { computerUseToolNames, type ComputerUseCoordinator } from "./computer-use.ts";
 import type { RTKCoordinator } from "./rtk.ts";
+import { ToolProgressCoalescer } from "./tool-progress.ts";
 
 type PiAgentSession = Pick<
   AgentSession,
@@ -76,15 +78,15 @@ type PiAgentSession = Pick<
   | "exportToHtml"
   | "dispose"
   | "subscribe"
-> & Partial<Pick<AgentSession, "isStreaming" | "waitForIdle" | "clearQueue" | "getSteeringMessages" | "getFollowUpMessages">> & {
-  agent: Pick<AgentSession["agent"], "streamFunction">;
+> & Partial<Pick<AgentSession, "isStreaming" | "waitForIdle" | "clearQueue" | "getSteeringMessages" | "getFollowUpMessages" | "getSessionStats">> & {
+  agent: Pick<AgentSession["agent"], "streamFunction" | "onPayload">;
   modelRuntime: Pick<ModelRuntime, "getModel">;
 };
 type CreateSession = (options: CreateAgentSessionOptions) => Promise<{ session: PiAgentSession }>;
 
 type PiModel = NonNullable<AgentSession["model"]>;
 
-const oneMillionContextWindow = 1_050_000;
+const minimumLongContextWindow = 1_000_000;
 const gitBranchEntryType = "pi-work.git-branch";
 const builtInPiToolNames = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const snapshotToolOutputPreviewBytes = 16 * 1024;
@@ -178,17 +180,19 @@ function selectedGitBranch(sessionManager: SessionManager): string | undefined {
 
 function oneMillionContextConfiguration(
   model: PiModel | undefined,
+  catalogModel: PiModel | undefined,
 ): { shortContextWindow: number; longContextWindow: number } | undefined {
-  if (!model || model.provider !== "openai" || model.api !== "openai-responses") {
+  if (!model || model.provider !== "openai" || model.api !== "openai-responses"
+    || !catalogModel || catalogModel.contextWindow < minimumLongContextWindow) {
     return undefined;
   }
   const shortContextTier = model.cost.tiers?.find((tier) => (
-    tier.inputTokensAbove > 0 && tier.inputTokensAbove < oneMillionContextWindow
+    tier.inputTokensAbove > 0 && tier.inputTokensAbove < catalogModel.contextWindow
   ));
   if (!shortContextTier) return undefined;
   return {
     shortContextWindow: shortContextTier.inputTokensAbove,
-    longContextWindow: oneMillionContextWindow,
+    longContextWindow: catalogModel.contextWindow,
   };
 }
 
@@ -202,12 +206,16 @@ function extensionToolNames(
   accessMode: AccessMode = "none",
 ): string[] {
   if (selection === "none") return [];
+  const active = new Set(session.getActiveToolNames());
   return session.getAllTools()
-    .filter(({ name, sourceInfo, exposure }) => {
-      if (name === "tool_search") return true;
+    .filter(({ name, sourceInfo }) => {
+      if (name === "tool_search") return active.has(name);
       if (computerUseToolNames.has(name)) return computerUse?.available(name, accessMode, selection === "pi-web-access") ?? false;
-      if (isMcpToolName(name)) return exposure === "direct" || session.getActiveToolNames().includes(name);
-      return sourceInfo.source !== "builtin" && sourceInfo.source !== "sdk"
+      if (isMcpToolName(name)) return active.has(name);
+      // Availability is not activation: preserve the SDK's restored loadout,
+      // defaultActive:false and deferred/codemode exposure instead of eagerly
+      // declaring every tool an extension registered.
+      return active.has(name) && sourceInfo.source !== "builtin" && sourceInfo.source !== "sdk"
         && (selection === "all" || sourceInfo.source === "npm:pi-web-access");
     })
     .map(({ name }) => name);
@@ -355,16 +363,16 @@ export class PiSessionHandle implements SessionHandle {
     private readonly computerUse?: ComputerUseCoordinator,
   ) {
     this.unsubscribeComputerUse = computerUse?.subscribe(() => this.refreshActiveTools());
-    const streamFunction = session.agent.streamFunction;
-    session.agent.streamFunction = (model, context, streamOptions) => {
-      if (!supportsFastMode(model)) {
-        return streamFunction(model, context, streamOptions);
+    // Preserve the SDK stream function identity. Pi uses it to recognize
+    // runtime-owned streams and keep stored OAuth intact during summarization.
+    const onPayload = session.agent.onPayload;
+    session.agent.onPayload = async (payload, model) => {
+      const transformed = await onPayload?.(payload, model);
+      const request = transformed === undefined ? payload : transformed;
+      if (!supportsFastMode(model) || !request || typeof request !== "object" || Array.isArray(request)) {
+        return request;
       }
-      const options = {
-        ...streamOptions,
-        serviceTier: this.fastModeEnabled ? "priority" : "default",
-      };
-      return streamFunction(model, context, options);
+      return { ...request, service_tier: this.fastModeEnabled ? "priority" : "default" };
     };
   }
 
@@ -415,6 +423,7 @@ export class PiSessionHandle implements SessionHandle {
       },
     );
     const contextUsage = this.contextUsage();
+    const usage = this.usage();
     const gitBranch = selectedGitBranch(this.sessionManager);
     return {
       session: this.descriptor(),
@@ -433,6 +442,7 @@ export class PiSessionHandle implements SessionHandle {
         },
       }),
       ...(gitBranch ? { gitBranch } : {}),
+      ...(usage ? { usage } : {}),
       model: this.session.model ? normalizeModel(this.session.model) : null,
       ...(contextUsage ? { contextUsage } : {}),
       thinkingLevel: this.session.thinkingLevel,
@@ -518,6 +528,30 @@ export class PiSessionHandle implements SessionHandle {
 
   exportHtml(outputPath: string): Promise<string> {
     return this.session.exportToHtml(outputPath);
+  }
+
+  private usage(): SessionUsage | undefined {
+    const stats = this.session.getSessionStats?.();
+    const context = this.session.getContextUsage();
+    if (!stats || !context || !Number.isFinite(stats.cost)) return undefined;
+    // Match the SDK's full-session accounting, including abandoned branches,
+    // compaction, summaries and standalone usage entries. Never sum nested
+    // tool calls a second time; their parent result already includes them.
+    const usages = this.sessionManager.getEntries().flatMap((entry) => {
+      if (entry.type === "message") {
+        const message = entry.message;
+        return (message.role === "assistant" || message.role === "toolResult") && message.usage ? [message.usage] : [];
+      }
+      return "usage" in entry && entry.usage ? [entry.usage] : [];
+    });
+    const latest = [...this.session.messages].reverse().find((message) => message.role === "assistant");
+    const responseModel = latest?.role === "assistant" ? latest.responseModel : undefined;
+    return {
+      used: context.tokens ?? 0, size: context.contextWindow,
+      cost: { amount: stats.cost, currency: "USD", source: usages.length > 0 && usages.every((usage) => usage.cost.totalFromProvider === true)
+        ? "provider" : "estimated" },
+      ...(responseModel ? { responseModel } : {}),
+    };
   }
 
   contextUsage(): SessionContextUsage | undefined {
@@ -653,7 +687,7 @@ export class PiSessionHandle implements SessionHandle {
       return this.modelOptionSelection();
     }
 
-    const configuration = oneMillionContextConfiguration(this.session.model);
+    const configuration = this.longContextConfiguration();
     if (!configuration || !this.session.model) {
       throw new SessionRegistryError(
         "model_option_unsupported",
@@ -677,9 +711,15 @@ export class PiSessionHandle implements SessionHandle {
     return this.modelOptionSelection();
   }
 
+  private longContextConfiguration() {
+    const model = this.session.model;
+    const catalogModel = model ? this.session.modelRuntime.getModel(model.provider, model.id) : undefined;
+    return oneMillionContextConfiguration(model, catalogModel);
+  }
+
   private modelOptions(): SessionModelOptions {
     const model = this.session.model;
-    const contextConfiguration = oneMillionContextConfiguration(model);
+    const contextConfiguration = this.longContextConfiguration();
     return {
       fastMode: {
         supported: supportsFastMode(model),
@@ -798,6 +838,10 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   async reload(): Promise<void> {
+    const active = new Set(this.session.getActiveToolNames());
+    const inactive = new Set(this.session.getAllTools()
+      .filter(({ name }) => !active.has(name) && !computerUseToolNames.has(name))
+      .map(({ name }) => name));
     await this.session.reload({
       beforeSessionStart: async () => {
         this.extensionUI?.clearWidgets();
@@ -806,7 +850,7 @@ export class PiSessionHandle implements SessionHandle {
       },
     });
     this.transcriptRevision = crypto.randomUUID();
-    this.refreshActiveTools();
+    this.refreshActiveTools(inactive);
   }
 
   dispose(): void {
@@ -817,7 +861,22 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   subscribe(listener: (event: SessionHandleEvent) => void): () => void {
+    const progress = new ToolProgressCoalescer<AgentSessionEvent>((event) => {
+      const normalized = normalizeAgentSessionEvent(event);
+      if (normalized) listener(normalized);
+    });
     const unsubscribeSession = this.session.subscribe((event) => {
+      if (event.type === "tool_execution_update") {
+        progress.update(event.toolCallId, event);
+        return;
+      }
+      // Flush before every non-progress event, especially tool completion,
+      // approvals and errors. Registry sequence numbers are assigned afterward.
+      progress.flush();
+      if (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled") {
+        const usage = this.usage();
+        if (usage) listener({ type: "usageChanged", usage });
+      }
       if (event.type === "queue_update") {
         const available = [...this.queuedInputMetadata.values()];
         const next: QueuedInput[] = [];
@@ -867,6 +926,7 @@ export class PiSessionHandle implements SessionHandle {
     }
     return () => {
       unsubscribeSession();
+      progress.dispose();
       unsubscribeApprovals();
       this.extensionListeners.delete(listener);
     };
@@ -888,7 +948,7 @@ export class PiSessionHandle implements SessionHandle {
     }
   }
 
-  private refreshActiveTools(): void {
+  private refreshActiveTools(inactive: ReadonlySet<string> = new Set()): void {
     const refreshedExtensionToolNames = extensionToolNames(
       this.session,
       this.extensionToolSelection,
@@ -898,7 +958,7 @@ export class PiSessionHandle implements SessionHandle {
     this.session.setActiveToolsByName([
       ...activeToolsForMode(this.accessController.mode),
       ...this.alwaysActiveToolNames,
-      ...refreshedExtensionToolNames,
+      ...refreshedExtensionToolNames.filter((name) => !inactive.has(name)),
     ]);
   }
 }
@@ -930,6 +990,7 @@ export function normalizeAgentMessages(
         content: normalizeContent(message.content),
         provider: message.provider,
         model: message.model,
+        ...(message.responseModel ? { responseModel: message.responseModel } : {}),
         stopReason: message.stopReason,
         ...(message.errorMessage ? { errorMessage: message.errorMessage } : {}),
       }];
@@ -954,6 +1015,8 @@ export function normalizeAgentMessages(
           : [{ type: "text", text: preview }],
         toolCallId: message.toolCallId,
         toolName: message.toolName,
+        ...(toolOutputMetadata(undefined, { durationMs: message.durationMs })
+          ? { rawOutput: toolOutputMetadata(undefined, { durationMs: message.durationMs }) } : {}),
         isError: message.isError,
         ...(preview === undefined ? {} : {
           toolOutputTruncated: true,
@@ -1128,6 +1191,17 @@ function toolResultDetails(result: unknown): Record<string, unknown> | undefined
     : undefined;
 }
 
+function toolOutputMetadata(result: unknown, metadata: { durationMs?: number; parentToolCallId?: string } = {}): Record<string, unknown> | undefined {
+  const details = toolResultDetails(result);
+  const durationMs = typeof metadata.durationMs === "number" && Number.isFinite(metadata.durationMs) && metadata.durationMs >= 0
+    ? metadata.durationMs : undefined;
+  if (durationMs === undefined && !metadata.parentToolCallId) return details;
+  return { ...details, _piWork: { ...recordValue(details?._piWork),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(metadata.parentToolCallId ? { parentToolCallId: metadata.parentToolCallId } : {}),
+  } };
+}
+
 function toolResultContent(result: unknown): SessionMessageContent[] {
   return result && typeof result === "object" && "content" in result
     ? normalizeToolResultContent(result.content)
@@ -1245,7 +1319,7 @@ export function normalizeAgentSessionEvent(event: AgentSessionEvent): SessionHan
       toolName: event.toolName,
       output: normalizeToolOutput(event.result),
       content: toolResultContent(event.result),
-      ...(toolResultDetails(event.result) ? { rawOutput: toolResultDetails(event.result) } : {}),
+      ...(toolOutputMetadata(event.result, event) ? { rawOutput: toolOutputMetadata(event.result, event) } : {}),
       isError: event.isError,
     };
   }

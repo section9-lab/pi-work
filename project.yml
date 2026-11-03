@@ -92,7 +92,7 @@ targets:
         PRODUCT_NAME: PiWork
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.1.36
+        MARKETING_VERSION: 0.1.37
     postCompileScripts:
       - name: "Stage bundled agent host"
         basedOnDependencyAnalysis: false
@@ -100,10 +100,22 @@ targets:
           set -e
 
           HOST_SOURCE_ROOT="$SRCROOT/AgentHost"
-          HOST_BUN="$(command -v bun || true)"
-          if [ -z "$HOST_BUN" ]; then
-            echo "error: Bun is required to build the self-contained agent host."
-            exit 1
+          HOST_BUN_VERSION="1.4.2"
+          case "$(uname -m)" in
+            arm64) HOST_BUN_FOLDER="arm64" ;;
+            x86_64) HOST_BUN_FOLDER="x64" ;;
+            *)
+              echo "error: unsupported build architecture $(uname -m)"
+              exit 1
+              ;;
+          esac
+          HOST_BUN="$SRCROOT/build/Bun/$HOST_BUN_FOLDER/bun"
+          STAGED_HOST_BUN_VERSION=""
+          if [ -x "$HOST_BUN" ]; then
+            STAGED_HOST_BUN_VERSION="$("$HOST_BUN" --version 2>/dev/null || true)"
+          fi
+          if [ "$STAGED_HOST_BUN_VERSION" != "$HOST_BUN_VERSION" ]; then
+            BUN_ARCHS="$HOST_BUN_FOLDER" "$SRCROOT/scripts/fetch-bun-binary.sh" "$HOST_BUN_VERSION"
           fi
 
           if [ ! -d "$HOST_SOURCE_ROOT/node_modules/@earendil-works/pi-coding-agent" ] || [ ! -d "$HOST_SOURCE_ROOT/node_modules/@injaneity/pi-computer-use" ]; then
@@ -119,44 +131,37 @@ targets:
             echo "error: pi-coding-agent version is missing."
             exit 1
           fi
-          # Pi requires Photon WASM and theme/export assets beside the compiled host. Keep this
-          # mixed payload in Resources: Helpers treats every nested file as code.
+          # Pi requires Photon WASM and theme/export assets beside the host bundle. Keep this
+          # mixed payload in Resources while the shared Bun runtime remains in Helpers.
           HOST_VERSION_DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/AgentHost/pi-coding-agent-version"
           mkdir -p "$(dirname "$HOST_VERSION_DESTINATION")"
           printf '%s\n' "$PI_CODING_AGENT_VERSION" > "$HOST_VERSION_DESTINATION"
           (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" -e 'console.log(require("./package.json").piWorkRuntime.version)') > "$(dirname "$HOST_VERSION_DESTINATION")/runtime-version"
 
           HOST_BUILD_ROOT="$DERIVED_FILE_DIR/PiWorkAgentHost"
+          HOST_OUTPUT="$HOST_BUILD_ROOT/pi-work-agent-host"
           mkdir -p "$HOST_BUILD_ROOT"
+          (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" scripts/build-host.ts "$HOST_OUTPUT")
+          chmod 644 "$HOST_OUTPUT"
 
           for HOST_ARCH in $ARCHS; do
             case "$HOST_ARCH" in
-              arm64)
-                HOST_TARGET="bun-darwin-arm64"
-                HOST_FOLDER="arm64"
-                ;;
-              x86_64)
-                HOST_TARGET="bun-darwin-x64"
-                HOST_FOLDER="x64"
-                ;;
+              arm64) HOST_FOLDER="arm64" ;;
+              x86_64) HOST_FOLDER="x64" ;;
               *)
                 echo "error: unsupported Agent Host architecture $HOST_ARCH"
                 exit 1
                 ;;
             esac
 
-            HOST_OUTPUT="$HOST_BUILD_ROOT/pi-work-agent-host-$HOST_ARCH"
-            (cd "$HOST_SOURCE_ROOT" && "$HOST_BUN" build --compile --no-compile-autoload-bunfig --target="$HOST_TARGET" src/main.ts --outfile "$HOST_OUTPUT")
-            chmod +x "$HOST_OUTPUT"
-
             HOST_DESTINATION_DIR="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/AgentHost/$HOST_FOLDER"
             HOST_DESTINATION="$HOST_DESTINATION_DIR/pi-work-agent-host"
             mkdir -p "$HOST_DESTINATION_DIR"
             cp "$HOST_OUTPUT" "$HOST_DESTINATION"
-            chmod +x "$HOST_DESTINATION"
+            chmod 644 "$HOST_DESTINATION"
 
-            # Match Pi's copy-binary-assets: Photon reads this WASM at runtime;
-            # bun build --compile does not embed its dynamic filesystem read.
+            # Match Pi's copy-binary-assets: Photon reads this WASM dynamically at runtime,
+            # so keep it beside the bundled Agent Host entry point.
             HOST_PHOTON_SOURCE="$HOST_SOURCE_ROOT/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"
             if [ ! -s "$HOST_PHOTON_SOURCE" ]; then
               echo "error: Photon image processing WASM is missing."
@@ -182,21 +187,7 @@ targets:
             mkdir -p "$HOST_THEME_ASSETS_DESTINATION"
             cp -R "$HOST_THEME_ASSETS_SOURCE/." "$HOST_THEME_ASSETS_DESTINATION"
 
-            if [ "$CODE_SIGNING_ALLOWED" != "NO" ]; then
-              HOST_SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-              if [ "$ENABLE_HARDENED_RUNTIME" = "YES" ]; then
-                /usr/bin/codesign --force --preserve-metadata=entitlements --options runtime --timestamp --sign "$HOST_SIGN_IDENTITY" "$HOST_DESTINATION"
-              else
-                /usr/bin/codesign --force --sign "$HOST_SIGN_IDENTITY" "$HOST_DESTINATION"
-              fi
-            else
-              # Bun emits a linker signature that is invalid after compilation.
-              # A nested executable still needs a valid ad-hoc signature even
-              # when Xcode signing is disabled for local builds and tests.
-              /usr/bin/codesign --force --sign - "$HOST_DESTINATION"
-            fi
-
-            echo "Staged self-contained Agent Host ($HOST_FOLDER) into Contents/Resources/AgentHost."
+            echo "Staged Agent Host bundle ($HOST_FOLDER) into Contents/Resources/AgentHost."
           done
 
       - name: "Stage computer use helper"
@@ -211,12 +202,12 @@ targets:
           fi
           bash "$SRCROOT/scripts/stage-computer-use-helper.sh" "$COMPUTER_USE_SOURCE" "$COMPUTER_USE_DESTINATION" "$COMPUTER_USE_SIGN_IDENTITY" "$PRODUCT_BUNDLE_IDENTIFIER.computer-use"
 
-      - name: "Stage bundled Bun package manager"
+      - name: "Stage bundled Bun runtime"
         basedOnDependencyAnalysis: false
         script: |
           set -e
 
-          BUN_VERSION="1.3.14"
+          BUN_VERSION="1.4.2"
           for BUN_ARCH in $ARCHS; do
             case "$BUN_ARCH" in
               arm64) BUN_FOLDER="arm64" ;;
@@ -228,7 +219,11 @@ targets:
             esac
 
             BUN_SOURCE="$SRCROOT/build/Bun/$BUN_FOLDER/bun"
-            if [ ! -x "$BUN_SOURCE" ]; then
+            STAGED_BUN_VERSION=""
+            if [ -x "$BUN_SOURCE" ]; then
+              STAGED_BUN_VERSION="$("$BUN_SOURCE" --version 2>/dev/null || true)"
+            fi
+            if [ "$STAGED_BUN_VERSION" != "$BUN_VERSION" ]; then
               BUN_ARCHS="$BUN_FOLDER" "$SRCROOT/scripts/fetch-bun-binary.sh" "$BUN_VERSION"
             fi
 
@@ -249,7 +244,7 @@ targets:
               /usr/bin/codesign --force --preserve-metadata=entitlements --sign - "$BUN_DESTINATION"
             fi
 
-            echo "Staged Bun package manager ($BUN_FOLDER) into Contents/Helpers."
+            echo "Staged shared Bun runtime and package manager ($BUN_FOLDER) into Contents/Helpers."
           done
 
   PiWorkTests:

@@ -65,6 +65,12 @@ from probing arbitrary or partially compatible agents with unsupported private r
   specialized UI.
 - Standard available commands feed the native command picker. Plans appear in the collapsible
   activity panel above the composer. Cumulative cost remains in the context-usage popover.
+  The bundled Host emits standard `usage_update` from SDK session statistics. Optional
+  `_meta.piWork.costSource` and `responseModel` identify reported billing versus estimates
+  and the last actual response model; other agents need not send them. Snapshots preserve
+  these fields, and the selected model is not overwritten with a routed response model.
+  Tool `rawOutput._piWork` can preserve recorded `durationMs` and `parentToolCallId`;
+  duration is also retained when the transcript is restored.
 - Standard tool-call content preserves and renders text, image, resource-link, embedded-resource,
   and diff blocks. Terminal references are preserved, but PiWork does not yet implement the ACP
   terminal client methods needed to stream their output.
@@ -103,6 +109,11 @@ from probing arbitrary or partially compatible agents with unsupported private r
   structured section in the same panel.
 - Package versions and update actions live in Settings → Plugins and reuse the existing package
   list/update extensions. Installed `version` is optional metadata; it is not a latest-version claim.
+  Update responses include optional `updateInfo` with the before/after versions, an updated/
+  unchanged/unknown status, and a bounded local changelog preview. The native preview is plain
+  selectable text and never opens URLs or fetches images. Package listing does not install;
+  required web capability setup runs separately and cannot block local session creation.
+  Abort/close/delete and Host shutdown release the corresponding pending elicitation requests.
   Pi's status API has no update-notice category, so Swift only removes an explicit arrow/version/
   update-command suffix from chat presentation. A matching command label alone is hidden too;
   other task text is retained. Unknown notice formats remain visible, raw session status is unchanged,
@@ -113,8 +124,9 @@ from probing arbitrary or partially compatible agents with unsupported private r
   Terminal control sequences are stripped from both widgets and status lines. Native wrapping
   cannot recover text already truncated by a plugin's 80-column renderer.
 - This is a read-only text projection, not a terminal emulator: widget keyboard handling,
-  overlays, images, and ANSI styling are not reproduced. `custom`, `notify`, editor mutation,
-  header/footer, and theme APIs still degrade to no-ops.
+  overlays, images, and ANSI styling are not reproduced. `custom`, editor mutation,
+  header/footer, and theme APIs still degrade to no-ops. `notify` is projected as a generic
+  status message, not an operating-system notification.
 
 These remaining gaps require capability negotiation, dedicated native UI, or an adapter for the
 affected feature. They no longer block the baseline create/load/resume/prompt/configuration flow

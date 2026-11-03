@@ -1,12 +1,12 @@
 #!/bin/bash
-# Downloads the pinned official Bun package-manager binary used by pi-work.
+# Downloads the pinned official Bun runtime and package-manager binary used by pi-work.
 # The staged files live under build/ and are copied into the app by Xcode.
 #
 # Usage: scripts/fetch-bun-binary.sh [version]
 
 set -euo pipefail
 
-BUN_VERSION="${1:-1.3.14}"
+BUN_VERSION="${1:-1.4.2}"
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESTINATION_ROOT="$REPOSITORY_ROOT/build/Bun"
 RELEASE_URL="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}"
@@ -60,7 +60,11 @@ fetch_architecture() {
 
   mkdir -p "$(dirname "$destination")"
   install -m 755 "$source" "$destination"
-  echo "Staged Bun at $destination"
+  if [ "$("$destination" --version)" != "$BUN_VERSION" ]; then
+    echo "error: staged Bun did not report version $BUN_VERSION" >&2
+    exit 1
+  fi
+  echo "Staged Bun ${BUN_VERSION} at $destination"
 }
 
 BUN_ARCHS="${BUN_ARCHS:-arm64 x64}"

@@ -20,6 +20,10 @@ enum AgentHostExecutable {
         resolveBun(in: Bundle.main.bundleURL, architecture: currentArchitecture)
     }
 
+    static func bunArguments(hostURL: URL) -> [String] {
+        ["--no-env-file", "--config=/dev/null", hostURL.path]
+    }
+
     static func piCodingAgentVersion(
         in appBundleURL: URL = Bundle.main.bundleURL
     ) -> String? {
@@ -70,7 +74,13 @@ enum AgentHostExecutable {
             "Contents/Resources/AgentHost/\(architecture)/\(filename)",
             isDirectory: false
         )
-        return fileManager.isExecutableFile(atPath: candidate.path) ? candidate : nil
+        guard fileManager.fileExists(atPath: candidate.path),
+              let values = try? candidate.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+              ),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true else { return nil }
+        return candidate
     }
 
     static func resolveBun(

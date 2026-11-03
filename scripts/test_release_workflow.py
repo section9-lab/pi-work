@@ -153,7 +153,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             if "/usr/bin/codesign" in line and "--options runtime" in line
         ]
 
-        self.assertEqual(2, len(hardened_signing_lines))
+        self.assertEqual(1, len(hardened_signing_lines))
         for line in hardened_signing_lines:
             self.assertIn("--timestamp", line)
             self.assertIn("--preserve-metadata=entitlements", line)
@@ -199,6 +199,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('cp "$HOST_PHOTON_SOURCE" "$HOST_DESTINATION_DIR/photon_rs_bg.wasm"', project)
         workflow = self.workflow_text()
         self.assertIn("scripts/test-runtime-images.ts", workflow)
+        self.assertIn('Contents/Helpers/Bun/$host_arch/bun', workflow)
+        self.assertIn('Contents/Resources/AgentHost/$host_arch/pi-work-agent-host', workflow)
         self.assertIn('mv AgentHost/node_modules "$RUNNER_TEMP/image-smoke-node_modules"', workflow)
         self.assertIn("trap '", workflow)
 
@@ -257,12 +259,32 @@ class ReleaseWorkflowTests(unittest.TestCase):
         # Diagnostics must not match the release's PiWork-* DMG download pattern.
         self.assertNotIn("name: PiWork-", diagnostics)
 
-    def test_compiled_agent_host_does_not_autoload_project_bunfig(self):
+    def test_shared_bun_runs_the_agent_bundle_without_project_configuration(self):
         project = PROJECT_PATH.read_text()
         package = AGENT_HOST_PACKAGE_PATH.read_text()
+        workflow = self.workflow_text()
+        service = (REPOSITORY_ROOT / "PiWork/Core/Agent/AgentHostService.swift").read_text()
+        fetch_script = (REPOSITORY_ROOT / "scripts/fetch-bun-binary.sh").read_text()
+        preview_script = (REPOSITORY_ROOT / "scripts/build-computer-use-preview.sh").read_text()
 
-        self.assertIn("--no-compile-autoload-bunfig", project)
-        self.assertEqual(2, package.count("--no-compile-autoload-bunfig"))
+        build_script = (REPOSITORY_ROOT / "AgentHost/scripts/build-host.ts").read_text()
+        self.assertIn("scripts/build-host.ts", project)
+        self.assertIn('"build": "bun scripts/build-host.ts', package)
+        self.assertIn('target: "bun"', build_script)
+        self.assertIn("portable-photon-wasm", build_script)
+        self.assertIn("PI_WORK_AGENT_HOST_RESOURCE_DIR", build_script)
+        self.assertNotIn("|| __dirname", build_script)
+        self.assertIn("Agent Host bundle contains a build-machine path", workflow)
+        self.assertNotIn("build --compile", project)
+        self.assertNotIn("build --compile", package)
+        self.assertNotIn("build --compile", preview_script)
+        self.assertIn("scripts/build-host.ts", preview_script)
+        self.assertIn("Contents/Helpers/Bun", preview_script)
+        self.assertIn("arguments: AgentHostExecutable.bunArguments(hostURL: hostURL)", service)
+        self.assertEqual(workflow.count("bun-version: 1.4.2"), 3)
+        self.assertIn('BUN_VERSION="${1:-1.4.2}"', fetch_script)
+        self.assertIn('"packageManager": "bun@1.4.2"', package)
+        self.assertIn('"@types/bun": "1.4.2"', package)
 
 
 if __name__ == "__main__":

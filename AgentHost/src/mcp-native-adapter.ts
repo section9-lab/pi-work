@@ -1,5 +1,5 @@
 /**
- * Pi 1.4.0 exposes the session extension publicly, but its desktop management
+ * Pi 1.5.0 exposes the session extension publicly, but its desktop management
  * primitives are internal. Keep the version-pinned imports in this one adapter;
  * transport, OAuth discovery, PKCE, refresh and process cleanup stay upstream.
  */

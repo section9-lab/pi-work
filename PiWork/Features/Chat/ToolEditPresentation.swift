@@ -10,13 +10,8 @@ struct ToolEditPresentation {
 
     let changes: [Change]
 
-    var diffSummary: (additions: Int, deletions: Int) {
-        changes.reduce(into: (additions: 0, deletions: 0)) { totals, change in
-            let diff = ToolDiffPresentation(oldText: change.oldText, newText: change.newText)
-            totals.additions += diff.additions
-            totals.deletions += diff.deletions
-        }
-    }
+    let diffs: [ToolDiffPresentation]
+    let diffSummary: (additions: Int, deletions: Int)
 
     init?(name: String, rawInput: AgentHostJSONValue?, summary: String) {
         guard ["edit", "editor"].contains(name.lowercased()) else { return nil }
@@ -40,5 +35,10 @@ struct ToolEditPresentation {
             changes.append(Change(path: path, oldText: oldText, newText: newText))
         }
         self.changes = changes
+        diffs = changes.map { ToolDiffPresentation(oldText: $0.oldText, newText: $0.newText) }
+        diffSummary = diffs.reduce(into: (additions: 0, deletions: 0)) { totals, diff in
+            totals.additions += diff.additions
+            totals.deletions += diff.deletions
+        }
     }
 }

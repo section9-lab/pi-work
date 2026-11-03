@@ -6,14 +6,23 @@ cd "$COMPUTER_USE_ROOT"
 COMPUTER_USE_ARCH="arm64"
 if [ "$(uname -m)" = "x86_64" ]; then COMPUTER_USE_ARCH="x64"; fi
 COMPUTER_USE_BUN="$COMPUTER_USE_ROOT/build/Bun/$COMPUTER_USE_ARCH/bun"
-(cd AgentHost && "$COMPUTER_USE_BUN" build --compile --no-compile-autoload-bunfig --target="bun-darwin-$COMPUTER_USE_ARCH" src/main.ts --outfile "../build/pi-work-computer-use-host-$COMPUTER_USE_ARCH")
-/usr/bin/codesign --force --sign - "$COMPUTER_USE_ROOT/build/pi-work-computer-use-host-$COMPUTER_USE_ARCH"
+if [ ! -x "$COMPUTER_USE_BUN" ] || [ "$("$COMPUTER_USE_BUN" --version 2>/dev/null || true)" != "1.4.2" ]; then
+  BUN_ARCHS="$COMPUTER_USE_ARCH" "$COMPUTER_USE_ROOT/scripts/fetch-bun-binary.sh" 1.4.2
+fi
+(cd AgentHost && "$COMPUTER_USE_BUN" scripts/build-host.ts "../build/pi-work-computer-use-host-$COMPUTER_USE_ARCH")
+chmod 644 "$COMPUTER_USE_ROOT/build/pi-work-computer-use-host-$COMPUTER_USE_ARCH"
 COMPUTER_USE_APP="$COMPUTER_USE_ROOT/build/PiWork-ComputerUse.app"
+rm -rf "$COMPUTER_USE_APP"
 COMPUTER_USE_HOST_RESOURCES="$COMPUTER_USE_APP/Contents/Resources/AgentHost/$COMPUTER_USE_ARCH"
-mkdir -p "$COMPUTER_USE_APP/Contents/MacOS" "$COMPUTER_USE_HOST_RESOURCES"
+COMPUTER_USE_BUN_RESOURCES="$COMPUTER_USE_APP/Contents/Helpers/Bun/$COMPUTER_USE_ARCH"
+mkdir -p "$COMPUTER_USE_APP/Contents/MacOS" "$COMPUTER_USE_HOST_RESOURCES" "$COMPUTER_USE_BUN_RESOURCES"
 cp "$COMPUTER_USE_ROOT/build/pi-work-computer-use-host-$COMPUTER_USE_ARCH" "$COMPUTER_USE_HOST_RESOURCES/pi-work-agent-host"
+cp AgentHost/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "$COMPUTER_USE_HOST_RESOURCES/"
 cp -R AgentHost/node_modules/@earendil-works/pi-coding-agent/dist/core/export-html "$COMPUTER_USE_HOST_RESOURCES/"
 cp -R AgentHost/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme "$COMPUTER_USE_HOST_RESOURCES/"
+cp "$COMPUTER_USE_BUN" "$COMPUTER_USE_BUN_RESOURCES/bun"
+chmod 755 "$COMPUTER_USE_BUN_RESOURCES/bun"
+/usr/bin/codesign --force --preserve-metadata=entitlements --sign - "$COMPUTER_USE_BUN_RESOURCES/bun"
 swiftc -target "$(uname -m)-apple-macosx13.0" -swift-version 5 -parse-as-library \
   PiWork/Core/UI/AppLanguage.swift PiWork/Core/UI/AppSettingsNavigation.swift PiWork/Core/Update/*.swift \
   PiWork/Core/Agent/AgentHostExecutable.swift PiWork/Core/Agent/AgentHostProtocol.swift \

@@ -3,8 +3,12 @@ import Foundation
 struct AgentRuntimeInstallation: Equatable {
     let directory: URL
     let manifest: AgentRuntimeManifest
-    var executableURL: URL { directory.appendingPathComponent(AgentHostExecutable.filename) }
+    var hostURL: URL { directory.appendingPathComponent(AgentHostExecutable.filename) }
     var bunURL: URL { directory.appendingPathComponent(AgentHostExecutable.bunFilename) }
+    var launchExecutableURL: URL { manifest.usesBunHostBundle ? bunURL : hostURL }
+    var launchArguments: [String] {
+        manifest.usesBunHostBundle ? AgentHostExecutable.bunArguments(hostURL: hostURL) : []
+    }
 }
 
 struct AgentRuntimeSelection: Codable, Equatable {

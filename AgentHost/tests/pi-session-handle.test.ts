@@ -65,10 +65,13 @@ function makePiSession(overrides: Record<string, unknown> = {}) {
     setThinkingLevel: (_level: PiThinkingLevel) => {},
     agent: {
       streamFunction: () => undefined as never,
+      onPayload: undefined as AgentSession["agent"]["onPayload"],
     },
     modelRuntime: {
       getModel: (provider: string, modelId: string) => (
-        provider === testModel.provider && modelId === testModel.id ? testModel : undefined
+        provider === testModel.provider && modelId === testModel.id ? testModel
+          : provider === configurableModel.provider && modelId === configurableModel.id
+            ? { ...configurableModel, contextWindow: 1_050_000 } : undefined
       ),
     },
     extensionRunner: {
@@ -279,6 +282,16 @@ describe("normalizeAgentSessionEvent", () => {
     });
   });
 
+  test("preserves recorded tool duration and nested-call identity without discarding extension details", () => {
+    const event = normalizeAgentSessionEvent({ type: "tool_execution_end", toolCallId: "parent/1", parentToolCallId: "parent",
+      toolName: "read", durationMs: 1250, isError: false,
+      result: { content: [{ type: "text", text: "fixture" }], details: { bytes: 7 } } } as AgentSessionEvent);
+    expect(event).toMatchObject({ rawOutput: { bytes: 7, _piWork: { durationMs: 1250, parentToolCallId: "parent" } } });
+    const restored = normalizeAgentMessages("fixture", [{ role: "toolResult", toolCallId: "call", toolName: "read",
+      durationMs: 1250, isError: false, content: [{ type: "text", text: "fixture" }], timestamp: 0 }]);
+    expect(restored[0]).toMatchObject({ rawOutput: { _piWork: { durationMs: 1250 } } });
+  });
+
   test("maps Pi tool completion to the stable host event", () => {
     const event = {
       type: "tool_execution_end",
@@ -304,6 +317,23 @@ describe("normalizeAgentSessionEvent", () => {
 });
 
 describe("PiSessionHandle", () => {
+  test("coalesces raw progress before normalization and flushes before tool completion", () => {
+    let emit!: (event: AgentSessionEvent) => void;
+    const piSession = makePiSession({ subscribe: (listener: typeof emit) => { emit = listener; return () => {}; } });
+    const handle = new PiSessionHandle(piSession, SessionManager.inMemory("/tmp/project"));
+    const events: SessionHandleEvent[] = [];
+    const unsubscribe = handle.subscribe((event) => events.push(event));
+    for (const text of ["first", "latest"]) emit({ type: "tool_execution_update", toolCallId: "call", toolName: "bash", args: {},
+      partialResult: { content: [{ type: "text", text }], details: undefined } } as AgentSessionEvent);
+    expect(events).toEqual([]);
+    emit({ type: "tool_execution_end", toolCallId: "call", toolName: "bash", isError: false,
+      result: { content: [{ type: "text", text: "final" }], details: undefined } } as AgentSessionEvent);
+    expect(events.map((event) => event.type)).toEqual(["toolUpdated", "toolCompleted"]);
+    expect(events[0]).toMatchObject({ output: "latest" });
+    expect(events[1]).toMatchObject({ output: "final" });
+    unsubscribe(); handle.dispose();
+  });
+
   test("delegates HTML export to the native Pi session", async () => {
     const manager = SessionManager.inMemory("/tmp/project");
     const requests: string[] = [];
@@ -883,6 +913,13 @@ describe("PiSessionHandle", () => {
     );
   });
 
+  test("price tiers alone never authorize a context window larger than the SDK advertises", async () => {
+    const piSession = makePiSession({ model: configurableModel, modelRuntime: { getModel: () => configurableModel } });
+    const handle = new PiSessionHandle(piSession, SessionManager.inMemory("/tmp/project"));
+    expect(handle.snapshot().modelOptions.oneMillionContext.supported).toBe(false);
+    await expect(handle.setModelOption("oneMillionContext", true)).rejects.toMatchObject({ code: "model_option_unsupported" });
+  });
+
   test("derives Fast and 1M context support from the active Pi model", () => {
     const manager = SessionManager.inMemory("/tmp/project");
     const handle = new PiSessionHandle(
@@ -914,31 +951,18 @@ describe("PiSessionHandle", () => {
     });
   });
 
-  test("injects Pi's priority service tier only while Fast mode is enabled", async () => {
+  test("sets the priority payload while preserving SDK streaming and extension payload transformations", async () => {
     const manager = SessionManager.inMemory("/tmp/project");
-    const receivedOptions: Array<Record<string, unknown> | undefined> = [];
-    const agent = {
-      streamFunction: (
-        _model: unknown,
-        _context: unknown,
-        options?: Record<string, unknown>,
-      ) => {
-        receivedOptions.push(options);
-        return undefined as never;
-      },
-    };
-    const piSession = makePiSession({ model: configurableModel, agent });
+    const piSession = makePiSession({ model: configurableModel });
+    const originalStream = piSession.agent.streamFunction;
+    piSession.agent.onPayload = () => ({ extensionField: "preserved" });
     const handle = new PiSessionHandle(piSession, manager);
 
     await handle.setModelOption("fastMode", true);
-    agent.streamFunction(configurableModel, {}, {});
+    expect(await piSession.agent.onPayload?.({}, configurableModel)).toEqual({ extensionField: "preserved", service_tier: "priority" });
     await handle.setModelOption("fastMode", false);
-    agent.streamFunction(configurableModel, {}, {});
-
-    expect(receivedOptions).toEqual([
-      { serviceTier: "priority" },
-      { serviceTier: "default" },
-    ]);
+    expect(await piSession.agent.onPayload?.({}, configurableModel)).toEqual({ extensionField: "preserved", service_tier: "default" });
+    expect(piSession.agent.streamFunction).toBe(originalStream);
   });
 
   test("changes Pi's effective context window when 1M context is toggled", async () => {
@@ -1166,6 +1190,7 @@ describe("PiSessionHandle", () => {
     const activeToolSelections: string[][] = [];
     const piSession = makePiSession({
       getAllTools: () => tools,
+      getActiveToolNames: () => tools.map((tool) => tool.name),
       reload: async () => {
         tools = [{
           name: "new_extension_tool",
@@ -1369,14 +1394,16 @@ describe("createPiSessionHandle", () => {
     expect(handler).toBeDefined();
     if (!handler) return "";
 
+    const sections: Record<string, string | null> = {};
     const result = await handler({
       type: "before_agent_start",
       prompt: "Hello",
       images: undefined,
       systemPrompt: "Base instructions",
-      systemPromptOptions: {},
+      systemPromptOptions: { sections },
     }, {});
-    return (result as { systemPrompt?: string } | undefined)?.systemPrompt ?? "";
+    expect((result as { systemPrompt?: string } | undefined)?.systemPrompt).toBeUndefined();
+    return ["Base instructions", ...Object.entries(sections).filter(([, content]) => content !== null).map(([name, content]) => `<${name}>\n${content}\n</${name}>`)].join("\n\n");
   }
 
   test("adds the minimal Chat context through Pi's extension API", async () => {
@@ -1438,6 +1465,7 @@ describe("createPiSessionHandle", () => {
     const activeToolSelections: string[][] = [];
     const piSession = makePiSession({
       sessionId: manager.getSessionId(),
+      getActiveToolNames: () => ["web_search", "fetch_content", "other_extension_tool"],
       getAllTools: () => [
         {
           name: "web_search",
@@ -1482,6 +1510,7 @@ describe("createPiSessionHandle", () => {
     const activeToolSelections: string[][] = [];
     const piSession = makePiSession({
       sessionId: manager.getSessionId(),
+      getActiveToolNames: () => ["web_search", "extension_tool"],
       getAllTools: () => [{
         name: "web_search",
         sourceInfo: { source: "npm:pi-web-access" },

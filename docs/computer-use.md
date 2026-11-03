@@ -88,19 +88,19 @@ Automated checks:
 cd AgentHost
 bun run typecheck
 bun test --timeout 15000
-bun run build:arm64
-bun run build:x64
+bun run build
 cd ..
-codesign --force --sign - build/pi-work-agent-host-arm64
-codesign --force --sign - build/pi-work-agent-host-x64
+test ! -x build/pi-work-agent-host
+bash scripts/fetch-bun-binary.sh 1.4.2
 bash scripts/test-native.sh
 ```
 
 With only Apple Command Line Tools, the native script compiles the application
 for its macOS 13 deployment target and runs standalone native checks. Full
-XCTest requires Xcode. Both arm64 and x64 Host builds should be compiled before
-release; a physical macOS 13/14 matrix is still separate from deployment-target
-compilation and injected-version tests.
+XCTest requires Xcode. The Agent Host is one architecture-neutral Bun bundle;
+release CI still validates the shared Bun runtime, application archive, and
+runtime package independently on arm64 and x64. A physical macOS 13/14 matrix
+is still separate from deployment-target compilation and injected-version tests.
 
 To inspect the actual settings page and perform a local OS permission test
 without signing in or using existing conversations:
@@ -111,7 +111,7 @@ open ~/Library/Caches/pi-work/ComputerUseQA/PiWork-ComputerUse.app
 ```
 
 This QA app uses `~/Library/Application Support/pi-work-computer-use-qa/Agent`
-and its own bundled Host executable. It is staged outside protected Documents
+and its own Agent Host bundle plus shared Bun runtime. It is staged outside protected Documents
 folders to match an installed app's launch behavior. The
 OS permissions must be granted by the person at the Mac; CI/mock tests do not
 prove a live desktop operation succeeded.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,6 +38,52 @@ describe("AccessController", () => {
       toolName: "read",
       input: { path: file },
     })).resolves.toBeUndefined();
+  });
+
+  test("read-only tools reject every supported alias of a project-external path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-work-access-aliases-"));
+    try {
+      const project = join(root, "project");
+      const outside = join(root, "outside.txt");
+      await mkdir(project);
+      await writeFile(outside, "synthetic outside content");
+      const controller = new AccessController({ cwd: project, mode: "readOnly" });
+      for (const toolName of ["read", "ls", "grep", "find"]) {
+        for (const path of ["../outside.txt", "@../outside.txt", `@${outside}`, pathToFileURL(outside).href, "~/"]) {
+          await expect(controller.authorize({
+            toolCallId: "alias-check", toolName, input: { path },
+          })).rejects.toMatchObject({ code: "path_outside_project" });
+        }
+      }
+      const read = createPolicyControlledTools(project, controller).find((tool) => tool.name === "read")!;
+      await expect(read.execute("outside-read", { path: "@../outside.txt" }, undefined, undefined, {} as never))
+        .rejects.toMatchObject({ code: "path_outside_project" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("authorized aliases and macOS filename fallbacks still read the intended project file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-work-access-spelling-"));
+    try {
+      const project = join(root, "project");
+      const other = join(root, "other");
+      await mkdir(project);
+      await mkdir(other);
+      await writeFile(join(project, "fixture.txt"), "authorized fixture");
+      await writeFile(join(other, "fixture.txt"), "wrong cwd fixture");
+      await writeFile(join(project, "Screenshot 10.00\u202fAM.png.txt"), "macOS fixture");
+      const controller = new AccessController({ cwd: project, mode: "readOnly" });
+      const read = createPolicyControlledTools(project, controller).find((tool) => tool.name === "read")!;
+      for (const path of ["fixture.txt", "@fixture.txt", pathToFileURL(join(project, "fixture.txt")).href]) {
+        const result = await read.execute("inside-read", { path }, undefined, undefined, { cwd: other } as never);
+        expect(result.content).toEqual([{ type: "text", text: "authorized fixture" }]);
+      }
+      const result = await read.execute("macOS-read", { path: "Screenshot 10.00 AM.png.txt" }, undefined, undefined, {} as never);
+      expect(result.content).toEqual([{ type: "text", text: "macOS fixture" }]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("read-only access blocks mutation tools", async () => {

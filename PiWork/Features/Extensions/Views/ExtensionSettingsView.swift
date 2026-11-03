@@ -269,6 +269,20 @@ private struct ExtensionPackageSummary: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let changelog = store.changelogs[package.id] {
+                DisclosureGroup(L10n.string("settings.extensions.changelog")) {
+                    ScrollView {
+                        // Untrusted package Markdown is intentionally plain text:
+                        // no remote images, URL handlers or embedded commands.
+                        Text(changelog)
+                            .font(.system(size: 11.5))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 220)
+                }
+                .font(.caption)
+            }
         }
     }
 }

@@ -174,6 +174,7 @@ struct ChatView: View {
                 extensionStatuses: activeRecord?.acpState.extensionStatuses ?? [:],
                 extensionWidgets: activeRecord?.acpState.extensionWidgets ?? [:],
                 cost: activeRecord?.acpState.cost,
+                responseModel: activeRecord?.acpState.responseModel,
                 selectedThinkingLevel: activeRecord?.thinkingLevel,
                 availableThinkingLevels: activeRecord?.availableThinkingLevels ?? [],
                 modelOptions: activeRecord?.modelOptions ?? .unsupported,
@@ -1693,6 +1694,7 @@ private struct SessionComposer: View {
     let extensionStatuses: [String: String]
     let extensionWidgets: [String: AgentHostExtensionWidget]
     let cost: AgentHostACPSessionCost?
+    var responseModel: String? = nil
     let selectedThinkingLevel: AgentHostThinkingLevel?
     let availableThinkingLevels: [AgentHostThinkingLevel]
     let modelOptions: AgentHostModelOptions
@@ -2312,7 +2314,7 @@ private struct SessionComposer: View {
                 }
                 Spacer(minLength: 0)
                 if contextUsage != nil || cost != nil {
-                    ContextUsageIndicator(usage: contextUsage, cost: cost)
+                    ContextUsageIndicator(usage: contextUsage, cost: cost, responseModel: responseModel)
                 }
                 if genericModeState != nil || !genericConfigOptions.isEmpty {
                     genericConfigMenu
@@ -3095,6 +3097,7 @@ struct SessionActivityPanel: View {
 private struct ContextUsageIndicator: View {
     let usage: AgentHostContextUsage?
     let cost: AgentHostACPSessionCost?
+    var responseModel: String? = nil
     @State private var isContextUsagePresented = false
 
     private var presentation: ContextUsagePresentation? {
@@ -3137,7 +3140,7 @@ private struct ContextUsageIndicator: View {
         .accessibilityIdentifier("context-usage-indicator")
         .onHover { isContextUsagePresented = $0 }
         .popover(isPresented: $isContextUsagePresented, arrowEdge: .top) {
-            ContextUsagePopover(presentation: presentation, cost: cost)
+            ContextUsagePopover(presentation: presentation, cost: cost, responseModel: responseModel)
         }
     }
 
@@ -4168,6 +4171,7 @@ private struct AssistantToolStepRow: View {
     let onLoadFullOutput: () -> Void
     let onResolve: (AgentHostApprovalRequest, AgentHostApprovalDecision) -> Void
 
+    @StateObject private var inputCache = ToolInputPresentationCache()
     @State private var isDetailExpanded = false
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
@@ -4222,6 +4226,11 @@ private struct AssistantToolStepRow: View {
 
                     Spacer(minLength: 8)
 
+                    if let duration = tool.durationText {
+                        Text(duration)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(Color.secondary)
+                    }
                     if showsExceptionalStatus {
                         Text(statusText)
                             .font(.system(size: 10.5, weight: .medium))
@@ -4251,7 +4260,7 @@ private struct AssistantToolStepRow: View {
                     if let edit = editPresentation {
                         ForEach(edit.changes.indices, id: \.self) { index in
                             let change = edit.changes[index]
-                            ToolDiffBlock(path: change.path, oldText: change.oldText, newText: change.newText)
+                            ToolDiffBlock(path: change.path, oldText: change.oldText, newText: change.newText, prepared: edit.diffs[index])
                         }
                     } else if tool.rawInput != nil || !tool.summary.isEmpty {
                         ToolDetailBlock(
@@ -4340,11 +4349,11 @@ private struct AssistantToolStepRow: View {
     }
 
     private var editPresentation: ToolEditPresentation? {
-        ToolEditPresentation(name: tool.name, rawInput: tool.rawInput, summary: tool.summary)
+        inputCache.value(for: tool).edit
     }
 
     private var presentation: ToolCallPresentation {
-        ToolCallPresentation(tool: tool)
+        inputCache.value(for: tool).call
     }
 }
 
@@ -4549,11 +4558,13 @@ private struct ToolDiffBlock: View {
     let path: String
     let oldText: String?
     let newText: String
+    var prepared: ToolDiffPresentation? = nil
 
+    @StateObject private var diffCache = ToolDiffPresentationCache()
     @State private var isHovered = false
 
     var body: some View {
-        let diff = ToolDiffPresentation(oldText: oldText, newText: newText)
+        let diff = prepared ?? diffCache.value(oldText: oldText, newText: newText)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text((path as NSString).lastPathComponent)
@@ -4952,81 +4963,4 @@ private struct InlineApprovalActions: View {
             )
         ]
     }
-}
-
-struct ToolCallPresentation {
-    let tool: SessionToolRecord
-
-    var isBash: Bool { tool.name.lowercased() == "bash" }
-
-    var title: String {
-        tool.name.replacingOccurrences(of: "_", with: " ")
-    }
-
-    var iconName: String {
-        switch tool.name.lowercased() {
-        case "read": return "book"
-        case "bash": return "terminal"
-        case "write": return "square.and.pencil"
-        case "edit", "editor": return "highlighter"
-        case "grep", "find": return "magnifyingglass"
-        case "ls": return "folder"
-        case "web_search": return "magnifyingglass"
-        case "web_fetch", "fetch_content": return "globe"
-        default: return "wrench.and.screwdriver"
-        }
-    }
-
-    var summary: String {
-        if let edit = ToolEditPresentation(name: tool.name, rawInput: tool.rawInput, summary: tool.summary),
-           let path = edit.changes.first?.path {
-            return path
-        }
-        guard let data = tool.summary.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let dictionary = object as? [String: Any] else {
-            return tool.summary
-        }
-        for key in ["path", "command", "query", "url", "pattern"] {
-            if let value = dictionary[key] as? String, !value.isEmpty {
-                return value
-            }
-        }
-        return tool.summary
-    }
-
-    var formattedInput: String {
-        let input = tool.rawInput ?? tool.summary.data(using: .utf8).flatMap {
-            try? JSONDecoder().decode(AgentHostJSONValue.self, from: $0)
-        }
-        if isBash, let command = input?.objectValue?["command"]?.stringValue {
-            return command
-        }
-        if tool.name.lowercased() == "read",
-           let object = input?.objectValue,
-           let path = object["path"]?.stringValue {
-            let range = ["offset", "limit"].compactMap { key -> String? in
-                guard let value = object[key]?.intValue else { return nil }
-                return "\(key): \(value)"
-            }
-            return ([path] + range).joined(separator: "  ·  ")
-        }
-        if let object = input?.objectValue, !object.isEmpty {
-            // Keep every argument for unfamiliar tools, without JSON wrapper noise.
-            let preferredKeys = ["path", "command", "query", "url", "pattern", "content"]
-            let keys = preferredKeys.filter { object[$0] != nil }
-                + object.keys.filter { !preferredKeys.contains($0) }.sorted()
-            return keys.compactMap { key -> String? in
-                guard let value = object[key] else { return nil }
-                let encoded = try? JSONSerialization.data(
-                    withJSONObject: value.foundationValue,
-                    options: [.fragmentsAllowed, .prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                )
-                let text = value.stringValue ?? encoded.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-                return keys.count == 1 ? text : "\(key): \(text)"
-            }.joined(separator: "\n")
-        }
-        return input?.stringValue ?? input?.prettyPrinted ?? tool.summary
-    }
-
 }

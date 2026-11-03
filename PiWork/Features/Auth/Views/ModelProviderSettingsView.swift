@@ -907,12 +907,8 @@ private struct ProviderAuthenticationView: View {
         .frame(width: 520, height: 500)
         .background(Color(nsColor: .windowBackgroundColor))
         .interactiveDismissDisabled(flow?.phase.isTerminal == false)
-        .onAppear {
-            openAuthorizationURLIfNeeded()
-            openDeviceVerificationURLIfNeeded()
-        }
+        .onAppear { openAuthorizationURLIfNeeded() }
         .onChange(of: flow?.authorizationURL) { _ in openAuthorizationURLIfNeeded() }
-        .onChange(of: flow?.deviceCode?.verificationURI) { _ in openDeviceVerificationURLIfNeeded() }
         .onChange(of: flow?.deviceCode?.userCode) { _ in
             copiedDeviceCode = nil
             deviceCodeReceivedAt = Date()
@@ -961,20 +957,24 @@ private struct ProviderAuthenticationView: View {
                     .textSelection(.enabled)
                 deviceCodeExpiry(code)
                 HStack {
-                    Button {
-                        copy(code.userCode)
-                        copiedDeviceCode = code.userCode
-                    } label: {
-                        Label(
-                            L10n.string(copiedDeviceCode == code.userCode
-                                ? "auth.device.copied"
-                                : "auth.device.copy"),
-                            systemImage: copiedDeviceCode == code.userCode
-                                ? "checkmark"
-                                : "doc.on.doc"
-                        )
+                    if code.copyCodeOnConfirm {
+                        Button {
+                            copy(code.userCode)
+                            copiedDeviceCode = code.userCode
+                        } label: {
+                            Label(
+                                L10n.string(copiedDeviceCode == code.userCode
+                                    ? "auth.device.copied"
+                                    : "auth.device.copy"),
+                                systemImage: copiedDeviceCode == code.userCode
+                                    ? "checkmark"
+                                    : "doc.on.doc"
+                            )
+                        }
                     }
-                    Button(L10n.string("auth.device.open")) { open(code.verificationURI) }
+                    if code.openBrowserOnConfirm {
+                        Button(L10n.string("auth.device.open")) { open(code.verificationURI) }
+                    }
                 }
                 .buttonStyle(.bordered)
             }
@@ -1284,12 +1284,6 @@ private struct ProviderAuthenticationView: View {
 
     private func openAuthorizationURLIfNeeded() {
         guard let url = flow?.authorizationURL,
-              openedExternalURLs.insert(url).inserted else { return }
-        open(url)
-    }
-
-    private func openDeviceVerificationURLIfNeeded() {
-        guard let url = flow?.deviceCode?.verificationURI,
               openedExternalURLs.insert(url).inserted else { return }
         open(url)
     }

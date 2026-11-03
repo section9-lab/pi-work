@@ -56,7 +56,8 @@ final class ProviderAuthStoreTests: XCTestCase {
             "auth.credentials.open_help",
             "auth.credentials.storage",
             "auth.retry",
-            ".onChange(of: flow?.deviceCode?.verificationURI)",
+            "if code.openBrowserOnConfirm",
+            "if code.copyCodeOnConfirm",
             "ProviderAuthenticationGuide.webURL",
             "ProviderAuthenticationGuide.credentialHelpURL",
         ]

@@ -15,7 +15,15 @@ export type QueuedInput = {
   behavior: RunningMessageBehavior;
 };
 
+export type SessionUsage = {
+  used: number;
+  size: number;
+  cost: { amount: number; currency: "USD"; source: "provider" | "estimated" };
+  responseModel?: string;
+};
+
 export type SessionHandleEvent =
+  | { type: "usageChanged"; usage: SessionUsage }
   | { type: "inputQueueChanged"; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] }
   | { type: "inputDelivered"; input: QueuedInput }
   | {
@@ -171,6 +179,8 @@ export type SessionMessage = {
   timestamp: string;
   provider?: string;
   model?: string;
+  responseModel?: string;
+  rawOutput?: Record<string, unknown>;
   stopReason?: string;
   errorMessage?: string;
   toolCallId?: string;
@@ -202,6 +212,7 @@ export type SessionHandleSnapshot = {
   gitBranch?: string;
   model: SessionModel | null;
   contextUsage?: SessionContextUsage;
+  usage?: SessionUsage;
   thinkingLevel: SessionThinkingLevel;
   availableThinkingLevels: SessionThinkingLevel[];
   modelOptions: SessionModelOptions;
@@ -257,6 +268,7 @@ export interface SessionHandle {
 }
 
 export type SessionRegistryEvent =
+  | { event: "session.usageChanged"; payload: SessionUsage & { sessionId: string; sequence: number } }
   | { event: "session.inputQueueChanged"; payload: { sessionId: string; sequence: number; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] } }
   | { event: "session.inputDelivered"; payload: { sessionId: string; sequence: number; input: QueuedInput } }
   | {
@@ -732,6 +744,13 @@ export class SessionRegistry {
 
   private consume(managed: ManagedSession, event: SessionHandleEvent): void {
     const turnId = managed.activeTurnId;
+    if (event.type === "usageChanged") {
+      managed.sequence += 1;
+      this.emit({ event: "session.usageChanged", payload: {
+        sessionId: managed.handle.sessionId, sequence: managed.sequence, ...event.usage,
+      } });
+      return;
+    }
     if (event.type === "inputQueueChanged" || event.type === "inputDelivered") {
       managed.sequence += 1;
       const common = { sessionId: managed.handle.sessionId, sequence: managed.sequence };

@@ -6,6 +6,7 @@ import SwiftUI
 struct ContextUsagePopover: View {
     let presentation: ContextUsagePresentation?
     let cost: AgentHostACPSessionCost?
+    var responseModel: String? = nil
 
     private var segments: [ContextUsagePresentation.Segment] {
         presentation?.segments ?? []
@@ -49,7 +50,8 @@ struct ContextUsagePopover: View {
                     .padding(.top, 1)
 
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(L10n.string("chat.session_cost"))
+                    Text(L10n.string(cost?.source == "provider" ? "chat.session_cost.billed"
+                        : cost?.source == "estimated" ? "chat.session_cost.estimated" : "chat.session_cost"))
                         .font(.system(size: 11))
                         .foregroundStyle(Color.primary.opacity(0.45))
 
@@ -61,6 +63,13 @@ struct ContextUsagePopover: View {
                         .foregroundStyle(Color.primary.opacity(0.8))
                         .lineLimit(1)
                 }
+            }
+            if let responseModel {
+                LabeledContent(L10n.string("chat.response_model")) {
+                    Text(responseModel).textSelection(.enabled)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 14)

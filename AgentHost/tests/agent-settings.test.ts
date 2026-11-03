@@ -78,6 +78,8 @@ describe("AgentSettingsCoordinator", () => {
 
       expect(settings.getNpmCommand()).toEqual([
         bunPath,
+        "--no-env-file",
+        "--config=/dev/null",
         "--registry=https://registry.npmjs.org",
         "--no-cache",
       ]);
@@ -105,7 +107,8 @@ describe("AgentSettingsCoordinator", () => {
       await settings.reload();
 
       expect(settings.getNpmCommand()).toEqual([
-        bunPath, "--registry=https://registry.npmjs.org", "--no-cache",
+        bunPath, "--no-env-file", "--config=/dev/null",
+        "--registry=https://registry.npmjs.org", "--no-cache",
       ]);
       expect(JSON.parse(await readFile(join(directory, "settings.json"), "utf8")))
         .toMatchObject({
@@ -129,8 +132,10 @@ describe("AgentSettingsCoordinator", () => {
         });
         await settings.flush();
 
-        expect(settings.getNpmCommand())
-          .toEqual([bunPath, "--registry=https://registry.npmjs.org", "--no-cache"]);
+        expect(settings.getNpmCommand()).toEqual([
+          bunPath, "--no-env-file", "--config=/dev/null",
+          "--registry=https://registry.npmjs.org", "--no-cache",
+        ]);
         expect(await readFile(join(directory, "settings.json"), "utf8")
           .catch((error: NodeJS.ErrnoException) => error.code)).toBe("ENOENT");
       }

@@ -32,6 +32,9 @@ def package(payload, metadata, architecture, output):
     if architecture not in ("arm64", "x86_64"):
         raise ValueError("Unsupported architecture")
     pi_version = metadata["dependencies"]["@earendil-works/pi-coding-agent"]
+    host_format = runtime.get("hostFormat")
+    if host_format not in ("compiled", "bun-bundle"):
+        raise ValueError("Unsupported Agent Host format")
     files = {}
     for path in sorted(payload.rglob("*")):
         if path.is_symlink():
@@ -44,7 +47,7 @@ def package(payload, metadata, architecture, output):
     if not {"pi-work-agent-host", "bun", PHOTON_WASM}.issubset(files) or not all(
         any(path.startswith(prefix) for path in files) for prefix in ("theme/", "export-html/")
     ):
-        raise ValueError("Host executable, Bun, Photon WASM, theme, and HTML export assets are required")
+        raise ValueError("Host bundle, Bun, Photon WASM, theme, and HTML export assets are required")
     if (payload / PHOTON_WASM).stat().st_size == 0:
         raise ValueError("Photon WASM must not be empty")
     if len(files) > 4096 or sum((payload / path).stat().st_size for path in files) > 768 * 1024 * 1024:
@@ -58,7 +61,9 @@ def package(payload, metadata, architecture, output):
                     path = payload / relative
                     entry = tarfile.TarInfo(relative)
                     entry.size = path.stat().st_size
-                    entry.mode = 0o755 if relative in ("pi-work-agent-host", "bun") else 0o644
+                    entry.mode = 0o755 if relative == "bun" or (
+                        relative == "pi-work-agent-host" and host_format == "compiled"
+                    ) else 0o644
                     with path.open("rb") as source:
                         tar.addfile(entry, source)
     manifest = {
@@ -71,6 +76,7 @@ def package(payload, metadata, architecture, output):
         "maximumAppVersion": runtime.get("maximumAppVersion"),
         "minimumMacOSVersion": runtime["minimumMacOSVersion"],
         "architecture": architecture,
+        "hostFormat": host_format,
         "url": f"{DOWNLOAD_BASE}runtime-v{version}/{archive.name}",
         "byteCount": archive.stat().st_size,
         "sha256": sha256(archive),
@@ -91,6 +97,10 @@ def main():
     bun_executable = str(Path(shutil.which(args.bun) or args.bun).resolve())
     host_root = REPOSITORY / "AgentHost"
     metadata = json.loads((host_root / "package.json").read_text())
+    expected_bun_version = metadata["packageManager"].removeprefix("bun@")
+    actual_bun_version = subprocess.check_output([bun_executable, "--version"], text=True).strip()
+    if actual_bun_version != expected_bun_version:
+        raise ValueError(f"Bun {expected_bun_version} is required, found {actual_bun_version}")
     sdk = host_root / "node_modules/@earendil-works/pi-coding-agent"
     installed = json.loads((sdk / "package.json").read_text())["version"]
     if installed != metadata["dependencies"]["@earendil-works/pi-coding-agent"]:
@@ -98,10 +108,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pi-work-runtime-") as scratch:
         payload = Path(scratch)
         host = payload / "pi-work-agent-host"
-        target = "arm64" if args.architecture == "arm64" else "x64"
-        subprocess.run([bun_executable, "build", "--compile", "--no-compile-autoload-bunfig",
-                        f"--target=bun-darwin-{target}", "src/main.ts", "--outfile", str(host)],
+        subprocess.run([bun_executable, "scripts/build-host.ts", str(host)],
                        cwd=host_root, check=True)
+        host.chmod(0o644)
         # Match Pi's copy-binary-assets; Photon loads this external file at runtime.
         shutil.copyfile(host_root / "node_modules/@silvia-odwyer/photon-node" / PHOTON_WASM,
                         payload / PHOTON_WASM)
@@ -110,10 +119,10 @@ def main():
         bun = payload / "bun"
         shutil.copyfile(bun_executable, bun)
         bun.chmod(0o755)
-        for executable in (host, bun):
-            subprocess.run(["/usr/bin/lipo", str(executable), "-verify_arch", args.architecture], check=True)
-            subprocess.run(["/usr/bin/codesign", "--force", "--preserve-metadata=entitlements", "--sign", "-", str(executable)], check=True)
-            subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(executable)], check=True)
+        subprocess.run(["/usr/bin/lipo", str(bun), "-verify_arch", args.architecture], check=True)
+        subprocess.run(["/usr/bin/codesign", "--force", "--preserve-metadata=entitlements",
+                        "--sign", "-", str(bun)], check=True)
+        subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(bun)], check=True)
         package(payload, metadata, args.architecture, args.output.resolve())
 
 

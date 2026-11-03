@@ -16,12 +16,12 @@ spec.loader.exec_module(packager)
 root = Path(sys.argv[1])
 payload = root / "source"
 payload.mkdir()
-subprocess.run(["/usr/bin/clang", "-x", "c", "-", "-o", str(payload / "pi-work-agent-host")],
-               input=b"int main(void) { return 0; }\n", check=True)
-subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(payload / "pi-work-agent-host")],
+(payload / "pi-work-agent-host").write_text("// synthetic Agent Host bundle\n")
+(payload / "pi-work-agent-host").chmod(0o644)
+subprocess.run(["/usr/bin/clang", "-x", "c", "-", "-o", str(payload / "bun")],
+               input=b'#include <stdio.h>\nint main(void) { puts("1.4.2"); return 0; }\n', check=True)
+subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(payload / "bun")],
                check=True, capture_output=True)
-(payload / "pi-work-agent-host").chmod(0o755)
-shutil.copyfile(payload / "pi-work-agent-host", payload / "bun")
 (payload / "bun").chmod(0o755)
 for name in ["photon_rs_bg.wasm", "theme/theme.json", "export-html/template.html"]:
     path = payload / name
@@ -35,8 +35,8 @@ metadata["piWorkRuntime"]["minimumAppVersion"] = "0.1.10"
 architecture = "arm64" if __import__("platform").machine() == "arm64" else "x86_64"
 packager.package(payload, metadata, architecture, root)
 
-# A native signed host lets the Swift checks exercise real process recovery,
-# rather than replacing the service's launch or integrity implementations.
+# A native signed Bun fixture lets the Swift checks exercise the shared-runtime
+# launch and recovery path without replacing process or integrity implementations.
 fixture_payload = root / "fixture-source"
 shutil.copytree(payload, fixture_payload)
 metadata["piWorkRuntime"]["version"] = "1.2.0"
@@ -54,7 +54,8 @@ c_source = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-int main(void) {
+int main(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], "--version") == 0) { puts("1.4.2"); return 0; }
   if (getenv("PI_WORK_PROBE_LEAK_TEST")) return 11;
   char line[65536];
   while (fgets(line, sizeof(line), stdin)) {
@@ -74,9 +75,9 @@ int main(void) {
 '''
 source = root / "fixture.c"
 source.write_text("#define INITIALIZE " + json.dumps(initialize) + "\n#define SETTINGS " + json.dumps(settings) + "\n" + c_source)
-fixture_host = fixture_payload / "pi-work-agent-host"
-subprocess.run(["/usr/bin/clang", str(source), "-o", str(fixture_host)], check=True)
-subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(fixture_host)], check=True, capture_output=True)
+fixture_bun = fixture_payload / "bun"
+subprocess.run(["/usr/bin/clang", str(source), "-o", str(fixture_bun)], check=True)
+subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(fixture_bun)], check=True, capture_output=True)
 packager.package(fixture_payload, metadata, architecture, root / "fixture-release")
 
 for kind in ["traversal", "symlink", "hardlink", "duplicate", "oversized", "absolute", "reserved"]:

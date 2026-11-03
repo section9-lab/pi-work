@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile, realpath } from "node:fs/promises";
+import { resolveReadPathAsync, resolveToCwd } from "./pi-path-adapter.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
@@ -9,6 +11,7 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  detectSupportedImageMimeTypeFromFile,
   type ToolDefinition,
   type BashToolOptions,
 } from "@earendil-works/pi-coding-agent";
@@ -68,7 +71,15 @@ export function createPolicyControlledTools(
   bashOptions?: BashToolOptions,
 ): ToolDefinition[] {
   const definitions: ToolDefinition<any, any, any>[] = [
-    createReadToolDefinition(cwd),
+    createReadToolDefinition(cwd, {
+      // Check the final filesystem target too: read supports macOS filename
+      // fallbacks after path normalization. Preserve Pi's image handling.
+      operations: {
+        access: async (path) => access(await controller.authorizeResolvedReadPath(path), constants.R_OK),
+        readFile: async (path) => readFile(await controller.authorizeResolvedReadPath(path)),
+        detectImageMimeType: async (path) => detectSupportedImageMimeTypeFromFile(await controller.authorizeResolvedReadPath(path)),
+      },
+    }),
     createBashToolDefinition(cwd, bashOptions),
     createEditToolDefinition(cwd),
     createWriteToolDefinition(cwd),
@@ -79,13 +90,13 @@ export function createPolicyControlledTools(
   return definitions.map((definition) => ({
     ...definition,
     execute: async (toolCallId, params, signal, onUpdate, context) => {
-      await controller.authorize({
+      const input = await controller.authorizeToolInput({
         toolCallId,
         toolName: definition.name,
         input: params as Record<string, unknown>,
         signal,
       });
-      return definition.execute(toolCallId, params, signal, onUpdate, context);
+      return definition.execute(toolCallId, input, signal, onUpdate, context);
     },
   }));
 }
@@ -115,10 +126,15 @@ export class AccessController {
   }
 
   async authorize(request: ToolAuthorizationRequest): Promise<void> {
+    await this.authorizeToolInput(request);
+  }
+
+  /** Return the exact input authorized for execution without mutating model arguments. */
+  async authorizeToolInput(request: ToolAuthorizationRequest): Promise<Record<string, unknown>> {
     if (request.signal?.aborted) {
       throw new AccessPolicyError("approval_cancelled", `Approval cancelled for ${request.toolName}`);
     }
-    if (this.mode === "full") return;
+    if (this.mode === "full") return request.input;
     if (this.mode === "none") {
       throw new AccessPolicyError("access_denied", `${request.toolName} is unavailable`);
     }
@@ -129,11 +145,20 @@ export class AccessController {
           `${request.toolName} is unavailable in read-only mode`,
         );
       }
-      await this.assertProjectPath(request);
-      return;
+      const path = await this.assertProjectPath(request);
+      request.signal?.throwIfAborted();
+      return { ...request.input, path };
     }
 
     await this.requestApproval(request);
+    return request.input;
+  }
+
+  /** Guard already-resolved filesystem operations, without reinterpreting path spelling. */
+  async authorizeResolvedReadPath(path: string): Promise<string> {
+    if (this.mode === "none") throw new AccessPolicyError("access_denied", "read is unavailable");
+    if (this.mode !== "readOnly") return path;
+    return this.assertCanonicalProjectPath(path, "read");
   }
 
   async authorizeMcp(request: ToolAuthorizationRequest & {
@@ -249,7 +274,7 @@ export class AccessController {
     });
   }
 
-  private async assertProjectPath(request: ToolAuthorizationRequest): Promise<void> {
+  private async assertProjectPath(request: ToolAuthorizationRequest): Promise<string> {
     const requestedPath = pathFromToolInput(request.toolName, request.input);
     if (requestedPath === undefined) {
       throw new AccessPolicyError(
@@ -258,21 +283,28 @@ export class AccessController {
       );
     }
 
+    const resolvedPath = request.toolName === "read"
+      ? await resolveReadPathAsync(requestedPath, this.cwd)
+      : resolveToCwd(requestedPath, this.cwd);
+    await this.assertCanonicalProjectPath(resolvedPath, request.toolName);
+    // Pass the resolved spelling to Pi, not the original alias or a realpath
+    // whose Unicode spelling could be interpreted differently on a second pass.
+    return resolvedPath;
+  }
+
+  private async assertCanonicalProjectPath(path: string, toolName: string): Promise<string> {
     const root = await this.canonicalRoot;
-    const absolutePath = isAbsolute(requestedPath)
-      ? resolve(requestedPath)
-      : resolve(this.cwd, requestedPath);
-    const canonicalPath = await canonicalizeExistingAncestor(absolutePath);
+    const canonicalPath = await canonicalizeExistingAncestor(path);
     const pathRelativeToRoot = relative(root, canonicalPath);
     if (
       pathRelativeToRoot === ""
       || (!pathRelativeToRoot.startsWith(`..${sep}`) && pathRelativeToRoot !== ".." && !isAbsolute(pathRelativeToRoot))
     ) {
-      return;
+      return canonicalPath;
     }
     throw new AccessPolicyError(
       "path_outside_project",
-      `${request.toolName} path is outside the project`,
+      `${toolName} path is outside the project`,
     );
   }
 }

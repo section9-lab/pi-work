@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "Gestiona versiones, actualizaciones y ajustes de los complementos instalados";
 "settings.extensions.update" = "Actualizar";
 "settings.extensions.update_finished" = "Operación de actualización completada";
+"settings.extensions.update_version" = "Actualizado %@ → %@";
+"settings.extensions.update_unchanged" = "Sin cambio de versión (%@)";
+"settings.extensions.update_unknown" = "Actualización completada; versión no verificada";
+"settings.extensions.changelog" = "Cambios de esta actualización";
 "settings.extensions.update_help" = "Actualiza desde el origen configurado. Las versiones fijadas no cambian.";
 "settings.extensions.loading" = "Cargando configuración de complementos…";
 "settings.extensions.empty" = "No hay complementos instalados";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "Expandir actividad";
 "chat.activity.collapse" = "Contraer actividad";
 "chat.session_cost" = "Coste";
+"chat.session_cost.billed" = "Coste informado";
+"chat.session_cost.estimated" = "Coste estimado";
+"chat.response_model" = "Modelo de respuesta";
 "chat.agent_mode" = "Modo";
 "chat.enabled" = "Activado";
 "chat.effort" = "Nivel";

@@ -38,6 +38,23 @@ describe("ACP extension UI bridge", () => {
     expect(await response).toEqual({ action: "accept", content: { value: "Ada" } });
   });
 
+  test("session cancellation releases only that session's dialogs and shutdown releases all remaining dialogs", async () => {
+    const sent: unknown[] = [];
+    const broker = new ACPElicitationBroker((message) => sent.push(message));
+    const form = (sessionId: string): ACPElicitationRequest => ({ mode: "form", sessionId, message: "Fixture",
+      requestedSchema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] } });
+    const first = broker.request(form("first"));
+    const second = broker.request(form("second"));
+    broker.cancelSession("first");
+    expect(await first).toEqual({ action: "cancel" });
+    const firstID = (sent[0] as { id: string }).id;
+    expect(broker.resolve({ jsonrpc: "2.0", id: firstID, result: { action: "accept", content: { value: "late" } } })).toBe(false);
+    broker.close();
+    expect(await second).toEqual({ action: "cancel" });
+    expect(await broker.request(form("after-shutdown"))).toEqual({ action: "cancel" });
+    expect(sent).toHaveLength(2);
+  });
+
   test("maps Pi select dialogs to a standard ACP elicitation form", async () => {
     const requests: ACPElicitationRequest[] = [];
     const ui = createACPExtensionUIContext("session-one", async (request) => {

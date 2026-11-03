@@ -2,28 +2,31 @@
   "name": "pi-work-agent-host",
   "version": "0.1.10",
   "private": true,
+  "packageManager": "bun@1.4.2",
   "type": "module",
   "piWorkRuntime": {
-    "version": "1.1.3",
+    "version": "1.2.0",
     "apiVersion": 1,
+    "hostFormat": "bun-bundle",
     "minimumAppVersion": "0.1.22",
     "minimumMacOSVersion": "13.0"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build:arm64": "bun build --compile --no-compile-autoload-bunfig --target=bun-darwin-arm64 src/main.ts --outfile ../build/pi-work-agent-host-arm64",
-    "build:x64": "bun build --compile --no-compile-autoload-bunfig --target=bun-darwin-x64 src/main.ts --outfile ../build/pi-work-agent-host-x64"
+    "build": "bun scripts/build-host.ts ../build/pi-work-agent-host",
+    "build:arm64": "bun run build",
+    "build:x64": "bun run build"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-tui": "1.4.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0",
     "@injaneity/pi-computer-use": "0.5.1",
     "typebox": "1.3.27"
   },
   "devDependencies": {
-    "@types/bun": "1.3.14",
+    "@types/bun": "1.4.2",
     "typescript": "5.9.3"
   }
 }

@@ -45,10 +45,15 @@ enum AgentRuntimeArchive {
             found.insert(path)
         }
         guard found == Set(installation.manifest.files.keys),
-              manager.isExecutableFile(atPath: installation.executableURL.path),
-              manager.isExecutableFile(atPath: installation.bunURL.path)
+              manager.fileExists(atPath: installation.hostURL.path),
+              manager.isExecutableFile(atPath: installation.bunURL.path),
+              installation.manifest.usesBunHostBundle
+                || manager.isExecutableFile(atPath: installation.hostURL.path)
         else { throw AgentRuntimeError.integrity }
-        for executable in [installation.executableURL, installation.bunURL] {
+        let executables = installation.manifest.usesBunHostBundle
+            ? [installation.bunURL]
+            : [installation.hostURL, installation.bunURL]
+        for executable in executables {
             guard try supportsArchitecture(executable, architecture: installation.manifest.architecture) else {
                 throw AgentRuntimeError.incompatible
             }
@@ -166,7 +171,8 @@ enum AgentRuntimeArchive {
             }
             _ = try reader.read((512 - size % 512) % 512)
             try FileManager.default.setAttributes(
-                [.posixPermissions: [AgentHostExecutable.filename, AgentHostExecutable.bunFilename].contains(path) ? 0o755 : 0o644],
+                [.posixPermissions: path == AgentHostExecutable.bunFilename
+                    || (path == AgentHostExecutable.filename && !manifest.usesBunHostBundle) ? 0o755 : 0o644],
                 ofItemAtPath: destination.path
             )
         }

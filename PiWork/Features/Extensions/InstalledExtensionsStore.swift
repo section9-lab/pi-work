@@ -1,6 +1,19 @@
 import Foundation
 import Combine
 
+enum ExtensionUpdatePresentation {
+    static func message(_ info: AgentHostInstalledExtensionPackage.UpdateInfo?, language: AppLanguage = L10n.currentLanguage) -> String {
+        switch info?.status {
+        case "updated":
+            return L10n.format("settings.extensions.update_version", language: language, info?.fromVersion ?? "?", info?.toVersion ?? "?")
+        case "unchanged":
+            return L10n.format("settings.extensions.update_unchanged", language: language, info?.toVersion ?? "?")
+        default:
+            return L10n.string("settings.extensions.update_unknown", language: language)
+        }
+    }
+}
+
 @MainActor
 final class InstalledExtensionsStore: ObservableObject {
     @Published private(set) var packages: [AgentHostInstalledExtensionPackage] = []
@@ -9,6 +22,7 @@ final class InstalledExtensionsStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var installationErrors: [String: String] = [:]
     @Published private(set) var updateMessages: [String: String] = [:]
+    @Published private(set) var changelogs: [String: String] = [:]
     @Published private(set) var settings: [AgentHostExtensionSettings] = []
     @Published private(set) var isLoadingSettings = false
     @Published private(set) var activeSettingsIDs: Set<String> = []
@@ -39,6 +53,7 @@ final class InstalledExtensionsStore: ObservableObject {
     func update(_ package: AgentHostInstalledExtensionPackage) async {
         guard !isWorking(on: package) else { return }
         updateMessages.removeValue(forKey: package.id)
+        changelogs.removeValue(forKey: package.id)
         let succeeded = await perform(on: package) {
             try await service.updateInstalledExtension(
                 source: package.source,
@@ -47,7 +62,9 @@ final class InstalledExtensionsStore: ObservableObject {
             )
         }
         if succeeded {
-            updateMessages[package.id] = L10n.string("settings.extensions.update_finished")
+            let info = packages.first(where: { $0.id == package.id })?.updateInfo
+            updateMessages[package.id] = ExtensionUpdatePresentation.message(info)
+            changelogs[package.id] = info?.changelog
             if hasLoadedSettings { await loadSettings(force: true) }
         }
     }

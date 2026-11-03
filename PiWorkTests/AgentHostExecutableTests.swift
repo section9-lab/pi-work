@@ -89,6 +89,15 @@ final class AgentHostExecutableTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
+    func testSharedBunLaunchDisablesProjectConfigurationAutoloading() {
+        let hostURL = URL(fileURLWithPath: "/Applications/PiWork.app/Contents/Resources/AgentHost/arm64/pi-work-agent-host")
+
+        XCTAssertEqual(
+            AgentHostExecutable.bunArguments(hostURL: hostURL),
+            ["--no-env-file", "--config=/dev/null", hostURL.path]
+        )
+    }
+
     func testBundledHostSharesTheTerminalPiDirectoryWithExtensionsAndCredentials() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -105,9 +114,11 @@ final class AgentHostExecutableTests: XCTestCase {
         XCTAssertTrue(source.contains("\"PI_WORK_AGENT_DIR\": agentDirectory.path"))
         XCTAssertTrue(source.contains("\"PI_CODING_AGENT_DIR\": agentDirectory.path"))
         XCTAssertTrue(source.contains("\"PI_WORK_AUTH_PATH\": authenticationFile.path"))
+        XCTAssertTrue(source.contains("executableURL: bunExecutableURL"))
+        XCTAssertTrue(source.contains("arguments: AgentHostExecutable.bunArguments(hostURL: hostURL)"))
     }
 
-    func testBuildStagesTheSelfContainedAgentHostAndBunPackageManager() throws {
+    func testBuildStagesAnAgentHostBundleAndSharedBunRuntime() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -117,7 +128,10 @@ final class AgentHostExecutableTests: XCTestCase {
         )
 
         XCTAssertTrue(configuration.contains("Stage bundled agent host"))
-        XCTAssertTrue(configuration.contains("Stage bundled Bun package manager"))
+        XCTAssertTrue(configuration.contains("Stage bundled Bun runtime"))
+        XCTAssertTrue(configuration.contains("scripts/build-host.ts"))
+        XCTAssertTrue(configuration.contains("HOST_BUN=\"$SRCROOT/build/Bun/$HOST_BUN_FOLDER/bun\""))
+        XCTAssertFalse(configuration.contains("build --compile"))
         XCTAssertTrue(configuration.contains("scripts/fetch-bun-binary.sh"))
         XCTAssertFalse(configuration.contains("Stage bundled pi agent binary"))
     }
@@ -176,7 +190,7 @@ final class AgentHostExecutableTests: XCTestCase {
         XCTAssertNil(AgentHostExecutable.piCodingAgentVersion(in: appURL))
     }
 
-    func testResolveFindsOnlyAnExecutableInBundledAgentResources() throws {
+    func testResolveFindsARegularHostBundleWithoutAnExecutableBit() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let appURL = root.appendingPathComponent("PiWork.app", isDirectory: true)
@@ -191,10 +205,8 @@ final class AgentHostExecutableTests: XCTestCase {
         try Data().write(to: helperURL)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        XCTAssertNil(AgentHostExecutable.resolve(in: appURL, architecture: "arm64"))
-
         try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
+            [.posixPermissions: 0o644],
             ofItemAtPath: helperURL.path
         )
 
@@ -202,6 +214,10 @@ final class AgentHostExecutableTests: XCTestCase {
             AgentHostExecutable.resolve(in: appURL, architecture: "arm64"),
             helperURL
         )
+
+        try FileManager.default.removeItem(at: helperURL)
+        try FileManager.default.createDirectory(at: helperURL, withIntermediateDirectories: false)
+        XCTAssertNil(AgentHostExecutable.resolve(in: appURL, architecture: "arm64"))
     }
 
     func testResolveBunFindsOnlyAnExecutableInContentsHelpers() throws {
@@ -240,7 +256,7 @@ final class AgentHostExecutableTests: XCTestCase {
         let movedAppURL = root.appendingPathComponent("移动后的 App.app", isDirectory: true)
         let hostPath = "Contents/Resources/AgentHost/arm64/pi-work-agent-host"
         let bunPath = "Contents/Helpers/Bun/arm64/bun"
-        for path in [hostPath, bunPath] {
+        for (path, permissions) in [(hostPath, 0o644), (bunPath, 0o755)] {
             let helperURL = appURL.appendingPathComponent(path)
             try FileManager.default.createDirectory(
                 at: helperURL.deletingLastPathComponent(),
@@ -248,7 +264,7 @@ final class AgentHostExecutableTests: XCTestCase {
             )
             try Data().write(to: helperURL)
             try FileManager.default.setAttributes(
-                [.posixPermissions: 0o755],
+                [.posixPermissions: permissions],
                 ofItemAtPath: helperURL.path
             )
         }

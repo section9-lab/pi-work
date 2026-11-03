@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "Manage installed plugin versions, updates, and settings";
 "settings.extensions.update" = "Update";
 "settings.extensions.update_finished" = "Update operation completed";
+"settings.extensions.update_version" = "Updated %@ → %@";
+"settings.extensions.update_unchanged" = "No version change (%@)";
+"settings.extensions.update_unknown" = "Update completed; version could not be verified";
+"settings.extensions.changelog" = "Changes in this update";
 "settings.extensions.update_help" = "Update from the configured source. Pinned versions stay unchanged.";
 "settings.extensions.loading" = "Loading plugin settings…";
 "settings.extensions.empty" = "No plugins are installed";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "Expand activity";
 "chat.activity.collapse" = "Collapse activity";
 "chat.session_cost" = "Cost";
+"chat.session_cost.billed" = "Provider-reported cost";
+"chat.session_cost.estimated" = "Estimated cost";
+"chat.response_model" = "Response model";
 "chat.agent_mode" = "Mode";
 "chat.enabled" = "On";
 "chat.effort" = "Effort";

@@ -208,6 +208,7 @@ struct SessionStoreReducer {
         if let cost = state.cost {
             record.acpState.cost = cost
         }
+        if let responseModel = state.responseModel { record.acpState.responseModel = responseModel }
         if let availableCommands = state.availableCommands {
             record.acpState.availableCommands = availableCommands
         }
@@ -271,6 +272,8 @@ struct SessionStoreReducer {
             pendingApprovals: snapshot.pendingApprovals,
             errorMessage: nil,
             acpState: AgentHostACPSessionState(
+                cost: snapshot.usage?.cost,
+                responseModel: snapshot.usage?.responseModel,
                 plan: snapshot.plan,
                 extensionStatuses: snapshot.extensionStatuses ?? [:],
                 extensionWidgets: snapshot.extensionWidgets ?? [:]
@@ -805,6 +808,7 @@ struct SessionStoreReducer {
                 )
             }
             record.acpState.cost = payload.cost
+            record.acpState.responseModel = payload.responseModel
         case .sessionAvailableCommandsChanged(let payload):
             record.acpState.availableCommands = payload.availableCommands
         case .sessionPlanChanged(let payload):
@@ -1287,6 +1291,7 @@ struct SessionStoreReducer {
                             name: name,
                             summary: argumentsSummary,
                             output: result.map(toolOutput) ?? "",
+                            rawOutput: result?.rawOutput,
                             outputTruncated: result?.toolOutputTruncated == true,
                             outputByteCount: result?.toolOutputBytes,
                             state: result == nil

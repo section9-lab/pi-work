@@ -240,8 +240,12 @@ async function runProcess(command: string, args: string[], options: ProcessOptio
     };
     const abort = () => stop(new Error("RTK operation cancelled"));
     const timer = setTimeout(() => stop(new Error("RTK operation timed out")), options.timeout ?? 30_000);
-    child.stdout.on("data", (data: Buffer) => { stdout += data.toString(); if (stdout.length > 8_388_608) stop(new Error("RTK output exceeded the size limit")); });
-    child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); if (stderr.length > 1_048_576) stop(new Error("RTK error output exceeded the size limit")); });
+    // Readable's streaming decoder retains incomplete multibyte sequences
+    // between chunks, including a final sequence delivered just before close.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (data: string) => { stdout += data; if (stdout.length > 8_388_608) stop(new Error("RTK output exceeded the size limit")); });
+    child.stderr.on("data", (data: string) => { stderr += data; if (stderr.length > 1_048_576) stop(new Error("RTK error output exceeded the size limit")); });
     const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); };
     child.on("error", (error) => { cleanup(); reject(error); });
     child.on("close", (code) => { cleanup(); if (failure) reject(failure); else resolve({ code: code ?? 1, stdout, stderr }); });

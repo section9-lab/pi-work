@@ -69,6 +69,7 @@ struct AgentRuntimeChecks {
         for patch: [String: Any] in [
             ["url": "https://evil.example/runtime.tar.gz"], ["sha256": "bad"],
             ["version": "../outside"], ["byteCount": 0], ["schemaVersion": 2],
+            ["hostFormat": "unknown"],
             ["files": ["../outside": String(repeating: "a", count: 64)]]
         ] {
             try rejects("invalid manifest accepted") { try changed(manifest, patch).validate() }
@@ -121,19 +122,19 @@ struct AgentRuntimeChecks {
         try rejects("unexpected payload file accepted") { try AgentRuntimeArchive.verify(installed) }
         try FileManager.default.removeItem(at: extra)
 
-        let executableBytes = try Data(contentsOf: installed.executableURL)
+        let executableBytes = try Data(contentsOf: installed.bunURL)
         var brokenExecutable = executableBytes
         // Change a signed text page, leaving the Mach-O architecture header intact.
         brokenExecutable[4096] ^= 0xff
-        try brokenExecutable.write(to: installed.executableURL)
+        try brokenExecutable.write(to: installed.bunURL)
         var changedFiles = manifest.files
-        changedFiles[AgentHostExecutable.filename] = try AgentRuntimeArchive.digest(of: installed.executableURL)
+        changedFiles[AgentHostExecutable.bunFilename] = try AgentRuntimeArchive.digest(of: installed.bunURL)
         let badSignature = AgentRuntimeInstallation(directory: payload,
             manifest: try changed(manifest, ["files": changedFiles]))
-        try rejects("invalid code signature accepted despite matching file hashes") {
+        try rejects("invalid Bun code signature accepted despite matching file hashes") {
             try AgentRuntimeArchive.verify(badSignature)
         }
-        try executableBytes.write(to: installed.executableURL)
+        try executableBytes.write(to: installed.bunURL)
         try FileManager.default.createSymbolicLink(at: extra, withDestinationURL: resource)
         try rejects("symlink in installed runtime accepted") { try AgentRuntimeArchive.verify(installed) }
         try FileManager.default.removeItem(at: extra)
@@ -326,7 +327,10 @@ struct AgentRuntimeChecks {
             let realLaunch = AgentRuntimeStore(root: realStoreRoot, appVersion: actualAppVersion)
             let agentDirectory = root.appendingPathComponent("actual-agent")
             try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
-            let realService = AgentHostService(executableURL: candidate.executableURL, environment: [
+            let realService = AgentHostService(
+                executableURL: candidate.launchExecutableURL,
+                arguments: candidate.launchArguments,
+                environment: [
                 "PI_WORK_AGENT_DIR": agentDirectory.path,
                 "PI_CODING_AGENT_DIR": agentDirectory.path,
                 "PI_WORK_AUTH_PATH": agentDirectory.appendingPathComponent("auth.json").path,

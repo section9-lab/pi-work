@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "インストール済みプラグインのバージョン、更新、設定を管理します";
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新操作が完了しました";
+"settings.extensions.update_version" = "更新済み %@ → %@";
+"settings.extensions.update_unchanged" = "バージョン変更なし（%@）";
+"settings.extensions.update_unknown" = "更新完了。バージョンを確認できませんでした";
+"settings.extensions.changelog" = "今回の変更内容";
 "settings.extensions.update_help" = "設定済みの取得元から更新します。固定されたバージョンは変更されません。";
 "settings.extensions.loading" = "プラグイン設定を読み込み中…";
 "settings.extensions.empty" = "プラグインはインストールされていません";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "状態の詳細を展開";
 "chat.activity.collapse" = "状態の詳細を折りたたむ";
 "chat.session_cost" = "費用";
+"chat.session_cost.billed" = "プロバイダー報告額";
+"chat.session_cost.estimated" = "推定費用";
+"chat.response_model" = "応答モデル";
 "chat.agent_mode" = "モード";
 "chat.enabled" = "オン";
 "chat.effort" = "思考レベル";

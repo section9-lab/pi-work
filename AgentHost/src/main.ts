@@ -48,7 +48,7 @@ import {
   type ACPResponse,
 } from "./acp-protocol.ts";
 import { ACPElicitationBroker } from "./acp-extension-ui.ts";
-import { createPiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
+import { createPiSessionHandle, type PiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
 import { RTKCoordinator } from "./rtk.ts";
 import { listAvailableModels } from "./model-catalog.ts";
 import { modelRuntimeOptions } from "./model-runtime-options.ts";
@@ -98,6 +98,19 @@ function writeHostRecord(record: unknown): void {
       }, value)));
       return;
     }
+  }
+  if (legacyRecord.event === "session.usageChanged") {
+    const value = payload as Record<string, unknown>;
+    const cost = value.cost as Record<string, unknown>;
+    writeRawStdout(encodeACPMessage(createACPSessionUpdate(String(value.sessionId), {
+      sessionUpdate: "usage_update", used: value.used, size: value.size,
+      cost: { amount: cost.amount, currency: cost.currency },
+      _meta: { ...createACPEventMetadata(value), piWork: {
+        costSource: cost.source,
+        ...(typeof value.responseModel === "string" ? { responseModel: value.responseModel } : {}),
+      } },
+    })));
+    return;
   }
   if (legacyRecord.event === "session.toolStarted") {
     const value = payload as Record<string, unknown>;
@@ -648,7 +661,6 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       throw new Error("session.createDraft requires a string cwd and optional string sessionDirectory");
     }
 
-    await getExtensionPackagesCoordinator().list();
     const draft = sessionCatalog.createDraft(cwd, sessionDirectory);
     const handle = await createPiSessionHandle({
       sessionManager: draft.manager,
@@ -665,6 +677,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
         : {}),
     });
     sessionRegistry.register(handle);
+    startRequiredExtensionSetup(handle);
     const state = await acpSessionState(handle.sessionId);
     return {
       version: PROTOCOL_VERSION,
@@ -697,7 +710,6 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       path = summary.path;
     }
 
-    await getExtensionPackagesCoordinator().list();
     const manager = sessionCatalog.open(path as string, sessionDirectory as string | undefined);
     const mcpChanged = mcpCoordinator.setSessionServers(manager.getSessionId(), parseACPMcpServers(request.params?.mcpServers));
     const existing = sessionRegistry.descriptor(manager.getSessionId());
@@ -732,6 +744,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
         : {}),
     });
     sessionRegistry.register(handle);
+    startRequiredExtensionSetup(handle);
     const state = await acpSessionState(handle.sessionId);
     return {
       version: PROTOCOL_VERSION,
@@ -800,7 +813,6 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     }
 
     const resolvedPath = await sessionCatalog.resolvePath(sessionId, path, sessionDirectory);
-    await getExtensionPackagesCoordinator().list();
     const manager = sessionCatalog.open(resolvedPath, sessionDirectory);
     if (manager.getSessionId() !== sessionId) {
       throw new Error(`Session ID does not match file: ${sessionId}`);
@@ -1064,6 +1076,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       throw new Error("session.abort requires a string sessionId");
     }
 
+    elicitationBroker.cancelSession(sessionId);
     await sessionRegistry.abort(sessionId);
     return {
       version: PROTOCOL_VERSION,
@@ -1080,6 +1093,7 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       throw new Error("session.close requires a string sessionId");
     }
 
+    elicitationBroker.cancelSession(sessionId);
     await sessionRegistry.closeSession(sessionId);
     return {
       version: PROTOCOL_VERSION,
@@ -1116,7 +1130,10 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     if (openSession && openSession.cwd !== cwd) {
       throw new Error(`Session does not belong to cwd: ${cwd}`);
     }
-    if (openSession) await sessionRegistry.closeSession(sessionId);
+    if (openSession) {
+      elicitationBroker.cancelSession(sessionId);
+      await sessionRegistry.closeSession(sessionId);
+    }
     await sessionCatalog.delete(sessionId, cwd, sessionDirectory, openSession);
     return {
       version: PROTOCOL_VERSION,
@@ -1157,6 +1174,22 @@ function getAgentSettingsCoordinator(): AgentSettingsCoordinator {
     Bun.env,
   );
   return agentSettingsCoordinator;
+}
+
+let requiredExtensionSetup: Promise<void> | undefined;
+
+function startRequiredExtensionSetup(handle: PiSessionHandle): void {
+  if (Bun.env.PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL === "1") return;
+  // A desktop session must remain usable without npm or a working registry.
+  // Install in the background once, and reload only through the registry's
+  // idle/deferred boundary. A later session or explicit install can retry.
+  const setup = requiredExtensionSetup ??= getExtensionPackagesCoordinator().prepareRequired()
+    .then(async (changed) => { if (changed) await sessionRegistry.reloadExtensions(); });
+  void setup.catch(() => {
+    if (requiredExtensionSetup === setup) requiredExtensionSetup = undefined;
+    handle.setExtensionStatus("pi-work.extension-setup",
+      "Web extension setup failed. Open Extensions and install pi-web-access to retry. Local tools remain available.");
+  });
 }
 
 function getExtensionPackagesCoordinator(): ExtensionPackagesCoordinator {
@@ -1574,6 +1607,7 @@ for await (const chunk of Bun.stdin.stream()) {
   }
 }
 
+elicitationBroker.close();
 sessionRegistry.closeAll();
 await computerUseCoordinator.dispose();
 await mcpCoordinator.close();

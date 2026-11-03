@@ -32,6 +32,7 @@ class AgentRuntimePackageTests(unittest.TestCase):
             path.write_bytes(relative.encode())
         self.metadata = {
             "piWorkRuntime": {"version": "1.0.0", "apiVersion": 1,
+                              "hostFormat": "bun-bundle",
                               "minimumAppVersion": "0.1.10", "minimumMacOSVersion": "13.0"},
             "dependencies": {"@earendil-works/pi-coding-agent": "0.84.1"},
         }
@@ -74,13 +75,16 @@ class AgentRuntimePackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.package()
 
-    def test_photon_wasm_is_hashed_and_not_executable(self):
+    def test_bundle_and_resources_are_not_executable_but_bun_is(self):
         manifest = self.package()
+        self.assertEqual(manifest["hostFormat"], "bun-bundle")
         wasm = self.payload / "photon_rs_bg.wasm"
         self.assertEqual(manifest["files"][wasm.name], hashlib.sha256(wasm.read_bytes()).hexdigest())
         archive = self.root / "dist" / manifest["url"].split("/")[-1]
         with tarfile.open(archive) as tar:
+            self.assertEqual(tar.getmember("pi-work-agent-host").mode, 0o644)
             self.assertEqual(tar.getmember(wasm.name).mode, 0o644)
+            self.assertEqual(tar.getmember("bun").mode, 0o755)
 
     def test_unexpected_payload_files_are_rejected(self):
         (self.payload / "extra-executable").write_bytes(b"unexpected")

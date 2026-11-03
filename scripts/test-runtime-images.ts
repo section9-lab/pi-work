@@ -1,14 +1,16 @@
-// Exercise the compiled release host, not SDK mocks. Only built-in modules are
-// used so CI can remove node_modules from its original build path before running.
+// Exercise the packaged Bun runtime and Agent Host bundle, not SDK mocks. Only
+// built-in modules are used so CI can remove node_modules before running.
 import { strict as assert } from "node:assert";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 
-const executable = resolve(process.argv[2] ?? "");
-assert(process.argv[2], "Usage: bun scripts/test-runtime-images.ts /path/to/pi-work-agent-host");
-const wasm = readFileSync(join(dirname(executable), "photon_rs_bg.wasm"));
+const bunExecutable = resolve(process.argv[2] ?? "");
+const hostBundle = resolve(process.argv[3] ?? "");
+assert(process.argv[2] && process.argv[3],
+  "Usage: bun scripts/test-runtime-images.ts /path/to/bun /path/to/pi-work-agent-host");
+const wasm = readFileSync(join(dirname(hostBundle), "photon_rs_bg.wasm"));
 assert.equal(wasm.subarray(0, 4).toString("hex"), "0061736d", "release must contain Photon WASM beside the host");
 
 function crc32(bytes: Buffer): number {
@@ -109,9 +111,11 @@ writeFileSync(join(root, "settings.json"), JSON.stringify({
 }));
 // No real credentials, user packages, or project configuration enter this test.
 const child = Bun.spawn({
-  cmd: [executable], cwd: root, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  cmd: [bunExecutable, "--no-env-file", "--config=/dev/null", hostBundle],
+  cwd: root, stdin: "pipe", stdout: "pipe", stderr: "pipe",
   env: { HOME: root, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", TMPDIR: tmpdir(),
     PI_WORK_AGENT_DIR: root, PI_CODING_AGENT_DIR: root, PI_WORK_AUTH_PATH: join(root, "auth.json"),
+    PI_WORK_BUN_PATH: bunExecutable, PI_WORK_AGENT_HOST_RESOURCE_DIR: dirname(hostBundle),
     PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL: "1" },
 });
 const errors = new Response(child.stderr).text();

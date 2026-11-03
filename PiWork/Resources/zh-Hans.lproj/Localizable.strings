@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "管理已安装插件的版本、更新与配置";
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新操作已完成";
+"settings.extensions.update_version" = "已更新 %@ → %@";
+"settings.extensions.update_unchanged" = "版本未变化（%@）";
+"settings.extensions.update_unknown" = "更新操作已完成，暂时无法验证版本";
+"settings.extensions.changelog" = "本次更新内容";
 "settings.extensions.update_help" = "从已配置的来源更新插件；固定版本保持不变。";
 "settings.extensions.loading" = "正在载入插件设置…";
 "settings.extensions.empty" = "尚未安装插件";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "展开状态详情";
 "chat.activity.collapse" = "收起状态详情";
 "chat.session_cost" = "费用";
+"chat.session_cost.billed" = "服务商报告费用";
+"chat.session_cost.estimated" = "估算费用";
+"chat.response_model" = "实际响应模型";
 "chat.agent_mode" = "模式";
 "chat.enabled" = "已开启";
 "chat.effort" = "思考强度";

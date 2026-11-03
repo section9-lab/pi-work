@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "설치된 플러그인의 버전, 업데이트 및 설정을 관리합니다";
 "settings.extensions.update" = "업데이트";
 "settings.extensions.update_finished" = "업데이트 작업 완료";
+"settings.extensions.update_version" = "업데이트됨 %@ → %@";
+"settings.extensions.update_unchanged" = "버전 변경 없음 (%@)";
+"settings.extensions.update_unknown" = "업데이트 완료, 버전을 확인할 수 없음";
+"settings.extensions.changelog" = "이번 업데이트 내용";
 "settings.extensions.update_help" = "설정된 소스에서 업데이트합니다. 고정된 버전은 변경되지 않습니다.";
 "settings.extensions.loading" = "플러그인 설정 불러오는 중…";
 "settings.extensions.empty" = "설치된 플러그인이 없습니다";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "상태 세부 정보 펼치기";
 "chat.activity.collapse" = "상태 세부 정보 접기";
 "chat.session_cost" = "비용";
+"chat.session_cost.billed" = "공급자 보고 비용";
+"chat.session_cost.estimated" = "예상 비용";
+"chat.response_model" = "응답 모델";
 "chat.agent_mode" = "모드";
 "chat.enabled" = "켬";
 "chat.effort" = "사고 수준";

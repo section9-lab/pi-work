@@ -32,6 +32,10 @@
 "settings.extensions.subtitle" = "管理已安裝外掛程式的版本、更新與設定";
 "settings.extensions.update" = "更新";
 "settings.extensions.update_finished" = "更新作業已完成";
+"settings.extensions.update_version" = "已更新 %@ → %@";
+"settings.extensions.update_unchanged" = "版本未變更（%@）";
+"settings.extensions.update_unknown" = "更新作業已完成，暫時無法驗證版本";
+"settings.extensions.changelog" = "本次更新內容";
 "settings.extensions.update_help" = "從已設定的來源更新外掛程式；固定版本保持不變。";
 "settings.extensions.loading" = "正在載入外掛程式設定…";
 "settings.extensions.empty" = "尚未安裝外掛程式";
@@ -312,6 +316,9 @@
 "chat.activity.expand" = "展開狀態詳情";
 "chat.activity.collapse" = "收起狀態詳情";
 "chat.session_cost" = "費用";
+"chat.session_cost.billed" = "服務商回報費用";
+"chat.session_cost.estimated" = "估算費用";
+"chat.response_model" = "實際回應模型";
 "chat.agent_mode" = "模式";
 "chat.enabled" = "已開啟";
 "chat.effort" = "思考強度";

@@ -308,6 +308,18 @@ struct AgentHostACPSessionModeState: Decodable, Equatable {
 struct AgentHostACPSessionCost: Decodable, Equatable {
     let amount: Double
     let currency: String
+    let source: String?
+
+    init(amount: Double, currency: String, source: String? = nil) {
+        self.amount = amount; self.currency = currency; self.source = source
+    }
+}
+
+struct AgentHostSessionUsageSnapshot: Decodable, Equatable {
+    let used: Int
+    let size: Int
+    let cost: AgentHostACPSessionCost
+    let responseModel: String?
 }
 
 struct AgentHostACPAvailableCommand: Decodable, Equatable {
@@ -358,6 +370,7 @@ struct AgentHostSessionUsageChangedPayload: Equatable {
     let used: Int
     let size: Int
     let cost: AgentHostACPSessionCost?
+    var responseModel: String? = nil
 }
 
 struct AgentHostSessionAvailableCommandsChangedPayload: Equatable {
@@ -1306,7 +1319,9 @@ enum AgentHostAuthNotice: Decodable, Equatable {
         userCode: String,
         verificationURI: String,
         intervalSeconds: Int?,
-        expiresInSeconds: Int?
+        expiresInSeconds: Int?,
+        openBrowserOnConfirm: Bool = true,
+        copyCodeOnConfirm: Bool = true
     )
     case progress(message: String)
 
@@ -1320,6 +1335,8 @@ enum AgentHostAuthNotice: Decodable, Equatable {
         case verificationURI = "verificationUri"
         case intervalSeconds
         case expiresInSeconds
+        case openBrowserOnConfirm
+        case copyCodeOnConfirm
     }
 
     private enum NoticeType: String, Decodable {
@@ -1350,7 +1367,9 @@ enum AgentHostAuthNotice: Decodable, Equatable {
                 userCode: try container.decode(String.self, forKey: .userCode),
                 verificationURI: try container.decode(String.self, forKey: .verificationURI),
                 intervalSeconds: try container.decodeIfPresent(Int.self, forKey: .intervalSeconds),
-                expiresInSeconds: try container.decodeIfPresent(Int.self, forKey: .expiresInSeconds)
+                expiresInSeconds: try container.decodeIfPresent(Int.self, forKey: .expiresInSeconds),
+                openBrowserOnConfirm: try container.decodeIfPresent(Bool.self, forKey: .openBrowserOnConfirm) ?? true,
+                copyCodeOnConfirm: try container.decodeIfPresent(Bool.self, forKey: .copyCodeOnConfirm) ?? true
             )
         case .progress:
             self = .progress(message: try container.decode(String.self, forKey: .message))
@@ -1707,7 +1726,10 @@ enum AgentHostServerEvent: Equatable {
             }
             let cost: AgentHostACPSessionCost?
             if let value = update["cost"], !(value is NSNull) {
-                cost = try decodeACPValue(value, as: AgentHostACPSessionCost.self)
+                let decoded = try decodeACPValue(value, as: AgentHostACPSessionCost.self)
+                let piWork = metadata?["piWork"] as? [String: Any]
+                cost = AgentHostACPSessionCost(amount: decoded.amount, currency: decoded.currency,
+                    source: piWork?["costSource"] as? String)
             } else {
                 cost = nil
             }
@@ -1717,7 +1739,8 @@ enum AgentHostServerEvent: Equatable {
                     sequence: sequence,
                     used: used,
                     size: size,
-                    cost: cost
+                    cost: cost,
+                    responseModel: (metadata?["piWork"] as? [String: Any])?["responseModel"] as? String
                 )
             )
         case "available_commands_update":
@@ -2149,12 +2172,20 @@ enum AgentHostExtensionPackageScope: String, Codable, Equatable {
 }
 
 struct AgentHostInstalledExtensionPackage: Decodable, Equatable, Identifiable {
+    struct UpdateInfo: Decodable, Equatable {
+        let status: String
+        let fromVersion: String?
+        let toVersion: String?
+        let changelog: String?
+    }
+
     let source: String
     let scope: AgentHostExtensionPackageScope
     let filtered: Bool
     let installedPath: String?
     let enabled: Bool
     let version: String?
+    let updateInfo: UpdateInfo?
 
     init(
         source: String,
@@ -2162,8 +2193,10 @@ struct AgentHostInstalledExtensionPackage: Decodable, Equatable, Identifiable {
         filtered: Bool,
         installedPath: String?,
         enabled: Bool,
-        version: String? = nil
+        version: String? = nil,
+        updateInfo: UpdateInfo? = nil
     ) {
+        self.updateInfo = updateInfo
         self.source = source
         self.scope = scope
         self.filtered = filtered
@@ -2767,6 +2800,7 @@ struct AgentHostACPSessionState: Equatable {
     var modes: AgentHostACPSessionModeState?
     var configOptions: [AgentHostACPSetConfigOptionResult.ConfigOption]
     var cost: AgentHostACPSessionCost?
+    var responseModel: String?
     var availableCommands: [AgentHostACPAvailableCommand]?
     var plan: [AgentHostACPPlanEntry]?
     var extensionStatuses: [String: String]
@@ -2778,6 +2812,7 @@ struct AgentHostACPSessionState: Equatable {
         modes: AgentHostACPSessionModeState? = nil,
         configOptions: [AgentHostACPSetConfigOptionResult.ConfigOption] = [],
         cost: AgentHostACPSessionCost? = nil,
+        responseModel: String? = nil,
         availableCommands: [AgentHostACPAvailableCommand]? = nil,
         plan: [AgentHostACPPlanEntry]? = nil,
         extensionStatuses: [String: String] = [:],
@@ -2788,6 +2823,7 @@ struct AgentHostACPSessionState: Equatable {
         self.modes = modes
         self.configOptions = configOptions
         self.cost = cost
+        self.responseModel = responseModel
         self.availableCommands = availableCommands
         self.plan = plan
         self.extensionStatuses = extensionStatuses
@@ -3109,6 +3145,8 @@ struct AgentHostSessionMessage: Decodable, Equatable, Identifiable {
     let isError: Bool?
     var toolOutputTruncated: Bool? = nil
     var toolOutputBytes: Int? = nil
+    var responseModel: String? = nil
+    var rawOutput: AgentHostJSONValue? = nil
 }
 
 struct AgentHostSessionHistory: Decodable, Equatable {
@@ -3144,6 +3182,7 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
     let extensionWidgets: [String: AgentHostExtensionWidget]?
     let plan: [AgentHostACPPlanEntry]?
     let queuedInputs: [AgentHostQueuedInput]?
+    var usage: AgentHostSessionUsageSnapshot? = nil
 
     init(
         session: AgentHostSessionDescriptor,
@@ -3163,8 +3202,10 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
         extensionStatuses: [String: String]? = nil,
         extensionWidgets: [String: AgentHostExtensionWidget]? = nil,
         plan: [AgentHostACPPlanEntry]? = nil,
-        queuedInputs: [AgentHostQueuedInput]? = nil
+        queuedInputs: [AgentHostQueuedInput]? = nil,
+        usage: AgentHostSessionUsageSnapshot? = nil
     ) {
+        self.usage = usage
         self.queuedInputs = queuedInputs
         self.session = session
         self.messages = messages

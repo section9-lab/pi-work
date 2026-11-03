@@ -88,7 +88,9 @@ const headlessTheme = {
 } as unknown as ExtensionUIContext["theme"];
 
 export class ACPElicitationBroker {
+  private closed = false;
   private readonly pending = new Map<string, {
+    sessionId: string;
     resolve: (response: ACPElicitationResponse) => void;
     reject: (error: Error) => void;
   }>();
@@ -96,12 +98,28 @@ export class ACPElicitationBroker {
   constructor(private readonly send: (request: ACPRequest) => void) {}
 
   request = (params: ACPElicitationRequest): Promise<ACPElicitationResponse> => {
+    if (this.closed) return Promise.resolve({ action: "cancel" });
     const id = `elicitation-${crypto.randomUUID()}`;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.send({ jsonrpc: "2.0", id, method: "elicitation/create", params });
+      this.pending.set(id, { sessionId: params.sessionId, resolve, reject });
+      try { this.send({ jsonrpc: "2.0", id, method: "elicitation/create", params }); }
+      catch (error) { this.pending.delete(id); reject(error); }
     });
   };
+
+  cancelSession(sessionId: string): void {
+    for (const [id, pending] of this.pending) {
+      if (pending.sessionId !== sessionId) continue;
+      this.pending.delete(id);
+      pending.resolve({ action: "cancel" });
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const pending of this.pending.values()) pending.resolve({ action: "cancel" });
+    this.pending.clear();
+  }
 
   resolve(response: ACPResponse): boolean {
     const id = response.id === null ? "" : String(response.id);

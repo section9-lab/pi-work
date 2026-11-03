@@ -19,13 +19,15 @@ enum AgentRuntimeHealth {
         defer { try? FileManager.default.removeItem(at: scratch) }
         try await checkPackageManager(installation.bunURL, workingDirectory: scratch)
         let client = AgentHostClient(
-            executableURL: installation.executableURL,
+            executableURL: installation.launchExecutableURL,
+            arguments: installation.launchArguments,
             environment: [
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "PI_WORK_AGENT_DIR": scratch.path,
                 "PI_CODING_AGENT_DIR": scratch.path,
                 "PI_WORK_AUTH_PATH": scratch.appendingPathComponent("auth.json").path,
                 "PI_WORK_BUN_PATH": installation.bunURL.path,
+                "PI_WORK_AGENT_HOST_RESOURCE_DIR": installation.hostURL.deletingLastPathComponent().path,
                 "PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL": "1"
             ], handshakeTimeout: 15, workingDirectory: scratch, inheritEnvironment: false
         )
@@ -63,7 +65,8 @@ enum AgentRuntimeHealth {
         defer {
             if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
         }
-        for _ in 0..<50 where process.isRunning {
+        // First launch can include signature validation or Rosetta translation.
+        for _ in 0..<150 where process.isRunning {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         guard !process.isRunning, process.terminationStatus == 0 else { throw AgentRuntimeError.healthCheck }

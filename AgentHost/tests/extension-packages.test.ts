@@ -17,11 +17,46 @@ function resolvedPaths(
 }
 
 describe("ExtensionPackagesCoordinator", () => {
+  test("listing packages never requires an installation or changes shared configuration", async () => {
+    const manager: ExtensionPackageManager = {
+      listConfiguredPackages: () => [], resolve: async () => resolvedPaths([]),
+      installAndPersist: async () => { throw new Error("Installation is unavailable offline"); },
+      update: async () => {}, removeAndPersist: async () => true,
+    };
+    expect(await new ExtensionPackagesCoordinator(manager).list()).toEqual({ packages: [] });
+  });
+  test("concurrent required setup shares installation and can retry after a failure", async () => {
+    const configured = new Set<string>();
+    const installed: string[] = [];
+    let offline = true;
+    const manager: ExtensionPackageManager = {
+      listConfiguredPackages: () => [...configured].map((source) => ({ source, scope: "user", filtered: false })),
+      resolve: async () => resolvedPaths([]),
+      installAndPersist: async (source) => {
+        installed.push(source);
+        await Bun.sleep(10);
+        if (offline) throw new Error("offline");
+        configured.add(source);
+      }, update: async () => {}, removeAndPersist: async () => true,
+    };
+    const coordinator = new ExtensionPackagesCoordinator(manager);
+    const failed = await Promise.allSettled([coordinator.prepareRequired(), coordinator.prepareRequired()]);
+    expect(failed.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(installed).toEqual([requiredPiWebAccessRuntimeSource]);
+    expect(await coordinator.list()).toEqual({ packages: [] });
+    offline = false;
+    await Promise.all([coordinator.prepareRequired(), coordinator.prepareRequired()]);
+    expect([...configured]).toEqual([requiredPiWebAccessRuntimeSource, "npm:pi-web-access"]);
+    expect(installed).toEqual([requiredPiWebAccessRuntimeSource, requiredPiWebAccessRuntimeSource, "npm:pi-web-access"]);
+    expect(await coordinator.prepareRequired()).toBe(false);
+  });
+
   test("reads installed versions and refreshes them after updating", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-work-package-version-"));
     try {
       const manifest = join(directory, "package.json");
       await writeFile(manifest, JSON.stringify({ version: "1.2.3" }));
+      await writeFile(join(directory, "CHANGELOG.md"), "## [1.3.0]\nNew feature\n## [1.2.3]\nOld feature");
       const manager: ExtensionPackageManager = {
         listConfiguredPackages: () => [{
           source: "npm:pi-tools", scope: "user", filtered: false, installedPath: directory,
@@ -36,7 +71,12 @@ describe("ExtensionPackagesCoordinator", () => {
       };
       const coordinator = new ExtensionPackagesCoordinator(manager);
       expect((await coordinator.list()).packages[0]).toMatchObject({ version: "1.2.3" });
-      expect((await coordinator.update("npm:pi-tools")).packages[0]).toMatchObject({ version: "1.3.0" });
+      expect((await coordinator.update("npm:pi-tools")).packages[0]).toMatchObject({ version: "1.3.0", updateInfo: {
+        status: "updated", fromVersion: "1.2.3", toVersion: "1.3.0", changelog: "## [1.3.0]\nNew feature",
+      } });
+      expect((await coordinator.update("npm:pi-tools")).packages[0]).toMatchObject({ updateInfo: {
+        status: "unchanged", fromVersion: "1.3.0", toVersion: "1.3.0",
+      } });
 
       for (const content of ["invalid JSON", "{}", '{"version":123}', '{"version":"  "}']) {
         await writeFile(manifest, content);
@@ -79,6 +119,7 @@ describe("ExtensionPackagesCoordinator", () => {
     };
     const coordinator = new ExtensionPackagesCoordinator(manager);
 
+    await coordinator.prepareRequired();
     expect(await coordinator.list()).toMatchObject({
       packages: [{ source: "npm:pi-web-access", enabled: true }],
     });
@@ -131,7 +172,7 @@ describe("ExtensionPackagesCoordinator", () => {
     };
     const coordinator = new ExtensionPackagesCoordinator(manager, settings);
 
-    await coordinator.list();
+    await coordinator.prepareRequired();
 
     expect(packages).toEqual(["npm:pi-web-access"]);
   });
@@ -300,11 +341,7 @@ describe("ExtensionPackagesCoordinator", () => {
     expect(await coordinator.install("npm:pi-tools")).toMatchObject({
       packages: [{ source: "npm:pi-tools", enabled: true }],
     });
-    expect(calls).toEqual([
-      "install:npm:pi-tools:user",
-      `install:${requiredPiWebAccessRuntimeSource}:user`,
-      "install:npm:pi-web-access:user",
-    ]);
+    expect(calls).toEqual(["install:npm:pi-tools:user"]);
   });
 
   test("flushes an installed extension before reloading the package list", async () => {

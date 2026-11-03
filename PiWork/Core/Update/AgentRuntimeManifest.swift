@@ -11,12 +11,14 @@ struct AgentRuntimeManifest: Codable, Equatable {
     let maximumAppVersion: String?
     let minimumMacOSVersion: String
     let architecture: String
+    let hostFormat: String?
     let url: URL
     let byteCount: Int64
     let sha256: String
     let files: [String: String]
 
     var id: String { "\(version)-\(architecture)" }
+    var usesBunHostBundle: Bool { hostFormat == "bun-bundle" }
     static let photonWasmFilename = "photon_rs_bg.wasm"
     static let maximumArchiveBytes: Int64 = 256 * 1024 * 1024
     static let maximumExpandedBytes = 768 * 1024 * 1024
@@ -29,6 +31,7 @@ struct AgentRuntimeManifest: Codable, Equatable {
               Self.isVersion(minimumAppVersion), Self.isVersion(minimumMacOSVersion),
               maximumAppVersion.map(Self.isVersion) ?? true,
               ["arm64", "x86_64"].contains(architecture),
+              hostFormat.map({ ["compiled", "bun-bundle"].contains($0) }) ?? true,
               byteCount > 0, byteCount <= Self.maximumArchiveBytes,
               Self.isDigest(sha256), !files.isEmpty, files.count <= 4096,
               files[AgentHostExecutable.filename] != nil,

@@ -70,7 +70,13 @@ export function createAgentSettingsManager(
     // Use the bundled runtime only in this process. Persisting its app-specific
     // path into the shared settings would also change the terminal Pi command.
     // Override the accessor so reloads and setting changes retain this choice.
-    const command = [bunPath, "--registry=https://registry.npmjs.org", "--no-cache"];
+    const command = [
+      bunPath,
+      "--no-env-file",
+      "--config=/dev/null",
+      "--registry=https://registry.npmjs.org",
+      "--no-cache",
+    ];
     settings.getNpmCommand = () => [...command];
   }
   return settings;

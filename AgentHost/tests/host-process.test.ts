@@ -44,18 +44,19 @@ class JSONLineReader {
   }
 }
 
-async function startHost(environment: Record<string, string> = {}): Promise<{
+async function startHost(environment: Record<string, string> = {}, clientCapabilities: Record<string, unknown> = {}): Promise<{
   child: HostProcess;
   lines: JSONLineReader;
   root: string;
 }> {
   const root = mkdtempSync(join(tmpdir(), "pi-work-acp-host-test-"));
+  const binary = environment.PI_WORK_HOST_TEST_BINARY ?? Bun.env.PI_WORK_HOST_TEST_BINARY;
   const child = Bun.spawn({
-    cmd: environment.PI_WORK_HOST_TEST_BINARY ? [environment.PI_WORK_HOST_TEST_BINARY] : [process.execPath, "run", join(import.meta.dir, "../src/main.ts")],
+    cmd: binary ? [binary] : [process.execPath, "run", join(import.meta.dir, "../src/main.ts")],
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...Bun.env, PI_WORK_AGENT_DIR: root, PI_CODING_AGENT_DIR: root, PI_WORK_AUTH_PATH: join(root, "auth.json"), ...environment },
+    env: { ...Bun.env, HOME: root, PI_WORK_AGENT_DIR: root, PI_CODING_AGENT_DIR: root, PI_WORK_AUTH_PATH: join(root, "auth.json"), ...environment },
   }) as HostProcess;
   const lines = new JSONLineReader(child.stdout.getReader());
   child.stdin.write(`${JSON.stringify({
@@ -65,7 +66,7 @@ async function startHost(environment: Record<string, string> = {}): Promise<{
     params: {
       protocolVersion: 1,
       clientInfo: { name: "pi-work-tests", version: "1" },
-      clientCapabilities: {},
+      clientCapabilities,
     },
   })}\n`);
   await child.stdin.flush();
@@ -147,6 +148,60 @@ describe("ACP agent host process", () => {
   });
 
 });
+
+test("session/cancel releases an unanswered extension dialog without requiring a client response", async () => {
+  const { child, lines, root } = await startHost({}, { elicitation: { form: {} } });
+  const timeout = setTimeout(() => child.kill(), 8000);
+  try {
+    mkdirSync(join(root, "extensions"));
+    writeFileSync(join(root, "extensions/dialog.ts"), `export default function(pi) {
+      pi.on("before_agent_start", async (_event, ctx) => { await ctx.ui.confirm("Fixture", "Wait for cancellation"); });
+    }`);
+    writeFileSync(join(root, "models.json"), JSON.stringify({ providers: { fixture: {
+      baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", apiKey: "synthetic-key",
+      models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 128 }],
+    } } }));
+    writeFileSync(join(root, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: "dialog-new", method: "session/new", params: { cwd: root, mcpServers: [] } })}\n`);
+    await child.stdin.flush();
+    let record;
+    do { record = await lines.read(); } while (record.id !== "dialog-new");
+    expect(record.error).toBeUndefined();
+    const sessionId = record.result.sessionId;
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: "dialog-run", method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "Fixture" }] } })}\n`);
+    await child.stdin.flush();
+    do { record = await lines.read(); } while (record.method !== "elicitation/create");
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } })}\n`);
+    await child.stdin.flush();
+    do { record = await lines.read(); } while (record.id !== "dialog-run");
+    expect(record.error).toBeUndefined();
+    expect(record.result.stopReason).toBe("cancelled");
+  } finally { clearTimeout(timeout); await stopHost(child, root); }
+}, 10000);
+
+test("missing package setup cannot block offline session creation or package listing", async () => {
+  const { child, lines, root } = await startHost({ PI_WORK_SKIP_REQUIRED_EXTENSION_INSTALL: "0", PI_OFFLINE: "1", PI_WORK_BUN_PATH: "" });
+  async function send(id: string, method: string, params: Record<string, unknown>) {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    await child.stdin.flush();
+    while (true) { const response = await lines.read(); if (response.id === id) return response; }
+  }
+  const timeout = setTimeout(() => child.kill(), 8000);
+  try {
+    writeFileSync(join(root, "models.json"), JSON.stringify({ providers: { fixture: {
+      baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", apiKey: "synthetic-key",
+      models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 128 }],
+    } } }));
+    writeFileSync(join(root, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture",
+      npmCommand: ["/missing/pi-work-npm-fixture"], packages: [] }));
+    const created = await send("offline-new", "session/new", { cwd: root, mcpServers: [] });
+    expect(created.error).toBeUndefined();
+    expect(typeof created.result?.sessionId).toBe("string");
+    const listed = await send("offline-list", "_piWork/extensions/listInstalled", {});
+    expect(listed.error).toBeUndefined();
+    expect(listed.result?.packages).toBeArray();
+  } finally { clearTimeout(timeout); await stopHost(child, root); }
+}, 10000);
 
 test("HTML export resolves ACP opaque IDs for both open and closed sessions", async () => {
   const { child, lines, root } = await startHost();

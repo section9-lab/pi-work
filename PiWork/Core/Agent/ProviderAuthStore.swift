@@ -275,6 +275,8 @@ struct ProviderAuthDeviceCode: Equatable {
     let verificationURI: String
     let intervalSeconds: Int?
     let expiresInSeconds: Int?
+    var openBrowserOnConfirm = true
+    var copyCodeOnConfirm = true
 }
 
 struct ProviderAuthFlowState: Equatable, Identifiable {
@@ -441,13 +443,17 @@ struct ProviderAuthReducer {
                 let userCode,
                 let verificationURI,
                 let intervalSeconds,
-                let expiresInSeconds
+                let expiresInSeconds,
+                let openBrowserOnConfirm,
+                let copyCodeOnConfirm
             ):
                 flow.deviceCode = ProviderAuthDeviceCode(
                     userCode: userCode,
                     verificationURI: verificationURI,
                     intervalSeconds: intervalSeconds,
-                    expiresInSeconds: expiresInSeconds
+                    expiresInSeconds: expiresInSeconds,
+                    openBrowserOnConfirm: openBrowserOnConfirm,
+                    copyCodeOnConfirm: copyCodeOnConfirm
                 )
             case .progress(let message):
                 flow.progressMessage = message
