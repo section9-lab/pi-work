@@ -857,7 +857,7 @@ describe("PiSessionHandle", () => {
         title: "Session integration",
       },
       messages: [{
-        id: `${manager.getSessionId()}:1786233600000:0`,
+        id: manager.getBranch().find((entry) => entry.type === "message")!.id,
         role: "user",
         content: [{ type: "text", text: "Resume this work" }],
         timestamp: "2026-08-09T00:00:00.000Z",

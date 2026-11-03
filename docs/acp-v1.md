@@ -42,6 +42,7 @@ namespaced extension methods:
 - Git branch discovery and selection
 - HTML export
 - PiWork's materialized session snapshot, transcript pagination, and full tool-output retrieval
+- manual context compaction and independent cancellation (`_piWork/session/compact`, `_piWork/session/cancelCompaction`)
 - on-demand slash-command lookup
 - user-initiated session renaming
 
@@ -54,6 +55,44 @@ The bundled host also returns `_meta.piWork.extensions: true` and a granular
 while the client gates each private request on its declared capability. ACP v1 has no standard
 capability namespace for the product-specific methods above, so this metadata prevents PiWork
 from probing arbitrary or partially compatible agents with unsupported private requests.
+
+## Context compaction
+
+The bundled Host advertises `session.compact` and `session.cancelCompaction` independently.
+The native composer only offers the manual popover action and built-in `/compact [instructions]`
+when the first capability is available. Ordinary ACP agents keep their own command handling.
+Manual compaction requires an idle session; it never silently interrupts an active task.
+
+`_piWork/session.compactionChanged` carries the session ID, sequence, structured `compaction`,
+and optional `contextUsage`. Compaction has a stable ID, `running` / `completed` / `cancelled` /
+`failed` status, optional `manual` / `threshold` / `overflow` reason, timestamp, and optional
+summary, `tokensBefore`, `estimatedTokensAfter`, cost, error, and actual retry decision.
+Running snapshots include the in-flight compaction so switching sessions restores its status.
+Completion does not settle the enclosing agent run. Failed compaction is not a generic session
+error, and retry is offered only once the session is idle.
+
+The native UI shows transient status above the composer and durable, initially collapsed
+records in the transcript. Summaries render as selectable Markdown and can be copied. Only the
+reported pre-compaction count and optional, explicitly estimated post-compaction count are
+shown; no percentage progress is invented. Usage notifications also carry optional
+`_meta.piWork.contextUsage`, preserving unknown token counts and category splits while the
+runtime recalculates context. A placeholder wire `used: 0` is never presented as a measured zero
+when the richer metadata says the count is unknown.
+
+Manual-compaction inputs remain in a Host-owned queue until success, then enter the ordinary
+prompt scheduler. Cancellation/failure recovers unsent input instead of silently delivering it;
+SDK-owned queues are cleared and recovered before cancellation of automatic compaction.
+Escape in the composer dismisses suggestions first, otherwise cancels compaction when supported;
+it does not cancel an active IME composition.
+
+Snapshot/history pagination now reads raw entries on the active branch, independently of the
+model-context projection. Entry IDs keep messages and compaction records stable after repeated
+compression. Original tool outputs remain available on demand. Successful SDK compaction entries
+are enriched with a state-only `pi-work.compaction` custom entry to retain reason, estimated
+post-count and cost metadata. Cancelled/failed outcomes use the same state-only storage; none of
+these custom metadata entries are injected into model context. Older SDK compactions still render
+without inventing missing metadata. Reloaded history does not show system-prompt boundary records
+as duplicate summaries.
 
 ## Known interoperability gaps
 

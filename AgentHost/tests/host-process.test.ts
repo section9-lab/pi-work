@@ -149,6 +149,76 @@ describe("ACP agent host process", () => {
 
 });
 
+for (const scenario of ["success", "cancel", "failure"] as const) {
+  test(`manual compaction RPC remains responsive and preserves history: ${scenario}`, async () => {
+    const { child, lines, root } = await startHost();
+    const timeout = setTimeout(() => child.kill(), 9000);
+    const send = async (id: string, method: string, params: Record<string, unknown>) => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+      await child.stdin.flush();
+    };
+    const events: any[] = [];
+    const until = async (predicate: (record: any) => boolean) => {
+      let record; do { record = await lines.read(); events.push(record); } while (!predicate(record));
+      return record;
+    };
+    try {
+      mkdirSync(join(root, "extensions"));
+      writeFileSync(join(root, "extensions/compact.ts"), `export default function(pi) {
+        pi.on("session_before_compact", async (event) => {
+          if (event.customInstructions === "failure") return;
+          await new Promise(resolve => {
+            if (event.signal.aborted) return resolve();
+            event.signal.addEventListener("abort", resolve, { once: true });
+            if (event.customInstructions !== "cancel") setTimeout(resolve, 350);
+          });
+          if (event.signal.aborted) return { cancel: true };
+          return { compaction: { summary: "Fixture summary", firstKeptEntryId: event.preparation.firstKeptEntryId,
+            tokensBefore: event.preparation.tokensBefore } };
+        });
+      }`);
+      writeFileSync(join(root, "models.json"), JSON.stringify({ providers: { fixture: {
+        baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", apiKey: "synthetic-key",
+        models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 1024 }],
+      } } }));
+      writeFileSync(join(root, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture",
+        compaction: { enabled: false, keepRecentTokens: 1 }, retry: { enabled: false } }));
+      const sessionDirectory = join(root, "sessions");
+      const manager = SessionManager.create(root, sessionDirectory);
+      for (let i = 0; i < 3; i++) {
+        manager.appendMessage({ role: "user", content: `Original message ${i} ` + "detail ".repeat(100), timestamp: 1000 + i * 2 });
+        manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Original reply" }],
+          api: "openai-completions", provider: "fixture", model: "fixture", timestamp: 1001 + i * 2, stopReason: "stop",
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+      }
+      const sessionId = manager.getSessionId();
+      await send("open", "session/resume", { sessionId, cwd: root, mcpServers: [], _meta: { piWork: { sessionDirectory, profile: "work" } } });
+      expect((await until(record => record.id === "open")).error).toBeUndefined();
+      await send("compact", "_piWork/session/compact", { sessionId, instructions: scenario });
+      await until(record => record.method === "_piWork/session.compactionChanged" && record.params.compaction.status === "running");
+      await send("snapshot-running", "_piWork/session/snapshot", { sessionId });
+      const running = await until(record => record.id === "snapshot-running");
+      expect(running.result.compaction.status).toBe("running");
+      if (scenario === "cancel") {
+        await send("queue", "_piWork/session/enqueueInput", { sessionId, inputId: "pending", text: "Do not lose this", images: [], runningBehavior: "followUp" });
+        expect((await until(record => record.id === "queue")).result.disposition).toBe("queued");
+        await send("cancel-compact", "_piWork/session/cancelCompaction", { sessionId });
+      }
+      await until(record => record.id === "compact");
+      await send("snapshot-after", "_piWork/session/snapshot", { sessionId });
+      const after = (await until(record => record.id === "snapshot-after")).result;
+      expect(after.messages.filter((message: any) => message.role === "user")).toHaveLength(3);
+      const records = after.messages.filter((message: any) => message.compaction);
+      expect(records).toHaveLength(1);
+      expect(records[0].compaction.status).toBe(scenario === "success" ? "completed" : scenario === "cancel" ? "cancelled" : "failed");
+      if (scenario === "cancel") {
+        expect(events.some(record => record.params?.recoveredInputs?.[0]?.text === "Do not lose this")).toBe(true);
+      }
+    } finally { clearTimeout(timeout); await stopHost(child, root); }
+  }, 12000);
+}
+
 test("session/cancel releases an unanswered extension dialog without requiring a client response", async () => {
   const { child, lines, root } = await startHost({}, { elicitation: { form: {} } });
   const timeout = setTimeout(() => child.kill(), 8000);

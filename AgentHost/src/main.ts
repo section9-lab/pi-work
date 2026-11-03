@@ -107,6 +107,7 @@ function writeHostRecord(record: unknown): void {
       cost: { amount: cost.amount, currency: cost.currency },
       _meta: { ...createACPEventMetadata(value), piWork: {
         costSource: cost.source,
+        ...(value.contextUsage ? { contextUsage: value.contextUsage } : {}),
         ...(typeof value.responseModel === "string" ? { responseModel: value.responseModel } : {}),
       } },
     })));
@@ -915,6 +916,16 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     };
   }
 
+  if (request.method === "session.compact" || request.method === "session.cancelCompaction") {
+    const { sessionId, instructions } = (request.params ?? {}) as { sessionId?: unknown; instructions?: unknown };
+    if (typeof sessionId !== "string" || (instructions !== undefined && typeof instructions !== "string")) {
+      throw new Error("Compaction requires sessionId and optional string instructions");
+    }
+    if (request.method === "session.compact") await sessionRegistry.compact(sessionId, instructions as string | undefined);
+    else sessionRegistry.cancelCompaction(sessionId);
+    return { version: PROTOCOL_VERSION, kind: "response", id: request.id, ok: true, result: { sessionId } };
+  }
+
   if (request.method === "session.commands") {
     const sessionId = request.params?.sessionId;
     if (typeof sessionId !== "string") {
@@ -1497,6 +1508,8 @@ function normalizeACPRequest(request: ACPRequest): HostRequest {
     "_piWork/git/branches": "git.branches",
     "_piWork/session/exportHtml": "session.exportHtml",
     "_piWork/session/snapshot": "session.snapshot",
+    "_piWork/session/compact": "session.compact",
+    "_piWork/session/cancelCompaction": "session.cancelCompaction",
     "_piWork/session/enqueueInput": "session.enqueueInput",
     "_piWork/session/clearInputQueue": "session.clearInputQueue",
     "_piWork/session/transcriptPage": "session.transcriptPage",
@@ -1583,6 +1596,7 @@ async function dispatchLine(line: string): Promise<void> {
   try { method = (JSON.parse(line) as { method?: unknown }).method; } catch { /* handleLine reports malformed JSON */ }
   if (method !== "session/prompt" && method !== "_piWork/computerUse/verify"
     && method !== "_piWork/session/enqueueInput" && method !== "_piWork/session/clearInputQueue"
+    && method !== "_piWork/session/compact" && method !== "_piWork/session/cancelCompaction"
     && method !== "session/cancel") {
     await handleLine(line);
     return;

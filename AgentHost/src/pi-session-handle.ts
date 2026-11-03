@@ -1,6 +1,7 @@
 import {
   createAgentSession,
   estimateTokens,
+  sessionEntryToContextMessages,
   type AgentSession,
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
@@ -26,6 +27,7 @@ import {
 import {
   SessionRegistryError,
   type SessionHandle,
+  type SessionCompaction,
   type QueuedInput,
   type SessionHandleEvent,
   type SessionHandleSnapshot,
@@ -78,7 +80,7 @@ type PiAgentSession = Pick<
   | "exportToHtml"
   | "dispose"
   | "subscribe"
-> & Partial<Pick<AgentSession, "isStreaming" | "waitForIdle" | "clearQueue" | "getSteeringMessages" | "getFollowUpMessages" | "getSessionStats">> & {
+> & Partial<Pick<AgentSession, "isStreaming" | "waitForIdle" | "clearQueue" | "getSteeringMessages" | "getFollowUpMessages" | "getSessionStats" | "compact" | "abortCompaction">> & {
   agent: Pick<AgentSession["agent"], "streamFunction" | "onPayload">;
   modelRuntime: Pick<ModelRuntime, "getModel">;
 };
@@ -144,12 +146,14 @@ function transcriptPageStart(
 
 function transcriptCursorAnchor(
   message: AgentSession["messages"][number] | undefined,
+  includeEntryId = true,
 ): string | undefined {
   if (!message) return undefined;
   return JSON.stringify([
     message.role,
     Number.isFinite(message.timestamp) ? message.timestamp : 0,
     "toolCallId" in message ? message.toolCallId : null,
+    includeEntryId && "piWorkEntryId" in message ? message.piWorkEntryId : null,
   ]);
 }
 
@@ -337,6 +341,8 @@ export async function createPiSessionHandle(
 
 export class PiSessionHandle implements SessionHandle {
   private fastModeEnabled = false;
+  private compaction?: SessionCompaction;
+  private readonly compactionEvents = new WeakMap<object, SessionCompaction>();
   private transcriptRevision = crypto.randomUUID();
   private readonly extensionListeners = new Set<(event: SessionHandleEvent) => void>();
   private readonly extensionWidgets = new Map<string, SessionExtensionWidget>();
@@ -380,14 +386,14 @@ export class PiSessionHandle implements SessionHandle {
     return this.session.sessionId;
   }
 
-  descriptor(): SessionHandleSnapshot["session"] {
+  descriptor(transcript = this.transcriptMessages()): SessionHandleSnapshot["session"] {
     const explicitTitle = this.sessionManager.getSessionName()?.trim();
-    const firstUserIndex = this.session.messages.findIndex((message) => message.role === "user");
+    const firstUserIndex = transcript.findIndex((message) => message.role === "user");
     const firstUserMessage = firstUserIndex < 0
       ? undefined
       : normalizeAgentMessages(
           this.sessionId,
-          [this.session.messages[firstUserIndex]!],
+          [transcript[firstUserIndex]!],
           { startIndex: firstUserIndex },
         )[0];
     const firstUserText = firstUserMessage?.content
@@ -405,18 +411,57 @@ export class PiSessionHandle implements SessionHandle {
     };
   }
 
+  /** UI history follows the raw active branch, not the compacted model projection. */
+  private transcriptMessages(): AgentSession["messages"] {
+    const branch = this.sessionManager.getBranch();
+    const outcomes = new Map<string, SessionCompaction>();
+    for (const entry of branch) {
+      if (entry.type === "custom" && entry.customType === "pi-work.compaction" && entry.data) {
+        const outcome = entry.data as SessionCompaction;
+        outcomes.set(outcome.id, outcome);
+      }
+    }
+    const messages = branch.flatMap((entry) => {
+      if (entry.type === "custom" && entry.customType === "pi-work.compaction") {
+        const outcome = entry.data as SessionCompaction;
+        if (!outcome || outcome.status === "completed") return [];
+        return [{ role: "custom", customType: "pi-work.compaction", display: true,
+          content: "", timestamp: Date.parse(entry.timestamp), piWorkEntryId: outcome.id,
+          piWorkCompaction: outcome } as AgentSession["messages"][number]];
+      }
+      return sessionEntryToContextMessages(entry).filter((message) => message.role !== "system").map((message) => {
+        const compaction: SessionCompaction | undefined = entry.type === "compaction"
+          ? outcomes.get(entry.id) ?? { id: entry.id, status: "completed", timestamp: entry.timestamp,
+              summary: entry.summary, tokensBefore: entry.tokensBefore,
+              ...(entry.usage ? { cost: { amount: entry.usage.cost.total, currency: "USD",
+                source: entry.usage.cost.totalFromProvider ? "provider" : "estimated" } } : {}) }
+          : undefined;
+        return { ...message, piWorkEntryId: entry.id,
+          ...(compaction ? { piWorkCompaction: compaction } : {}) };
+      });
+    });
+    if (!messages.length) return this.session.messages;
+    // A snapshot can arrive between message completion and its persisted entry.
+    const known = new Set(messages.map((message) => transcriptCursorAnchor(message, false)));
+    return [...messages, ...this.session.messages.filter((message) => (
+      message.role !== "system" && message.role !== "compactionSummary"
+      && !known.has(transcriptCursorAnchor(message, false))
+    ))];
+  }
+
   snapshot(options: { messageLimit?: number } = {}): SessionHandleSnapshot {
+    const transcript = this.transcriptMessages();
     const messageLimit = options.messageLimit === undefined
-      ? this.session.messages.length
+      ? transcript.length
       : Math.max(1, Math.floor(options.messageLimit));
     const messageStartIndex = transcriptPageStart(
-      this.session.messages,
-      this.session.messages.length,
+      transcript,
+      transcript.length,
       messageLimit,
     );
     const messages = normalizeAgentMessages(
       this.sessionId,
-      this.session.messages.slice(messageStartIndex),
+      transcript.slice(messageStartIndex),
       {
         maxToolOutputBytes: snapshotToolOutputPreviewBytes,
         startIndex: messageStartIndex,
@@ -426,7 +471,7 @@ export class PiSessionHandle implements SessionHandle {
     const usage = this.usage();
     const gitBranch = selectedGitBranch(this.sessionManager);
     return {
-      session: this.descriptor(),
+      session: this.descriptor(transcript),
       messages,
       ...(options.messageLimit === undefined ? {} : {
         history: {
@@ -435,7 +480,7 @@ export class PiSessionHandle implements SessionHandle {
             ? encodeTranscriptCursor(
                 this.transcriptRevision,
                 messageStartIndex,
-                this.session.messages,
+                transcript,
               )
             : null,
           hasMore: messageStartIndex > 0,
@@ -451,6 +496,7 @@ export class PiSessionHandle implements SessionHandle {
       accessMode: this.accessController.mode,
       pendingApprovals: this.accessController.pendingApprovals(),
       queuedInputs: this.queuedInputs,
+      ...(this.compaction?.status === "running" ? { compaction: this.compaction } : {}),
       ...(this.extensionWidgets.size > 0 ? { extensionWidgets: Object.fromEntries(
         [...this.extensionWidgets].map(([key, widget]) => [
           key, { ...widget, lines: [...widget.lines] },
@@ -463,6 +509,7 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   transcriptPage(cursor: string, limit: number): SessionTranscriptPage {
+    const transcript = this.transcriptMessages();
     let decoded: unknown;
     try {
       decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
@@ -479,23 +526,23 @@ export class PiSessionHandle implements SessionHandle {
     }
     const end = "end" in decoded ? decoded.end : undefined;
     const anchor = "anchor" in decoded ? decoded.anchor : undefined;
-    if (!Number.isSafeInteger(end) || (end as number) <= 0 || (end as number) > this.session.messages.length) {
+    if (!Number.isSafeInteger(end) || (end as number) <= 0 || (end as number) > transcript.length) {
       throw new SessionRegistryError("invalid_history_cursor", "History cursor is invalid");
     }
     if (
       typeof anchor !== "string"
-      || anchor !== transcriptCursorAnchor(this.session.messages[end as number])
+      || anchor !== transcriptCursorAnchor(transcript[end as number])
     ) {
       throw new SessionRegistryError("stale_history_cursor", "History cursor is stale");
     }
 
     const pageEndIndex = end as number;
-    const pageStartIndex = transcriptPageStart(this.session.messages, pageEndIndex, limit);
+    const pageStartIndex = transcriptPageStart(transcript, pageEndIndex, limit);
     return {
       sessionId: this.sessionId,
       messages: normalizeAgentMessages(
         this.sessionId,
-        this.session.messages.slice(pageStartIndex, pageEndIndex),
+        transcript.slice(pageStartIndex, pageEndIndex),
         {
           maxToolOutputBytes: snapshotToolOutputPreviewBytes,
           startIndex: pageStartIndex,
@@ -506,7 +553,7 @@ export class PiSessionHandle implements SessionHandle {
         ? encodeTranscriptCursor(
             this.transcriptRevision,
             pageStartIndex,
-            this.session.messages,
+            transcript,
           )
         : null,
       hasMore: pageStartIndex > 0,
@@ -514,8 +561,9 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   toolOutput(toolCallId: string): string {
-    for (let index = this.session.messages.length - 1; index >= 0; index -= 1) {
-      const message = this.session.messages[index];
+    const transcript = this.transcriptMessages();
+    for (let index = transcript.length - 1; index >= 0; index -= 1) {
+      const message = transcript[index]!;
       if (message.role === "toolResult" && message.toolCallId === toolCallId) {
         return normalizedToolOutput(message.content);
       }
@@ -548,6 +596,7 @@ export class PiSessionHandle implements SessionHandle {
     const responseModel = latest?.role === "assistant" ? latest.responseModel : undefined;
     return {
       used: context.tokens ?? 0, size: context.contextWindow,
+      contextUsage: this.contextUsage(),
       cost: { amount: stats.cost, currency: "USD", source: usages.length > 0 && usages.every((usage) => usage.cost.totalFromProvider === true)
         ? "provider" : "estimated" },
       ...(responseModel ? { responseModel } : {}),
@@ -832,6 +881,41 @@ export class PiSessionHandle implements SessionHandle {
     return inputs;
   }
 
+  async compact(instructions?: string): Promise<void> {
+    if (!this.session.compact) throw new Error("Compaction is not supported by this runtime");
+    await this.session.compact(instructions);
+  }
+
+  cancelCompaction(): void {
+    this.session.abortCompaction?.();
+  }
+
+  private observeCompaction(event: Extract<AgentSessionEvent, { type: "compaction_start" | "compaction_end" }>): SessionCompaction {
+    const cached = this.compactionEvents.get(event);
+    if (cached) return cached;
+    if (event.type === "compaction_start") {
+      this.compaction = { id: crypto.randomUUID(), status: "running", reason: event.reason,
+        timestamp: new Date().toISOString() };
+    } else {
+      const entry = event.result ? [...this.sessionManager.getBranch()].reverse().find((item) => item.type === "compaction") : undefined;
+      this.compaction = {
+        id: entry?.id ?? this.compaction?.id ?? crypto.randomUUID(),
+        status: event.result ? "completed" : event.aborted ? "cancelled" : "failed",
+        timestamp: entry?.timestamp ?? new Date().toISOString(), reason: event.reason,
+        willRetry: Boolean(event.result && event.willRetry),
+        ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+        ...(event.result ? { summary: event.result.summary, tokensBefore: event.result.tokensBefore,
+          estimatedTokensAfter: event.result.estimatedTokensAfter,
+          ...(event.result.usage ? { cost: { amount: event.result.usage.cost.total, currency: "USD" as const,
+            source: event.result.usage.cost.totalFromProvider ? "provider" as const : "estimated" as const } } : {}) } : {}),
+      };
+      this.sessionManager.appendCustomEntry("pi-work.compaction", this.compaction);
+      if (!event.result) this.clearInputQueue();
+    }
+    this.compactionEvents.set(event, this.compaction);
+    return this.compaction;
+  }
+
   abort(): Promise<void> {
     this.accessController.cancelAll();
     return this.session.abort();
@@ -873,6 +957,10 @@ export class PiSessionHandle implements SessionHandle {
       // Flush before every non-progress event, especially tool completion,
       // approvals and errors. Registry sequence numbers are assigned afterward.
       progress.flush();
+      if (event.type === "compaction_start" || event.type === "compaction_end") {
+        const compaction = this.observeCompaction(event);
+        listener({ type: "compactionChanged", compaction, contextUsage: this.contextUsage() });
+      }
       if (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled") {
         const usage = this.usage();
         if (usage) listener({ type: "usageChanged", usage });
@@ -970,10 +1058,14 @@ export function normalizeAgentMessages(
 ): SessionMessage[] {
   return messages.flatMap((message, index): SessionMessage[] => {
     const timestampValue = Number.isFinite(message.timestamp) ? message.timestamp : 0;
+    const metadata = message as typeof message & { piWorkEntryId?: string; piWorkCompaction?: SessionCompaction };
     const base = {
-      id: `${sessionId}:${timestampValue}:${index + (options.startIndex ?? 0)}`,
+      id: metadata.piWorkEntryId ?? `${sessionId}:${timestampValue}:${index + (options.startIndex ?? 0)}`,
       timestamp: new Date(timestampValue).toISOString(),
     };
+    if (metadata.piWorkCompaction) {
+      return [{ ...base, role: "system", content: [], compaction: metadata.piWorkCompaction }];
+    }
 
     if (message.role === "user") {
       return [{

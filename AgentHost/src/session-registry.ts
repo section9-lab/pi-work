@@ -16,13 +16,28 @@ export type QueuedInput = {
 };
 
 export type SessionUsage = {
+  contextUsage?: SessionContextUsage;
   used: number;
   size: number;
   cost: { amount: number; currency: "USD"; source: "provider" | "estimated" };
   responseModel?: string;
 };
 
+export type SessionCompaction = {
+  id: string;
+  status: "running" | "completed" | "cancelled" | "failed";
+  reason?: "manual" | "threshold" | "overflow";
+  timestamp: string;
+  summary?: string;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  cost?: { amount: number; currency: "USD"; source: "provider" | "estimated" };
+  errorMessage?: string;
+  willRetry?: boolean;
+};
+
 export type SessionHandleEvent =
+  | { type: "compactionChanged"; compaction: SessionCompaction; contextUsage?: SessionContextUsage }
   | { type: "usageChanged"; usage: SessionUsage }
   | { type: "inputQueueChanged"; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] }
   | { type: "inputDelivered"; input: QueuedInput }
@@ -188,6 +203,7 @@ export type SessionMessage = {
   isError?: boolean;
   toolOutputTruncated?: boolean;
   toolOutputBytes?: number;
+  compaction?: SessionCompaction;
 };
 
 export type SessionSlashCommand = {
@@ -222,6 +238,7 @@ export type SessionHandleSnapshot = {
   extensionStatuses?: Record<string, string>;
   extensionWidgets?: Record<string, SessionExtensionWidget>;
   queuedInputs?: QueuedInput[];
+  compaction?: SessionCompaction;
 };
 
 export type SessionTranscriptPage = {
@@ -261,6 +278,8 @@ export interface SessionHandle {
   enqueueInput?(input: QueuedInput): Promise<"queued" | "handled">;
   clearInputQueue?(): QueuedInput[];
   waitForIdle?(): Promise<void>;
+  compact?(instructions?: string): Promise<void>;
+  cancelCompaction?(): void;
   abort(): Promise<void>;
   reload(): Promise<void>;
   dispose(): void;
@@ -268,6 +287,7 @@ export interface SessionHandle {
 }
 
 export type SessionRegistryEvent =
+  | { event: "session.compactionChanged"; payload: { sessionId: string; sequence: number; compaction: SessionCompaction; contextUsage?: SessionContextUsage } }
   | { event: "session.usageChanged"; payload: SessionUsage & { sessionId: string; sequence: number } }
   | { event: "session.inputQueueChanged"; payload: { sessionId: string; sequence: number; inputs: QueuedInput[]; recoveredInputs?: QueuedInput[] } }
   | { event: "session.inputDelivered"; payload: { sessionId: string; sequence: number; input: QueuedInput } }
@@ -428,6 +448,9 @@ type ManagedSession = {
   closed: boolean;
   inputRequests: Map<string, Promise<{ disposition: "queued" | "handled" }>>;
   inputTail: Promise<unknown>;
+  manualCompacting?: boolean;
+  manualInputs?: QueuedInput[];
+  compactionInputs?: QueuedInput[];
 };
 
 export class SessionRegistry {
@@ -461,8 +484,13 @@ export class SessionRegistry {
 
   snapshot(sessionId: string): SessionSnapshot {
     const managed = this.requireSession(sessionId);
+    const snapshot = managed.handle.snapshot({ messageLimit: 40 });
     return {
-      ...managed.handle.snapshot({ messageLimit: 40 }),
+      ...snapshot,
+      ...(managed.manualCompacting ? { queuedInputs: managed.manualInputs ?? [] }
+        : managed.compactionInputs?.length ? { queuedInputs: [
+            ...(snapshot.queuedInputs ?? []), ...managed.compactionInputs,
+          ] } : {}),
       state: managed.activeTurnId ? "running" : "idle",
       sequence: managed.sequence,
       turnId: managed.activeTurnId ?? null,
@@ -487,6 +515,67 @@ export class SessionRegistry {
 
   descriptor(sessionId: string): SessionHandleSnapshot["session"] | undefined {
     return this.sessions.get(sessionId)?.handle.descriptor();
+  }
+
+  async compact(sessionId: string, instructions?: string): Promise<void> {
+    const managed = this.requireSession(sessionId);
+    if (managed.activeTurnId || managed.reloading || !managed.handle.compact) {
+      throw new SessionRegistryError("session_busy", "Session must be idle to compact manually");
+    }
+    const turnId = `compaction:${crypto.randomUUID()}`;
+    managed.activeTurnId = turnId;
+    managed.activeTurnCancelled = false;
+    managed.manualCompacting = true;
+    managed.manualInputs = [];
+    managed.inputRequests.clear();
+    this.emitState(managed, turnId, "running");
+    let succeeded = false;
+    try {
+      await managed.handle.compact(instructions);
+      succeeded = true;
+    } catch {
+      // The compaction outcome is delivered as a structured event, not a run error.
+    } finally {
+      const inputs = managed.manualInputs ?? [];
+      managed.manualInputs = [];
+      managed.manualCompacting = false;
+      managed.activeTurnId = undefined;
+      if (!managed.closed) {
+        this.consume(managed, { type: "inputQueueChanged", inputs: [],
+          ...(!succeeded && inputs.length ? { recoveredInputs: inputs } : {}) });
+        if (managed.reloadPending) await this.reloadPendingSession(managed);
+        if (managed.closed) return;
+        this.emitState(managed, turnId, "idle");
+        if (succeeded && inputs.length && !managed.activeTurnCancelled) {
+          const [first, ...rest] = inputs;
+          const nextTurn = crypto.randomUUID();
+          this.consume(managed, { type: "inputDelivered", input: first! });
+          this.prompt(sessionId, nextTurn, first!.text, first!.images);
+          for (const input of rest) {
+            try { await this.enqueueInput(sessionId, input); }
+            catch { this.consume(managed, { type: "inputQueueChanged", inputs: managed.handle.snapshot().queuedInputs ?? [], recoveredInputs: [input] }); }
+          }
+        }
+      }
+    }
+  }
+
+  cancelCompaction(sessionId: string): void {
+    const managed = this.requireSession(sessionId);
+    if (!managed.manualCompacting && managed.handle.snapshot().compaction?.status !== "running") return;
+    // Recover pending inputs before cancellation can settle the run.
+    if (managed.manualCompacting) {
+      const inputs = managed.manualInputs ?? [];
+      managed.manualInputs = [];
+      this.consume(managed, { type: "inputQueueChanged", inputs: [], recoveredInputs: inputs });
+    } else {
+      const recoveredInputs = managed.compactionInputs ?? [];
+      managed.compactionInputs = [];
+      managed.handle.clearInputQueue?.();
+      if (recoveredInputs.length) this.consume(managed, { type: "inputQueueChanged",
+        inputs: [], recoveredInputs });
+    }
+    managed.handle.cancelCompaction?.();
   }
 
   commands(sessionId: string): SessionSlashCommand[] {
@@ -650,6 +739,18 @@ export class SessionRegistry {
     if (!managed.activeTurnId || managed.activeTurnCancelled || managed.reloading) {
       throw new SessionRegistryError("session_busy", "Session is no longer accepting queued input; retry when idle");
     }
+    if (managed.manualCompacting || managed.compactionInputs) {
+      if (input.images.length > 0 && managed.handle.snapshot().model?.supportsImages !== true) {
+        throw new SessionRegistryError("model_does_not_support_images", "Selected model does not support images");
+      }
+      const pending = managed.manualCompacting ? managed.manualInputs! : managed.compactionInputs!;
+      pending.push(input);
+      this.consume(managed, { type: "inputQueueChanged", inputs: managed.manualCompacting
+        ? [...pending] : managed.handle.snapshot().queuedInputs ?? [] });
+      const accepted = Promise.resolve({ disposition: "queued" as const });
+      managed.inputRequests.set(input.id, accepted);
+      return accepted;
+    }
     if (input.images.length > 0 && managed.handle.snapshot().model?.supportsImages !== true) {
       throw new SessionRegistryError("model_does_not_support_images", "Selected model does not support images");
     }
@@ -668,13 +769,24 @@ export class SessionRegistry {
   async clearInputQueue(sessionId: string): Promise<{ inputs: QueuedInput[] }> {
     const managed = this.requireSession(sessionId);
     await managed.inputTail.catch(() => {});
-    return { inputs: managed.handle.clearInputQueue?.() ?? [] };
+    if (managed.manualCompacting) {
+      const inputs = managed.manualInputs ?? [];
+      managed.manualInputs = [];
+      this.consume(managed, { type: "inputQueueChanged", inputs: [], recoveredInputs: inputs });
+      return { inputs };
+    }
+    const held = managed.compactionInputs ?? [];
+    if (managed.compactionInputs) managed.compactionInputs = [];
+    const inputs = [...(managed.handle.clearInputQueue?.() ?? []), ...held];
+    if (held.length) this.consume(managed, { type: "inputQueueChanged", inputs: [], recoveredInputs: held });
+    return { inputs };
   }
 
   async abort(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId);
     if (!managed) throw new Error(`Session not found: ${sessionId}`);
     if (managed.activeTurnId) managed.activeTurnCancelled = true;
+    if (managed.manualCompacting) this.cancelCompaction(sessionId);
     // Clear both before and after in-flight input handlers to prevent queued work restarting.
     managed.handle.clearInputQueue?.();
     const abort = managed.handle.abort();
@@ -744,6 +856,39 @@ export class SessionRegistry {
 
   private consume(managed: ManagedSession, event: SessionHandleEvent): void {
     const turnId = managed.activeTurnId;
+    if (event.type === "compactionChanged") {
+      if (event.compaction.status === "running" && !managed.manualCompacting) {
+        managed.compactionInputs = [];
+      }
+      managed.sequence += 1;
+      this.emit({ event: "session.compactionChanged", payload: {
+        sessionId: managed.handle.sessionId, sequence: managed.sequence,
+        compaction: event.compaction, contextUsage: event.contextUsage,
+      } });
+      if (event.compaction.status !== "running" && managed.compactionInputs) {
+        const held = managed.compactionInputs;
+        managed.compactionInputs = undefined;
+        if (event.compaction.status !== "completed" || managed.activeTurnCancelled) {
+          this.consume(managed, { type: "inputQueueChanged", inputs: managed.handle.snapshot().queuedInputs ?? [], recoveredInputs: held });
+        } else if (held.length) {
+          // Do not run asynchronous input extensions while summarization is active.
+          // The enclosing prompt already waits for inputTail before settling.
+          managed.inputTail = managed.inputTail.catch(() => {}).then(async () => {
+            for (const input of held) {
+              if (managed.closed) return;
+              try {
+                if (managed.closed || managed.activeTurnCancelled || !managed.handle.enqueueInput) throw new Error("Session stopped");
+                await managed.handle.enqueueInput(input);
+              } catch {
+                this.consume(managed, { type: "inputQueueChanged", inputs: managed.handle.snapshot().queuedInputs ?? [], recoveredInputs: [input] });
+              }
+            }
+            if (!managed.closed) this.consume(managed, { type: "inputQueueChanged", inputs: managed.handle.snapshot().queuedInputs ?? [] });
+          });
+        }
+      }
+      return;
+    }
     if (event.type === "usageChanged") {
       managed.sequence += 1;
       this.emit({ event: "session.usageChanged", payload: {
@@ -755,7 +900,7 @@ export class SessionRegistry {
       managed.sequence += 1;
       const common = { sessionId: managed.handle.sessionId, sequence: managed.sequence };
       if (event.type === "inputQueueChanged") {
-        this.emit({ event: "session.inputQueueChanged", payload: { ...common, inputs: event.inputs, recoveredInputs: event.recoveredInputs } });
+        this.emit({ event: "session.inputQueueChanged", payload: { ...common, inputs: [...event.inputs, ...(managed.compactionInputs ?? [])], recoveredInputs: event.recoveredInputs } });
       } else {
         this.emit({ event: "session.inputDelivered", payload: { ...common, input: event.input } });
       }

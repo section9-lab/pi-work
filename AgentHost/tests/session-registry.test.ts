@@ -5,6 +5,7 @@ import {
   SessionRegistry,
   SessionRegistryError,
   type SessionHandle,
+  type SessionCompaction,
   type QueuedInput,
   type SessionHandleEvent,
   type SessionExtensionWidget,
@@ -18,6 +19,7 @@ class ControllableSession implements SessionHandle {
   readonly prompts: string[] = [];
   readonly promptImages: ImageContent[][] = [];
   abortCount = 0;
+  compaction?: SessionCompaction;
   queuedInputs: QueuedInput[] = [];
   nativeIdle: Promise<void> = Promise.resolve();
   enqueueBarrier: Promise<void> = Promise.resolve();
@@ -121,6 +123,7 @@ class ControllableSession implements SessionHandle {
       modelOptions: this.modelOptions,
       accessMode: this.accessMode,
       pendingApprovals: [],
+      ...(this.compaction ? { compaction: this.compaction } : {}),
     };
   }
 
@@ -235,6 +238,12 @@ class ControllableSession implements SessionHandle {
     this.rejectPrompt?.(error);
   }
 
+  emitCompaction(status: SessionCompaction["status"]): void {
+    const compaction: SessionCompaction = { id: "compact", status, reason: "threshold", timestamp: "now" };
+    this.compaction = status === "running" ? compaction : undefined;
+    for (const listener of this.listeners) listener({ type: "compactionChanged", compaction });
+  }
+
   emitText(delta: string): void {
     for (const listener of this.listeners) listener({ type: "textDelta", delta });
   }
@@ -338,6 +347,33 @@ class ControllableSession implements SessionHandle {
 }
 
 describe("SessionRegistry", () => {
+  for (const outcome of ["completed", "cancelled", "failed"] as const) {
+    test(`automatic compaction holds input preflights until outcome: ${outcome}`, async () => {
+      const events: SessionRegistryEvent[] = [];
+      const registry = new SessionRegistry(event => events.push(event));
+      const session = new ControllableSession("compacting");
+      registry.register(session);
+      registry.prompt(session.sessionId, "turn", "initial");
+      const completion = registry.promptCompletion(session.sessionId, "turn");
+      session.emitCompaction("running");
+      const input: QueuedInput = { id: "held", text: "Keep this", images: [], behavior: "followUp" };
+      await registry.enqueueInput(session.sessionId, input);
+      expect(session.queuedInputs).toEqual([]);
+      expect(registry.snapshot(session.sessionId).queuedInputs).toEqual([input]);
+      if (outcome === "cancelled") registry.cancelCompaction(session.sessionId);
+      session.emitCompaction(outcome);
+      await Bun.sleep(0);
+      if (outcome === "completed") {
+        expect(session.queuedInputs).toEqual([input]);
+      } else {
+        expect(session.queuedInputs).toEqual([]);
+        expect(events.some(event => event.event === "session.inputQueueChanged" && event.payload.recoveredInputs?.some(item => item.id === input.id))).toBe(true);
+      }
+      session.settle(); await completion;
+      registry.closeAll();
+    });
+  }
+
   test("enqueues idempotently without replacing the active turn or starting another prompt", async () => {
     const session = new ControllableSession("session-one");
     const events: SessionRegistryEvent[] = [];
