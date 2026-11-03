@@ -1,0 +1,56 @@
+name: Cache macOS dependencies
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/Package.resolved"
+      - "project.yml"
+      - "scripts/prepare-swift-packages.sh"
+      - "scripts/fetch-sparkle-tools.sh"
+      - ".github/actions/prepare-macos-dependencies/**"
+      - ".github/workflows/cache-macos-dependencies.yml"
+      - ".github/workflows/release-macos.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-dependency-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    # Tag caches cannot be reused by other tags. Seed the default branch so
+    # subsequent release tags can restore the same dependency cache keys.
+    if: github.ref == 'refs/heads/main'
+    name: Cache dependencies (${{ matrix.arch }})
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out main source
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Prepare native dependencies
+        uses: ./.github/actions/prepare-macos-dependencies

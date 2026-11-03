@@ -1,0 +1,47 @@
+name: Prepare macOS dependencies
+description: Restore native dependency caches and resolve the committed Swift package pins after XcodeGen runs.
+runs:
+  using: composite
+  steps:
+    - name: Identify selected Xcode toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        fingerprint="$(xcodebuild -version | shasum -a 256 | awk '{ print $1 }')"
+        echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+        echo "SWIFT_PACKAGE_CACHE_PATH=$RUNNER_TEMP/PiWorkSourcePackages" >> "$GITHUB_ENV"
+
+    - name: Cache Swift package checkouts and binary artifacts
+      id: swift-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/PiWorkSourcePackages
+        key: macos-spm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('ci/Package.resolved') }}
+
+    - name: Cache pinned Sparkle signing tools
+      id: sparkle-cache
+      uses: actions/cache@v4
+      with:
+        path: build/Sparkle-2.10.1
+        key: macos-sparkle-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-sparkle-tools.sh') }}
+
+    - name: Resolve pinned Swift packages into shared storage
+      shell: bash
+      run: bash scripts/prepare-swift-packages.sh
+
+    - name: Prepare Sparkle signing tools
+      shell: bash
+      run: bash scripts/fetch-sparkle-tools.sh
+
+    - name: Report dependency cache hits
+      shell: bash
+      env:
+        SWIFT_CACHE_HIT: ${{ steps.swift-cache.outputs.cache-hit }}
+        SPARKLE_CACHE_HIT: ${{ steps.sparkle-cache.outputs.cache-hit }}
+      run: |
+        {
+          printf '### Native dependency caches (%s)\n\n' "$RUNNER_ARCH"
+          printf '| Cache | Exact hit |\n| --- | --- |\n'
+          printf '| Swift packages | %s |\n' "${SWIFT_CACHE_HIT:-false}"
+          printf '| Sparkle tools | %s |\n' "${SPARKLE_CACHE_HIT:-false}"
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -192,6 +192,39 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("currentPiVersion", version_row)
         self.assertNotIn("Button(", version_row)
 
+    def test_native_dependencies_are_prepared_once_and_shared_by_test_and_archive(self):
+        workflow = self.workflow_text()
+        self.assertEqual(workflow.count("uses: ./.github/actions/prepare-macos-dependencies"), 1)
+        self.assertEqual(workflow.count('-clonedSourcePackagesDirPath "$SWIFT_PACKAGE_CACHE_PATH"'), 2)
+        self.assertEqual(workflow.count("-disableAutomaticPackageResolution"), 2)
+        self.assertEqual(workflow.count("-onlyUsePackageVersionsFromResolvedFile"), 2)
+        self.assertLess(workflow.index("Generate Xcode project"), workflow.index("Prepare native dependencies"))
+        self.assertLess(workflow.index("Prepare native dependencies"), workflow.index("Run application tests"))
+
+    def test_checks_are_individually_timed_without_removing_architecture_coverage(self):
+        workflow = self.workflow_text()
+        for name in ["Type-check Agent Host", "Run Agent Host tests", "Check runtime packaging and release workflow",
+                     "Check application updates", "Check project changes", "Check agent runtime recovery"]:
+            self.assertIn(f"- name: {name}", workflow)
+        for command in ["bun run typecheck", "bun test", "bash scripts/test-app-updates.sh",
+                        "bash scripts/test-project-changes.sh", "bash scripts/test-agent-runtime.sh"]:
+            self.assertEqual(workflow.count(command), 1)
+        self.assertIn("scripts/test_ci_dependencies.py", workflow)
+        self.assertIn("needs: build", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
+
+    def test_xcode_timing_logs_are_kept_even_when_a_build_fails(self):
+        workflow = self.workflow_text()
+        self.assertEqual(workflow.count("-showBuildTimingSummary"), 2)
+        self.assertEqual(workflow.count("set -o pipefail"), 2)
+        self.assertIn('tee "$RUNNER_TEMP/BuildDiagnostics/application-tests.log"', workflow)
+        self.assertIn('tee "$RUNNER_TEMP/BuildDiagnostics/archive.log"', workflow)
+        diagnostics = workflow.split("- name: Upload build diagnostics", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: always()", diagnostics)
+        self.assertIn("PiWorkBuildDiagnostics-${{ matrix.suffix }}", diagnostics)
+        # Diagnostics must not match the release's PiWork-* DMG download pattern.
+        self.assertNotIn("name: PiWork-", diagnostics)
+
     def test_compiled_agent_host_does_not_autoload_project_bunfig(self):
         project = PROJECT_PATH.read_text()
         package = AGENT_HOST_PACKAGE_PATH.read_text()

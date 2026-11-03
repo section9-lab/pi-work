@@ -63,29 +63,50 @@ jobs:
           fi
           echo "PROJECT_VERSION=$PROJECT_VERSION" >> "$GITHUB_ENV"
 
-      - name: Check Agent Host and runtime recovery
-        run: |
-          (cd AgentHost && bun run typecheck && bun test)
-          bash scripts/fetch-sparkle-tools.sh
-          python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py scripts/test_appcast.py
-          bash scripts/test-app-updates.sh
-          bash scripts/test-project-changes.sh
-          bash scripts/test-agent-runtime.sh
-
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Prepare native dependencies
+        uses: ./.github/actions/prepare-macos-dependencies
+
+      - name: Type-check Agent Host
+        working-directory: AgentHost
+        run: bun run typecheck
+
+      - name: Run Agent Host tests
+        working-directory: AgentHost
+        run: bun test
+
+      - name: Check runtime packaging and release workflow
+        run: python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py scripts/test_appcast.py scripts/test_ci_dependencies.py
+
+      - name: Check application updates
+        run: bash scripts/test-app-updates.sh
+
+      - name: Check project changes
+        run: bash scripts/test-project-changes.sh
+
+      - name: Check agent runtime recovery
+        run: bash scripts/test-agent-runtime.sh
+
       - name: Run application tests
         run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/BuildDiagnostics"
           xcodebuild test \
             -project pi-work.xcodeproj \
             -scheme PiWork \
             -configuration Debug \
             -destination "platform=macOS,arch=${{ matrix.arch }}" \
             -derivedDataPath "$RUNNER_TEMP/TestDerivedData" \
+            -clonedSourcePackagesDirPath "$SWIFT_PACKAGE_CACHE_PATH" \
+            -disableAutomaticPackageResolution \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -showBuildTimingSummary \
             -resultBundlePath "$RUNNER_TEMP/PiWorkTests.xcresult" \
             ARCHS="${{ matrix.arch }}" ONLY_ACTIVE_ARCH=YES \
-            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=""
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" \
+            2>&1 | tee "$RUNNER_TEMP/BuildDiagnostics/application-tests.log"
           rm -rf "$RUNNER_TEMP/TestDerivedData"
 
       - name: Upload application test results
@@ -99,6 +120,8 @@ jobs:
 
       - name: Build archive
         run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/BuildDiagnostics"
           archive_path="$RUNNER_TEMP/PiWork-${{ matrix.suffix }}.xcarchive"
           derived_data_path="$RUNNER_TEMP/DerivedData-${{ matrix.suffix }}"
           xcodebuild \
@@ -108,14 +131,28 @@ jobs:
             -destination "generic/platform=macOS" \
             -archivePath "$archive_path" \
             -derivedDataPath "$derived_data_path" \
+            -clonedSourcePackagesDirPath "$SWIFT_PACKAGE_CACHE_PATH" \
+            -disableAutomaticPackageResolution \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -showBuildTimingSummary \
             ARCHS="${{ matrix.arch }}" \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             MARKETING_VERSION="$PROJECT_VERSION" \
-            archive
+            archive \
+            2>&1 | tee "$RUNNER_TEMP/BuildDiagnostics/archive.log"
           echo "ARCHIVE_PATH=$archive_path" >> "$GITHUB_ENV"
           echo "DERIVED_DATA_PATH=$derived_data_path" >> "$GITHUB_ENV"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PiWorkBuildDiagnostics-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/BuildDiagnostics/*.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Apply ad-hoc application signature
         run: |
