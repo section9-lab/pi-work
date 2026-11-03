@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "Compactando contexto…";
+"chat.compaction.running.threshold" = "Contexto casi lleno. Compactando automáticamente…";
+"chat.compaction.running.overflow" = "Límite alcanzado. Compactando para reintentar…";
+"chat.compaction.cancel" = "Cancelar compactación";
+"chat.compaction.completed" = "Contexto compactado";
+"chat.compaction.cancelled" = "Compactación cancelada";
+"chat.compaction.failed" = "Error al compactar el contexto";
+"chat.compaction.retry" = "Reintentar";
+"chat.compaction.expanded" = "Expandido";
+"chat.compaction.collapsed" = "Contraído";
+"chat.compaction.reason.manual" = "Compactación manual";
+"chat.compaction.reason.threshold" = "Automática · Cerca del límite";
+"chat.compaction.reason.overflow" = "Automática · Recuperación de desbordamiento";
+"chat.compaction.cost.billed" = "Coste de compactación: %@";
+"chat.compaction.cost.estimated" = "Coste estimado de compactación: %@";
+"chat.compaction.explanation" = "Las siguientes solicitudes usan el resumen y los mensajes recientes. El historial original sigue disponible.";
+"chat.compaction.copy" = "Copiar resumen";
+"chat.compaction.copied" = "Copiado";
+"chat.compaction.will_retry" = "Se reintentará la solicitud interrumpida.";
+"chat.compaction.tokens_before" = "Desde %@ tokens";
+"chat.compaction.tokens_after" = "%@ → ≈ %@ tokens";
+"chat.compaction.action" = "Compactar contexto ahora…";
+"chat.compaction.instructions" = "Enfoque del resumen (opcional)";
+"chat.compaction.start" = "Iniciar compactación";
+"chat.compaction.command" = "Resume el contexto anterior; indica qué conservar si lo deseas";
+"chat.compaction.queue" = "Pendiente · Se enviará tras compactar";
+
 /* Running input */
 "settings.agent.running_input.title" = "Mensajes enviados durante la ejecución";
 "settings.agent.running_input.follow_up" = "Follow-up · Al finalizar";

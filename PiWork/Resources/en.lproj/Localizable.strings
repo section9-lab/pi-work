@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "Compacting context…";
+"chat.compaction.running.threshold" = "Context is nearly full. Compacting automatically…";
+"chat.compaction.running.overflow" = "Context limit reached. Compacting to retry…";
+"chat.compaction.cancel" = "Cancel compaction";
+"chat.compaction.completed" = "Context compacted";
+"chat.compaction.cancelled" = "Compaction cancelled";
+"chat.compaction.failed" = "Context compaction failed";
+"chat.compaction.retry" = "Retry";
+"chat.compaction.expanded" = "Expanded";
+"chat.compaction.collapsed" = "Collapsed";
+"chat.compaction.reason.manual" = "Manual compaction";
+"chat.compaction.reason.threshold" = "Automatic · Near context limit";
+"chat.compaction.reason.overflow" = "Automatic · Overflow recovery";
+"chat.compaction.cost.billed" = "Compaction cost: %@";
+"chat.compaction.cost.estimated" = "Estimated compaction cost: %@";
+"chat.compaction.explanation" = "Future requests use the summary and recent messages. Original conversation history remains available.";
+"chat.compaction.copy" = "Copy summary";
+"chat.compaction.copied" = "Copied";
+"chat.compaction.will_retry" = "The runtime will retry the interrupted request.";
+"chat.compaction.tokens_before" = "From %@ tokens";
+"chat.compaction.tokens_after" = "%@ → ≈ %@ tokens";
+"chat.compaction.action" = "Compact context now…";
+"chat.compaction.instructions" = "Summary focus (optional)";
+"chat.compaction.start" = "Start compaction";
+"chat.compaction.command" = "Summarize older context; optionally specify what to preserve";
+"chat.compaction.queue" = "Pending · Sent after compaction";
+
 /* Running input */
 "settings.agent.running_input.title" = "Messages sent while running";
 "settings.agent.running_input.follow_up" = "Follow-up · After completion";

@@ -142,6 +142,8 @@ protocol AgentHostServicing: Actor {
     ) async throws -> AgentHostSessionPromptResult
     func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult
     func clearInputQueue(sessionId: String) async throws -> AgentHostClearInputQueueResult
+    func compact(sessionId: String, instructions: String?) async throws
+    func cancelCompaction(sessionId: String) async throws
     func abort(
         sessionId: String,
         requestID: String
@@ -159,6 +161,14 @@ protocol AgentHostServicing: Actor {
 }
 
 extension AgentHostServicing {
+    func compact(sessionId: String, instructions: String?) async throws {
+        throw AgentHostServiceError.missingPiWorkCapability(.sessionCompact)
+    }
+
+    func cancelCompaction(sessionId: String) async throws {
+        throw AgentHostServiceError.missingPiWorkCapability(.sessionCancelCompaction)
+    }
+
     func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult {
         throw AgentHostServiceError.missingPiWorkCapability(.sessionEnqueueInput)
     }
@@ -1316,6 +1326,18 @@ actor AgentHostService: AgentHostServicing,
         )
     }
 
+    func compact(sessionId: String, instructions: String?) async throws {
+        let _: AgentHostACPEmptyResult = try await request(method: "session.compact",
+            params: AgentHostCompactParameters(sessionId: sessionId, instructions: instructions),
+            timeout: nil, as: AgentHostACPEmptyResult.self)
+    }
+
+    func cancelCompaction(sessionId: String) async throws {
+        let _: AgentHostACPEmptyResult = try await request(method: "session.cancelCompaction",
+            params: AgentHostSessionIdentifierParameters(sessionId: sessionId),
+            timeout: nil, as: AgentHostACPEmptyResult.self)
+    }
+
     func enqueueInput(_ parameters: AgentHostEnqueueInputParameters) async throws -> AgentHostEnqueueInputResult {
         try await request(method: "session.enqueueInput", params: parameters, timeout: nil, as: AgentHostEnqueueInputResult.self)
     }
@@ -1624,7 +1646,8 @@ actor AgentHostService: AgentHostServicing,
                     used: payload.used,
                     size: payload.size,
                     cost: payload.cost,
-                    responseModel: payload.responseModel
+                    responseModel: payload.responseModel,
+                    contextUsage: payload.contextUsage
                 )
             )
         case .sessionAvailableCommandsChanged(let payload):
@@ -1655,6 +1678,11 @@ actor AgentHostService: AgentHostServicing,
                     text: payload.text
                 )
             )
+        case .sessionCompactionChanged(let payload):
+            let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
+            return .sessionCompactionChanged(AgentHostCompactionChangedPayload(
+                sessionId: payload.sessionId, sequence: value.0,
+                compaction: payload.compaction, contextUsage: payload.contextUsage))
         case .sessionInputQueueChanged(let payload):
             let value = values(sessionId: payload.sessionId, sequence: payload.sequence, turnId: "")
             return .sessionInputQueueChanged(AgentHostInputQueuePayload(

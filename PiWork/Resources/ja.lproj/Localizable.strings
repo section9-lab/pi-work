@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "コンテキストを圧縮中…";
+"chat.compaction.running.threshold" = "上限に近づいたため、自動圧縮中…";
+"chat.compaction.running.overflow" = "上限に達したため、再試行に向けて圧縮中…";
+"chat.compaction.cancel" = "圧縮をキャンセル";
+"chat.compaction.completed" = "コンテキストを圧縮しました";
+"chat.compaction.cancelled" = "圧縮をキャンセルしました";
+"chat.compaction.failed" = "コンテキストの圧縮に失敗しました";
+"chat.compaction.retry" = "再試行";
+"chat.compaction.expanded" = "展開済み";
+"chat.compaction.collapsed" = "折りたたみ済み";
+"chat.compaction.reason.manual" = "手動圧縮";
+"chat.compaction.reason.threshold" = "自動 · 上限に接近";
+"chat.compaction.reason.overflow" = "自動 · 上限超過からの復旧";
+"chat.compaction.cost.billed" = "圧縮費用：%@";
+"chat.compaction.cost.estimated" = "圧縮費用の推定：%@";
+"chat.compaction.explanation" = "次のリクエストでは要約と最近のメッセージを使用します。元の会話履歴は引き続き参照できます。";
+"chat.compaction.copy" = "要約をコピー";
+"chat.compaction.copied" = "コピー済み";
+"chat.compaction.will_retry" = "中断したリクエストを再試行します。";
+"chat.compaction.tokens_before" = "圧縮前 %@ トークン";
+"chat.compaction.tokens_after" = "%@ → 約 %@ トークン";
+"chat.compaction.action" = "今すぐコンテキストを圧縮…";
+"chat.compaction.instructions" = "要約の重点（任意）";
+"chat.compaction.start" = "圧縮を開始";
+"chat.compaction.command" = "古いコンテキストを要約します。保持する内容を指定できます";
+"chat.compaction.queue" = "送信待ち · 圧縮完了後に続行";
+
 /* Running input */
 "settings.agent.running_input.title" = "実行中に送信するメッセージ";
 "settings.agent.running_input.follow_up" = "Follow-up · 完了後に実行";

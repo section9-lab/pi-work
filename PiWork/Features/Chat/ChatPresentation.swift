@@ -105,6 +105,51 @@ func toolOutputForDisplay(output: String, rawOutput: AgentHostJSONValue?) -> Str
     return rawOutput?.prettyPrinted ?? ""
 }
 
+enum CompactionPresentation {
+    /// nil means ordinary input; an empty value means /compact without instructions.
+    static func instructions(in text: String) -> String? {
+        let command = "/compact"
+        guard text.hasPrefix(command) else { return nil }
+        let remainder = text.dropFirst(command.count)
+        guard remainder.isEmpty || remainder.first?.isWhitespace == true else { return nil }
+        return remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func activityKey(_ reason: AgentHostCompaction.Reason?) -> String {
+        switch reason {
+        case .manual, .none: "chat.compaction.running.manual"
+        case .threshold: "chat.compaction.running.threshold"
+        case .overflow: "chat.compaction.running.overflow"
+        }
+    }
+
+    static func titleKey(_ status: AgentHostCompaction.Status) -> String {
+        switch status {
+        case .running: "chat.compaction.running.manual"
+        case .completed: "chat.compaction.completed"
+        case .cancelled: "chat.compaction.cancelled"
+        case .failed: "chat.compaction.failed"
+        }
+    }
+
+    static func reasonKey(_ reason: AgentHostCompaction.Reason) -> String {
+        switch reason {
+        case .manual: "chat.compaction.reason.manual"
+        case .threshold: "chat.compaction.reason.threshold"
+        case .overflow: "chat.compaction.reason.overflow"
+        }
+    }
+
+    static func tokenText(_ compaction: AgentHostCompaction) -> String? {
+        guard let before = compaction.tokensBefore else { return nil }
+        let beforeText = before.formatted()
+        guard let after = compaction.estimatedTokensAfter else {
+            return L10n.format("chat.compaction.tokens_before", beforeText)
+        }
+        return L10n.format("chat.compaction.tokens_after", beforeText, after.formatted())
+    }
+}
+
 struct PiChatMessage: Identifiable, Equatable {
     enum Role: Equatable { case user, assistant, tool, system }
 
@@ -113,6 +158,7 @@ struct PiChatMessage: Identifiable, Equatable {
     let parts: [SessionTranscriptPart]
     let timestamp: Date?
     var isStreaming: Bool
+    var compaction: AgentHostCompaction? = nil
 
     var text: String {
         parts.map { part in
@@ -178,7 +224,7 @@ struct PiChatMessage: Identifiable, Equatable {
     }
 
     var isVisible: Bool {
-        isStreaming || parts.contains { part in
+        compaction != nil || isStreaming || parts.contains { part in
             switch part {
             case .text(_, let text):
                 return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -221,6 +267,7 @@ struct PiChatMessage: Identifiable, Equatable {
     }
 
     init(message: AgentHostSessionMessage, isStreaming: Bool = false) {
+        compaction = message.compaction
         id = message.id
         role = switch message.role {
         case .user: .user
@@ -263,6 +310,7 @@ struct PiChatMessage: Identifiable, Equatable {
     }
 
     init(message: SessionTranscriptMessage, isStreaming: Bool = false) {
+        compaction = message.compaction
         id = message.id
         role = switch message.role {
         case .user: .user

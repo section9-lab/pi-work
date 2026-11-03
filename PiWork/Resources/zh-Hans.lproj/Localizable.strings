@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "正在压缩上下文…";
+"chat.compaction.running.threshold" = "上下文接近上限，正在自动压缩…";
+"chat.compaction.running.overflow" = "上下文已超限，正在压缩以重试…";
+"chat.compaction.cancel" = "取消压缩";
+"chat.compaction.completed" = "上下文已压缩";
+"chat.compaction.cancelled" = "压缩已取消";
+"chat.compaction.failed" = "上下文压缩失败";
+"chat.compaction.retry" = "重试";
+"chat.compaction.expanded" = "已展开";
+"chat.compaction.collapsed" = "已折叠";
+"chat.compaction.reason.manual" = "手动压缩";
+"chat.compaction.reason.threshold" = "自动压缩 · 接近上限";
+"chat.compaction.reason.overflow" = "自动压缩 · 溢出恢复";
+"chat.compaction.cost.billed" = "压缩费用：%@";
+"chat.compaction.cost.estimated" = "压缩费用约 %@";
+"chat.compaction.explanation" = "后续请求使用摘要与近期消息，原始会话记录仍可查看。";
+"chat.compaction.copy" = "复制摘要";
+"chat.compaction.copied" = "已复制";
+"chat.compaction.will_retry" = "运行时将重试被中断的请求。";
+"chat.compaction.tokens_before" = "压缩前 %@ tokens";
+"chat.compaction.tokens_after" = "%@ → 约 %@ tokens";
+"chat.compaction.action" = "立即压缩上下文…";
+"chat.compaction.instructions" = "摘要重点（可选）";
+"chat.compaction.start" = "开始压缩";
+"chat.compaction.command" = "整理较早的上下文，可补充需要保留的内容";
+"chat.compaction.queue" = "等待发送 · 压缩完成后继续";
+
 /* Running input */
 "settings.agent.running_input.title" = "执行中发送消息";
 "settings.agent.running_input.follow_up" = "Follow-up · 完成后执行";

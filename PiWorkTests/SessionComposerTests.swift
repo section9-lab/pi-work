@@ -2296,6 +2296,8 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains("ContextUsageIndicator"))
         XCTAssertTrue(source.contains("context-usage-indicator"))
         XCTAssertTrue(source.contains(".popover(isPresented: $isContextUsagePresented"))
+        XCTAssertFalse(source.contains("dollarsign.circle"))
+        XCTAssertTrue(source.contains("presentation?.accessibilityLabel ?? L10n.string(\"context.recalculating\")"))
     }
 
     func testConversationSurfaceUsesSharedSessionStoreForChatAndWork() throws {

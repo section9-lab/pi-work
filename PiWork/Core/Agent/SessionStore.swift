@@ -123,6 +123,7 @@ struct SessionTranscriptMessage: Equatable, Identifiable {
     let role: AgentHostSessionMessageRole
     var parts: [SessionTranscriptPart]
     let timestamp: String
+    var compaction: AgentHostCompaction? = nil
 }
 
 struct SessionRecord: Equatable, Identifiable {
@@ -156,6 +157,7 @@ struct SessionRecord: Equatable, Identifiable {
     var acpState: AgentHostACPSessionState
     var queuedInputs: [AgentHostQueuedInput] = []
     var recoveredInputs: [AgentHostQueuedInput] = []
+    var compaction: AgentHostCompaction? = nil
 }
 
 enum SessionStoreEffect: Equatable {
@@ -278,7 +280,8 @@ struct SessionStoreReducer {
                 extensionStatuses: snapshot.extensionStatuses ?? [:],
                 extensionWidgets: snapshot.extensionWidgets ?? [:]
             ),
-            queuedInputs: snapshot.queuedInputs ?? []
+            queuedInputs: snapshot.queuedInputs ?? [],
+            compaction: snapshot.compaction
         )
     }
 
@@ -450,6 +453,7 @@ struct SessionStoreReducer {
     mutating func promptFailed(sessionId: String, turnId: String, message: String) {
         guard var record = records[sessionId], record.activeTurnId == turnId else { return }
         record.settledTurnIds.insert(turnId)
+        record.compaction = nil
         record.runState = .failed
         record.activeTurnId = nil
         record.errorMessage = message
@@ -645,6 +649,21 @@ struct SessionStoreReducer {
                 record.activeTurnId = payload.turnId
             }
             append(delta: payload.delta, turnId: payload.turnId, timestamp: timestamp, to: &record)
+        case .sessionCompactionChanged(let payload):
+            record.compaction = payload.compaction.status == .running ? payload.compaction : nil
+            if let usage = payload.contextUsage { record.contextUsage = usage }
+            if payload.compaction.status != .running {
+                let outcome = payload.compaction
+                if !record.messages.contains(where: { $0.id == outcome.id }) {
+                    var message = AgentHostSessionMessage(id: outcome.id, role: .system, content: [],
+                        timestamp: outcome.timestamp, provider: nil, model: nil, stopReason: nil,
+                        errorMessage: nil, toolCallId: nil, toolName: nil, isError: nil)
+                    message.compaction = outcome
+                    record.messages.append(message)
+                    record.transcript.append(SessionTranscriptMessage(id: outcome.id, role: .system,
+                        parts: [], timestamp: outcome.timestamp, compaction: outcome))
+                }
+            }
         case .sessionInputQueueChanged(let payload):
             record.queuedInputs = payload.inputs
             for input in payload.recoveredInputs ?? [] where !record.recoveredInputs.contains(where: { $0.id == input.id }) {
@@ -748,6 +767,7 @@ struct SessionStoreReducer {
                 errorMessage: payload.message
             )
             finishUnfinishedThinking(in: &record)
+            record.compaction = nil
             record.runState = .failed
             record.activeTurnId = nil
             record.pendingApprovals = []
@@ -788,7 +808,7 @@ struct SessionStoreReducer {
                 record.acpState.updatedAt = updatedAt
             }
         case .sessionUsageChanged(let payload):
-            record.contextUsage = AgentHostContextUsage(
+            record.contextUsage = payload.contextUsage ?? AgentHostContextUsage(
                 tokens: payload.used,
                 contextWindow: payload.size,
                 percent: payload.size > 0
@@ -841,6 +861,8 @@ struct SessionStoreReducer {
         case .sessionStateChanged(let payload):
             return (payload.sessionId, payload.sequence)
         case .sessionMessageDelta(let payload):
+            return (payload.sessionId, payload.sequence)
+        case .sessionCompactionChanged(let payload):
             return (payload.sessionId, payload.sequence)
         case .sessionInputQueueChanged(let payload):
             return (payload.sessionId, payload.sequence)
@@ -1311,13 +1333,14 @@ struct SessionStoreReducer {
             }
 
             let messageParts = parts(for: message)
-            guard !messageParts.isEmpty else { continue }
+            guard !messageParts.isEmpty || message.compaction != nil else { continue }
             transcript.append(
                 SessionTranscriptMessage(
                     id: message.id,
                     role: message.role,
                     parts: messageParts,
-                    timestamp: message.timestamp
+                    timestamp: message.timestamp,
+                    compaction: message.compaction
                 )
             )
         }
@@ -2043,6 +2066,18 @@ final class SessionStore: ObservableObject {
             images: images, runningBehavior: behavior))
     }
 
+    func compact(sessionId: String, instructions: String? = nil) async throws {
+        guard let record = records[sessionId] else { throw SessionStoreError.sessionNotOpen(sessionId) }
+        guard record.runState == .idle || record.runState == .failed,
+              record.compaction == nil else { throw SessionStoreError.sessionBusy(sessionId) }
+        guard supportsCompaction else { throw AgentHostServiceError.missingPiWorkCapability(.sessionCompact) }
+        try await service.compact(sessionId: sessionId, instructions: instructions)
+    }
+
+    func cancelCompaction(sessionId: String) async throws {
+        try await service.cancelCompaction(sessionId: sessionId)
+    }
+
     func recoverDraft(sessionId: String, text: String, images: [AgentHostPromptImage], behavior: RunningMessageBehavior) {
         reducer.recoverInputs([AgentHostQueuedInput(id: UUID().uuidString, text: text, images: images, behavior: behavior)], sessionId: sessionId)
         publishReducerState()
@@ -2651,6 +2686,8 @@ final class SessionStore: ObservableObject {
         )
     }
 
+    var supportsCompaction: Bool { supportsPiWorkCapability(.sessionCompact) }
+    var supportsCompactionCancellation: Bool { supportsPiWorkCapability(.sessionCancelCompaction) }
     var supportsRunningInput: Bool { supportsPiWorkCapability(.sessionEnqueueInput) }
 
     private func supportsPiWorkCapability(_ capability: AgentHostPiWorkCapability) -> Bool {

@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "正在壓縮上下文…";
+"chat.compaction.running.threshold" = "上下文接近上限，正在自動壓縮…";
+"chat.compaction.running.overflow" = "上下文已超限，正在壓縮以重試…";
+"chat.compaction.cancel" = "取消壓縮";
+"chat.compaction.completed" = "上下文已壓縮";
+"chat.compaction.cancelled" = "壓縮已取消";
+"chat.compaction.failed" = "上下文壓縮失敗";
+"chat.compaction.retry" = "重試";
+"chat.compaction.expanded" = "已展開";
+"chat.compaction.collapsed" = "已收合";
+"chat.compaction.reason.manual" = "手動壓縮";
+"chat.compaction.reason.threshold" = "自動壓縮 · 接近上限";
+"chat.compaction.reason.overflow" = "自動壓縮 · 溢出復原";
+"chat.compaction.cost.billed" = "壓縮費用：%@";
+"chat.compaction.cost.estimated" = "壓縮費用約 %@";
+"chat.compaction.explanation" = "後續請求使用摘要與近期訊息，原始對話記錄仍可查看。";
+"chat.compaction.copy" = "複製摘要";
+"chat.compaction.copied" = "已複製";
+"chat.compaction.will_retry" = "執行階段將重試被中斷的請求。";
+"chat.compaction.tokens_before" = "壓縮前 %@ tokens";
+"chat.compaction.tokens_after" = "%@ → 約 %@ tokens";
+"chat.compaction.action" = "立即壓縮上下文…";
+"chat.compaction.instructions" = "摘要重點（選填）";
+"chat.compaction.start" = "開始壓縮";
+"chat.compaction.command" = "整理較早的上下文，可補充需要保留的內容";
+"chat.compaction.queue" = "等待傳送 · 壓縮完成後繼續";
+
 /* Running input */
 "settings.agent.running_input.title" = "執行中傳送訊息";
 "settings.agent.running_input.follow_up" = "Follow-up · 完成後執行";

@@ -21,6 +21,7 @@ struct ChatView: View {
 
     @AppStorage(RunningMessageBehavior.preferenceKey) private var runningMessageBehavior = RunningMessageBehavior.followUp.rawValue
     @State private var slashCommands: [AgentHostSlashCommand] = []
+    @State private var compactionRequests: Set<String> = []
 
     private var composerDraftKey: SessionComposerDraftKey {
         SessionComposerDraftKey(
@@ -157,7 +158,7 @@ struct ChatView: View {
                     get: { composerDrafts.draft(for: draftKey).selectedCommand },
                     set: { composerDrafts.set($0, at: \.selectedCommand, for: draftKey) }
                 ),
-                slashCommands: slashCommands,
+                slashCommands: availableSlashCommands,
                 promptHistory: SessionComposerState.promptHistory(in: allMessages),
                 imageAttachments: imageAttachments,
                 isProcessingImageAttachments: isProcessingImageAttachments,
@@ -175,6 +176,10 @@ struct ChatView: View {
                 extensionWidgets: activeRecord?.acpState.extensionWidgets ?? [:],
                 cost: activeRecord?.acpState.cost,
                 responseModel: activeRecord?.acpState.responseModel,
+                compaction: activeRecord?.compaction,
+                canCompact: canCompact,
+                onCompact: compactContext,
+                onCancelCompaction: sessionStore.supportsCompactionCancellation ? cancelCompaction : nil,
                 selectedThinkingLevel: activeRecord?.thinkingLevel,
                 availableThinkingLevels: activeRecord?.availableThinkingLevels ?? [],
                 modelOptions: activeRecord?.modelOptions ?? .unsupported,
@@ -523,7 +528,9 @@ struct ChatView: View {
             message: message,
             loadedToolOutputs: loadedToolOutputs,
             loadingToolOutputIDs: loadingToolOutputIDs,
-            onLoadToolOutput: loadToolOutput
+            onLoadToolOutput: loadToolOutput,
+            canRetryCompaction: canCompact,
+            onRetryCompaction: { compactContext(nil) }
         ) { approval, decision in
             resolve(approval: approval, decision: decision)
         }
@@ -927,6 +934,13 @@ struct ChatView: View {
         else { return }
 
         guard let sessionId = activeSessionId else { return }
+        if sessionStore.supportsCompaction, let instructions = CompactionPresentation.instructions(in: text) {
+            guard imageAttachments.isEmpty, canCompact else { return }
+            compactContext(instructions.isEmpty ? nil : instructions)
+            draft = ""
+            selectedSlashCommand = nil
+            return
+        }
         let queued = isExecuting
         let draftKey = composerDraftKey
         let submitted = composerDrafts.draft(for: draftKey)
@@ -967,7 +981,7 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if !record.queuedInputs.isEmpty {
                         HStack {
-                            Text(L10n.string("chat.input_queue.pending"))
+                            Text(L10n.string(record.compaction != nil ? "chat.compaction.queue" : "chat.input_queue.pending"))
                             Spacer()
                             Button(L10n.string("chat.input_queue.clear")) {
                                 Task {
@@ -1366,6 +1380,39 @@ struct ChatView: View {
         messages.last?.id ?? ""
     }
 
+    private var canCompact: Bool {
+        guard let record = activeRecord else { return false }
+        return sessionStore.supportsCompaction && record.compaction == nil
+            && !compactionRequests.contains(record.id)
+            && (record.runState == .idle || record.runState == .failed)
+            && !record.messages.isEmpty && !isSessionTransitioning
+    }
+
+    private var availableSlashCommands: [AgentHostSlashCommand] {
+        guard sessionStore.supportsCompaction else { return slashCommands }
+        return [AgentHostSlashCommand(name: "compact", description: L10n.string("chat.compaction.command"), source: .agent)]
+            + slashCommands.filter { $0.name != "compact" }
+    }
+
+    private func compactContext(_ instructions: String?) {
+        guard canCompact, let sessionId = activeSessionId else { return }
+        compactionRequests.insert(sessionId)
+        actionFailure = nil
+        Task {
+            defer { compactionRequests.remove(sessionId) }
+            do { try await sessionStore.compact(sessionId: sessionId, instructions: instructions) }
+            catch { if activeSessionId == sessionId { actionFailure = AgentErrorPresentation(error) } }
+        }
+    }
+
+    private func cancelCompaction() {
+        guard let sessionId = activeSessionId else { return }
+        Task {
+            do { try await sessionStore.cancelCompaction(sessionId: sessionId) }
+            catch { if activeSessionId == sessionId { actionFailure = AgentErrorPresentation(error) } }
+        }
+    }
+
     private var isExecuting: Bool {
         switch activeRecord?.runState {
         case .submitting, .running, .stopping: return true
@@ -1374,6 +1421,10 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
+        let text = SessionComposerState.submissionText(draft: draft, selectedCommand: selectedSlashCommand)
+        if sessionStore.supportsCompaction, CompactionPresentation.instructions(in: text) != nil {
+            return canCompact && imageAttachments.isEmpty && !isProcessingImageAttachments
+        }
         guard let record = activeRecord, let model = record.model,
               record.runState == .idle || record.runState == .failed || record.runState == .running,
               !composerDrafts.isSubmitting(sessionID: record.id) else { return false }
@@ -1695,6 +1746,10 @@ private struct SessionComposer: View {
     let extensionWidgets: [String: AgentHostExtensionWidget]
     let cost: AgentHostACPSessionCost?
     var responseModel: String? = nil
+    var compaction: AgentHostCompaction? = nil
+    var canCompact = false
+    var onCompact: ((String?) -> Void)? = nil
+    var onCancelCompaction: (() -> Void)? = nil
     let selectedThinkingLevel: AgentHostThinkingLevel?
     let availableThinkingLevels: [AgentHostThinkingLevel]
     let modelOptions: AgentHostModelOptions
@@ -1746,6 +1801,9 @@ private struct SessionComposer: View {
 
     var body: some View {
         VStack(spacing: 9) {
+            if let compaction {
+                CompactionActivityView(compaction: compaction, onCancel: onCancelCompaction)
+            }
             SessionActivityPanel(
                 plan: plan,
                 statuses: extensionStatuses,
@@ -1978,9 +2036,15 @@ private struct SessionComposer: View {
             ) % filteredSlashCommands.count
             return true
         case .dismissSuggestions:
-            guard isSlashCommandPanelPresented else { return false }
-            isSlashCommandPanelDismissed = true
-            return true
+            if isSlashCommandPanelPresented {
+                isSlashCommandPanelDismissed = true
+                return true
+            }
+            if compaction != nil, let onCancelCompaction {
+                onCancelCompaction()
+                return true
+            }
+            return false
         case .deleteSelectedCommand:
             guard selectedSlashCommand != nil else { return false }
             removeSelectedSlashCommand()
@@ -2314,7 +2378,8 @@ private struct SessionComposer: View {
                 }
                 Spacer(minLength: 0)
                 if contextUsage != nil || cost != nil {
-                    ContextUsageIndicator(usage: contextUsage, cost: cost, responseModel: responseModel)
+                    ContextUsageIndicator(usage: contextUsage, cost: cost, responseModel: responseModel,
+                                          canCompact: canCompact, onCompact: onCompact)
                 }
                 if genericModeState != nil || !genericConfigOptions.isEmpty {
                     genericConfigMenu
@@ -3098,6 +3163,8 @@ private struct ContextUsageIndicator: View {
     let usage: AgentHostContextUsage?
     let cost: AgentHostACPSessionCost?
     var responseModel: String? = nil
+    var canCompact = false
+    var onCompact: ((String?) -> Void)? = nil
     @State private var isContextUsagePresented = false
 
     private var presentation: ContextUsagePresentation? {
@@ -3108,26 +3175,21 @@ private struct ContextUsageIndicator: View {
         Button {
             isContextUsagePresented.toggle()
         } label: {
-            Group {
-                if let presentation {
-                    ZStack {
-                        Circle()
-                            .stroke(Color.primary.opacity(0.12), lineWidth: 3)
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 3)
 
-                        Circle()
-                            .trim(from: 0, to: presentation.progress)
-                            .stroke(
-                                Color.primary.opacity(0.58),
-                                style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                            )
-                            .rotationEffect(.degrees(-90))
-                    }
-                    .frame(width: 17, height: 17)
-                } else {
-                    Image(systemName: "dollarsign.circle")
-                        .font(.system(size: 15, weight: .medium))
+                if let presentation {
+                    Circle()
+                        .trim(from: 0, to: presentation.progress)
+                        .stroke(
+                            Color.primary.opacity(0.58),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
                 }
             }
+            .frame(width: 17, height: 17)
             .frame(width: 28, height: 32)
         }
         .buttonStyle(
@@ -3138,15 +3200,21 @@ private struct ContextUsageIndicator: View {
         )
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("context-usage-indicator")
-        .onHover { isContextUsagePresented = $0 }
+        .onHover { if $0 { isContextUsagePresented = true } }
         .popover(isPresented: $isContextUsagePresented, arrowEdge: .top) {
-            ContextUsagePopover(presentation: presentation, cost: cost, responseModel: responseModel)
+            ContextUsagePopover(presentation: presentation, cost: cost, responseModel: responseModel,
+                                canCompact: canCompact, onCompact: onCompact.map { action in
+                { instructions in
+                    isContextUsagePresented = false
+                    action(instructions)
+                }
+            })
         }
     }
 
     private var accessibilityLabel: String {
         [
-            presentation?.accessibilityLabel,
+            presentation?.accessibilityLabel ?? L10n.string("context.recalculating"),
             costText.map { "\(L10n.string("chat.session_cost")): \($0)" }
         ]
         .compactMap { $0 }
@@ -3372,6 +3440,7 @@ private struct GrowingTextEditor: NSViewRepresentable {
                 ) else { return false }
                 return parent.onEditorCommand(.recallNextPrompt)
             case #selector(NSResponder.cancelOperation(_:)):
+                guard !textView.hasMarkedText() else { return false }
                 return parent.onEditorCommand(.dismissSuggestions)
             case #selector(NSResponder.deleteBackward(_:)):
                 let selection = textView.selectedRange()
@@ -3607,12 +3676,15 @@ private struct ChatMessageRow: View, Equatable {
         lhs.message == rhs.message
             && lhs.loadedToolOutputs == rhs.loadedToolOutputs
             && lhs.loadingToolOutputIDs == rhs.loadingToolOutputIDs
+            && lhs.canRetryCompaction == rhs.canRetryCompaction
     }
 
     let message: PiChatMessage
     let loadedToolOutputs: [String: String]
     let loadingToolOutputIDs: Set<String>
     let onLoadToolOutput: (SessionToolRecord) -> Void
+    var canRetryCompaction = false
+    var onRetryCompaction: (() -> Void)? = nil
     let onResolve: (AgentHostApprovalRequest, AgentHostApprovalDecision) -> Void
 
     @State private var isMessageCopied = false
@@ -3674,9 +3746,14 @@ private struct ChatMessageRow: View, Equatable {
                 }
             }
         case .system:
-            Text(message.text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.primary.opacity(0.5))
+            if let compaction = message.compaction {
+                CompactionRecordView(compaction: compaction,
+                    onRetry: canRetryCompaction ? onRetryCompaction : nil)
+            } else {
+                Text(message.text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary.opacity(0.5))
+            }
         }
     }
 

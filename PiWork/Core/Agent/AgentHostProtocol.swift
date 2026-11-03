@@ -66,6 +66,8 @@ enum AgentHostPiWorkCapability: String, CaseIterable, Decodable, Equatable, Hash
     case gitBranches = "git.branches"
     case sessionExportHTML = "session.exportHtml"
     case sessionSnapshot = "session.snapshot"
+    case sessionCompact = "session.compact"
+    case sessionCancelCompaction = "session.cancelCompaction"
     case sessionEnqueueInput = "session.enqueueInput"
     case sessionClearInputQueue = "session.clearInputQueue"
     case sessionTranscriptPage = "session.transcriptPage"
@@ -371,6 +373,7 @@ struct AgentHostSessionUsageChangedPayload: Equatable {
     let size: Int
     let cost: AgentHostACPSessionCost?
     var responseModel: String? = nil
+    var contextUsage: AgentHostContextUsage? = nil
 }
 
 struct AgentHostSessionAvailableCommandsChangedPayload: Equatable {
@@ -1410,6 +1413,7 @@ struct AgentHostModelsChangedPayload: Decodable, Equatable {
 enum AgentHostServerEvent: Equatable {
     case hostHello(AgentHostHelloPayload)
     case sessionStateChanged(AgentHostSessionStateChangedPayload)
+    case sessionCompactionChanged(AgentHostCompactionChangedPayload)
     case sessionInputQueueChanged(AgentHostInputQueuePayload)
     case sessionInputDelivered(AgentHostInputDeliveredPayload)
     case sessionMessageDelta(AgentHostSessionMessageDeltaPayload)
@@ -1480,6 +1484,8 @@ enum AgentHostServerEvent: Equatable {
                 from: data
             )
             return .hostHello(event.payload)
+        case "session.compactionChanged":
+            return .sessionCompactionChanged(try decoder.decode(AgentHostEvent<AgentHostCompactionChangedPayload>.self, from: data).payload)
         case "session.inputQueueChanged":
             return .sessionInputQueueChanged(try decoder.decode(AgentHostEvent<AgentHostInputQueuePayload>.self, from: data).payload)
         case "session.inputDelivered":
@@ -1740,7 +1746,10 @@ enum AgentHostServerEvent: Equatable {
                     used: used,
                     size: size,
                     cost: cost,
-                    responseModel: (metadata?["piWork"] as? [String: Any])?["responseModel"] as? String
+                    responseModel: (metadata?["piWork"] as? [String: Any])?["responseModel"] as? String,
+                    contextUsage: try (metadata?["piWork"] as? [String: Any])?["contextUsage"].map {
+                        try decodeACPValue($0, as: AgentHostContextUsage.self)
+                    }
                 )
             )
         case "available_commands_update":
@@ -1979,6 +1988,8 @@ private func agentHostACPMethod(for method: String) -> String {
     case "git.branches": return "_piWork/git/branches"
     case "session.exportHtml": return "_piWork/session/exportHtml"
     case "session.snapshot": return "_piWork/session/snapshot"
+    case "session.compact": return "_piWork/session/compact"
+    case "session.cancelCompaction": return "_piWork/session/cancelCompaction"
     case "session.enqueueInput": return "_piWork/session/enqueueInput"
     case "session.clearInputQueue": return "_piWork/session/clearInputQueue"
     case "session.transcriptPage": return "_piWork/session/transcriptPage"
@@ -3131,6 +3142,33 @@ enum AgentHostSessionMessageContent: Decodable, Equatable {
     }
 }
 
+struct AgentHostCompaction: Decodable, Equatable, Identifiable {
+    enum Status: String, Decodable { case running, completed, cancelled, failed }
+    enum Reason: String, Decodable { case manual, threshold, overflow }
+    let id: String
+    let status: Status
+    let reason: Reason?
+    let timestamp: String
+    var summary: String? = nil
+    var tokensBefore: Int? = nil
+    var estimatedTokensAfter: Int? = nil
+    var cost: AgentHostACPSessionCost? = nil
+    var errorMessage: String? = nil
+    var willRetry: Bool? = nil
+}
+
+struct AgentHostCompactionChangedPayload: Decodable, Equatable {
+    let sessionId: String
+    let sequence: Int
+    let compaction: AgentHostCompaction
+    let contextUsage: AgentHostContextUsage?
+}
+
+struct AgentHostCompactParameters: Encodable {
+    let sessionId: String
+    let instructions: String?
+}
+
 struct AgentHostSessionMessage: Decodable, Equatable, Identifiable {
     let id: String
     let role: AgentHostSessionMessageRole
@@ -3147,6 +3185,7 @@ struct AgentHostSessionMessage: Decodable, Equatable, Identifiable {
     var toolOutputBytes: Int? = nil
     var responseModel: String? = nil
     var rawOutput: AgentHostJSONValue? = nil
+    var compaction: AgentHostCompaction? = nil
 }
 
 struct AgentHostSessionHistory: Decodable, Equatable {
@@ -3183,6 +3222,7 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
     let plan: [AgentHostACPPlanEntry]?
     let queuedInputs: [AgentHostQueuedInput]?
     var usage: AgentHostSessionUsageSnapshot? = nil
+    var compaction: AgentHostCompaction? = nil
 
     init(
         session: AgentHostSessionDescriptor,
@@ -3203,8 +3243,10 @@ struct AgentHostSessionSnapshotResult: Decodable, Equatable {
         extensionWidgets: [String: AgentHostExtensionWidget]? = nil,
         plan: [AgentHostACPPlanEntry]? = nil,
         queuedInputs: [AgentHostQueuedInput]? = nil,
-        usage: AgentHostSessionUsageSnapshot? = nil
+        usage: AgentHostSessionUsageSnapshot? = nil,
+        compaction: AgentHostCompaction? = nil
     ) {
+        self.compaction = compaction
         self.usage = usage
         self.queuedInputs = queuedInputs
         self.session = session

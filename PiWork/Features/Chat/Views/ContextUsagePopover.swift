@@ -7,6 +7,10 @@ struct ContextUsagePopover: View {
     let presentation: ContextUsagePresentation?
     let cost: AgentHostACPSessionCost?
     var responseModel: String? = nil
+    var canCompact = false
+    var onCompact: ((String?) -> Void)? = nil
+    @State private var showsCompactionForm = false
+    @State private var instructions = ""
 
     private var segments: [ContextUsagePresentation.Segment] {
         presentation?.segments ?? []
@@ -70,6 +74,33 @@ struct ContextUsagePopover: View {
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+            }
+            if let onCompact {
+                Divider()
+                Button {
+                    showsCompactionForm.toggle()
+                } label: {
+                    Label(L10n.string("chat.compaction.action"), systemImage: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canCompact)
+                .accessibilityIdentifier("context-compact-action")
+                if showsCompactionForm {
+                    TextField(L10n.string("chat.compaction.instructions"), text: $instructions)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit { if canCompact { onCompact(instructions.isEmpty ? nil : instructions) } }
+                    HStack {
+                        Spacer()
+                        Button(L10n.string("chat.compaction.start")) {
+                            onCompact(instructions.isEmpty ? nil : instructions)
+                        }
+                        .controlSize(.small)
+                        .disabled(!canCompact)
+                        .accessibilityIdentifier("context-compact-start")
+                    }
+                }
             }
         }
         .padding(.horizontal, 14)

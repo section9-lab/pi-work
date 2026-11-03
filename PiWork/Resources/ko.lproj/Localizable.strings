@@ -1,3 +1,31 @@
+/* Context compaction */
+"chat.compaction.running.manual" = "컨텍스트 압축 중…";
+"chat.compaction.running.threshold" = "한도에 가까워져 자동 압축 중…";
+"chat.compaction.running.overflow" = "컨텍스트 한도 도달. 재시도를 위해 압축 중…";
+"chat.compaction.cancel" = "압축 취소";
+"chat.compaction.completed" = "컨텍스트 압축 완료";
+"chat.compaction.cancelled" = "압축 취소됨";
+"chat.compaction.failed" = "컨텍스트 압축 실패";
+"chat.compaction.retry" = "재시도";
+"chat.compaction.expanded" = "펼쳐짐";
+"chat.compaction.collapsed" = "접힘";
+"chat.compaction.reason.manual" = "수동 압축";
+"chat.compaction.reason.threshold" = "자동 · 한도 근접";
+"chat.compaction.reason.overflow" = "자동 · 한도 초과 복구";
+"chat.compaction.cost.billed" = "압축 비용: %@";
+"chat.compaction.cost.estimated" = "예상 압축 비용: %@";
+"chat.compaction.explanation" = "다음 요청은 요약과 최근 메시지를 사용합니다. 원래 대화 기록은 계속 볼 수 있습니다.";
+"chat.compaction.copy" = "요약 복사";
+"chat.compaction.copied" = "복사됨";
+"chat.compaction.will_retry" = "중단된 요청을 다시 시도합니다.";
+"chat.compaction.tokens_before" = "압축 전 %@ 토큰";
+"chat.compaction.tokens_after" = "%@ → 약 %@ 토큰";
+"chat.compaction.action" = "지금 컨텍스트 압축…";
+"chat.compaction.instructions" = "요약 중점 (선택)";
+"chat.compaction.start" = "압축 시작";
+"chat.compaction.command" = "이전 컨텍스트를 요약하며 보존할 내용을 지정할 수 있습니다";
+"chat.compaction.queue" = "전송 대기 · 압축 완료 후 계속";
+
 /* Running input */
 "settings.agent.running_input.title" = "실행 중 메시지 전송";
 "settings.agent.running_input.follow_up" = "Follow-up · 완료 후 실행";

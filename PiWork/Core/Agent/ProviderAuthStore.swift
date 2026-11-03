@@ -485,6 +485,7 @@ struct ProviderAuthReducer {
             return [.reloadProviders]
         case .hostHello,
              .sessionStateChanged,
+             .sessionCompactionChanged,
              .sessionInputQueueChanged,
              .sessionInputDelivered,
              .sessionMessageDelta,
