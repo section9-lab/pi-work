@@ -1,5 +1,5 @@
 name: Prepare macOS dependencies
-description: Restore native dependency caches and resolve the committed Swift package pins after XcodeGen runs.
+description: Restore native dependency caches, stage committed pins and resolve packages only on a cache miss.
 runs:
   using: composite
   steps:
@@ -25,7 +25,12 @@ runs:
         path: build/Sparkle-2.10.1
         key: macos-sparkle-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-sparkle-tools.sh') }}
 
-    - name: Resolve pinned Swift packages into shared storage
+    - name: Stage committed Swift package pins
+      shell: bash
+      run: bash scripts/prepare-swift-packages.sh --stage-only
+
+    - name: Resolve pinned Swift packages on cache miss
+      if: steps.swift-cache.outputs.cache-hit != 'true'
       shell: bash
       run: bash scripts/prepare-swift-packages.sh
 

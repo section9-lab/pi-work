@@ -6,9 +6,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 : "${SWIFT_PACKAGE_CACHE_PATH:?Set SWIFT_PACKAGE_CACHE_PATH to the shared package directory}"
 
+mode="${1:-resolve}"
+if [ "$mode" != "resolve" ] && [ "$mode" != "--stage-only" ]; then
+  echo "Usage: $0 [--stage-only]" >&2
+  exit 2
+fi
+
 resolved_path="pi-work.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 mkdir -p "$(dirname "$resolved_path")" "$SWIFT_PACKAGE_CACHE_PATH"
 cp ci/Package.resolved "$resolved_path"
+
+if [ "$mode" = "--stage-only" ]; then
+  exit 0
+fi
 
 xcodebuild -resolvePackageDependencies \
   -project pi-work.xcodeproj \

@@ -9,7 +9,7 @@ The release workflow still tests and packages both native architectures. Depende
 - Swift package checkouts and binary artifacts in `$RUNNER_TEMP/PiWorkSourcePackages`. The key includes runner OS, architecture, the selected Xcode version/build, and `ci/Package.resolved`.
 - Sparkle signing tools in `build/Sparkle-2.10.1`. The key includes runner OS, architecture, and the download script, which pins and verifies the upstream archive checksum.
 
-Tests and the Release archive both use the shared Swift package directory. Their compiled products remain in separate, disposable DerivedData directories. Cache keys intentionally exclude the app version, tag and source commit so normal app releases can reuse unchanged dependencies.
+Tests and the Release archive both use the shared Swift package directory from independent matrix jobs. Their compiled products remain in separate, disposable DerivedData directories. Cache keys intentionally exclude the app version, tag and source commit so normal app releases can reuse unchanged dependencies. An exact cache hit only stages the committed lockfile; the explicit package-resolution pass runs on cache misses, while both Xcode commands still enforce the pinned lockfile.
 
 ### Why a separate warm-up workflow exists
 
@@ -38,13 +38,15 @@ python3 -m unittest scripts/test_release_workflow.py scripts/test_ci_dependencie
 
 The preparation-script checks use a fake `xcodebuild` to verify shared paths, strict resolution, lockfile drift rejection and exit-code propagation; they do not replace an actual Xcode release run.
 
-## Finding the next bottleneck
+## Release job layout and diagnostics
 
-Agent Host type-checking, Bun tests, packaging checks, app-update checks, project-change checks and runtime-recovery checks now appear as separate Actions steps. Both architectures still run all checks.
+Architecture-independent validation runs once on the faster ARM runner: Agent Host type-checking, Bun tests, packaging checks, app-update checks, project-change checks and runtime-recovery checks remain individually timed. Native XCTest and Release packaging each retain ARM64 and Intel matrix coverage.
 
-Both Xcode invocations enable `-showBuildTimingSummary`. Their complete stdout/stderr logs are uploaded, including on failure, as `PiWorkBuildDiagnostics-arm64` and `PiWorkBuildDiagnostics-x86_64`, retained for seven days:
+The test and package matrices run independently, so Debug XCTest compilation no longer blocks the unrelated Release archive. Publishing waits for validation plus every test and package matrix job. This keeps the same release gates while placing the two clean Xcode builds on parallel critical paths.
 
-- `application-tests.log`: dependency preparation/build, test execution and Xcode's build timing summary.
-- `archive.log`: Release archive build and its timing summary.
+Both Xcode invocations enable `-showBuildTimingSummary`. Their complete stdout/stderr logs are uploaded, including on failure, and retained for seven days:
+
+- `PiWorkTestDiagnostics-*` contains `application-tests.log`: dependency preparation/build, test execution and Xcode's build timing summary.
+- `PiWorkBuildDiagnostics-*` contains `archive.log`: Release archive build and its timing summary.
 
 The existing `PiWorkTests-*` XCTest result bundles remain available separately. Diagnostic artifacts do not match the release job's `PiWork-*` installer download pattern. Shell pipelines use `pipefail`, so capturing logs with `tee` cannot turn an Xcode failure into a successful release.

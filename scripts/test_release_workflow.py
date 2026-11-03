@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -17,6 +18,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "The tag-triggered macOS release workflow must exist.",
         )
         return WORKFLOW_PATH.read_text()
+
+    def job_text(self, name):
+        workflow = self.workflow_text()
+        marker = f"\n  {name}:\n"
+        start = workflow.index(marker) + len(marker)
+        next_job = re.search(r"(?m)^  [A-Za-z0-9_-]+:$", workflow[start:])
+        return workflow[start:] if next_job is None else workflow[start:start + next_job.start()]
 
     def test_version_tag_triggers_release(self):
         workflow = self.workflow_text()
@@ -52,6 +60,27 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("macos-15-intel", workflow)
         self.assertIn("arch: arm64", workflow)
         self.assertIn("arch: x86_64", workflow)
+
+    def test_validation_tests_and_archives_are_independent_release_gates(self):
+        validation = self.job_text("validate")
+        tests = self.job_text("test")
+        packages = self.job_text("package")
+        release = self.job_text("release")
+
+        self.assertIn("Run application tests", tests)
+        self.assertNotIn("Build archive", tests)
+        self.assertIn("Build archive", packages)
+        self.assertNotIn("Run application tests", packages)
+        self.assertIn("strategy:", tests)
+        self.assertIn("strategy:", packages)
+        self.assertIn("macos-15-intel", tests)
+        self.assertIn("macos-15-intel", packages)
+        self.assertNotIn("needs:", tests)
+        self.assertNotIn("needs:", packages)
+        self.assertIn("Type-check Agent Host", validation)
+        self.assertIn("runs-on: macos-15", validation)
+        self.assertNotIn("strategy:", validation)
+        self.assertIn("needs: [validate, test, package]", release)
 
     def test_release_uses_ad_hoc_signing_without_notarization(self):
         workflow = self.workflow_text()
@@ -192,14 +221,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("currentPiVersion", version_row)
         self.assertNotIn("Button(", version_row)
 
-    def test_native_dependencies_are_prepared_once_and_shared_by_test_and_archive(self):
+    def test_native_dependencies_are_prepared_for_parallel_test_and_package_jobs(self):
         workflow = self.workflow_text()
-        self.assertEqual(workflow.count("uses: ./.github/actions/prepare-macos-dependencies"), 1)
+        tests = self.job_text("test")
+        packages = self.job_text("package")
+        self.assertEqual(workflow.count("uses: ./.github/actions/prepare-macos-dependencies"), 2)
         self.assertEqual(workflow.count('-clonedSourcePackagesDirPath "$SWIFT_PACKAGE_CACHE_PATH"'), 2)
         self.assertEqual(workflow.count("-disableAutomaticPackageResolution"), 2)
         self.assertEqual(workflow.count("-onlyUsePackageVersionsFromResolvedFile"), 2)
-        self.assertLess(workflow.index("Generate Xcode project"), workflow.index("Prepare native dependencies"))
-        self.assertLess(workflow.index("Prepare native dependencies"), workflow.index("Run application tests"))
+        for job, terminal_step in [(tests, "Run application tests"), (packages, "Build archive")]:
+            self.assertLess(job.index("Generate Xcode project"), job.index("Prepare native dependencies"))
+            self.assertLess(job.index("Prepare native dependencies"), job.index(terminal_step))
 
     def test_checks_are_individually_timed_without_removing_architecture_coverage(self):
         workflow = self.workflow_text()
@@ -210,7 +242,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
                         "bash scripts/test-project-changes.sh", "bash scripts/test-agent-runtime.sh"]:
             self.assertEqual(workflow.count(command), 1)
         self.assertIn("scripts/test_ci_dependencies.py", workflow)
-        self.assertIn("needs: build", workflow)
+        self.assertIn("needs: [validate, test, package]", workflow)
         self.assertNotIn("continue-on-error: true", workflow)
 
     def test_xcode_timing_logs_are_kept_even_when_a_build_fails(self):

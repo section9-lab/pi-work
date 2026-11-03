@@ -67,6 +67,11 @@ class NativeDependencyConfigurationTests(unittest.TestCase):
         self.assertNotIn("gh release", warmup)
         self.assertNotIn("secrets.", warmup)
 
+    def test_exact_cache_hits_stage_the_lockfile_without_resolving_again(self):
+        action = ACTION.read_text()
+        self.assertIn("--stage-only", action)
+        self.assertIn("steps.swift-cache.outputs.cache-hit != 'true'", action)
+
 
 class SwiftPackagePreparationTests(unittest.TestCase):
     def setUp(self):
@@ -95,9 +100,13 @@ sys.exit(int(os.environ.get("CI_TEST_XCODE_EXIT", "0")))
 ''')
         fake_xcode.chmod(0o755)
 
-    def run_prepare(self):
-        return subprocess.run(["bash", str(self.root / "scripts/prepare-swift-packages.sh")],
-                              env=self.env, text=True, capture_output=True)
+    def run_prepare(self, *arguments):
+        return subprocess.run(
+            ["bash", str(self.root / "scripts/prepare-swift-packages.sh"), *arguments],
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
 
     def test_resolves_once_into_explicit_shared_cache_using_committed_lock(self):
         result = self.run_prepare()
@@ -110,6 +119,14 @@ sys.exit(int(os.environ.get("CI_TEST_XCODE_EXIT", "0")))
         generated = self.root / "pi-work.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         self.assertEqual(json.loads(generated.read_text()), json.loads(LOCK.read_text()))
         self.assertTrue(self.cache.is_dir())
+
+    def test_stage_only_copies_the_committed_lock_without_invoking_xcode(self):
+        result = self.run_prepare("--stage-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        generated = self.root / "pi-work.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        self.assertEqual(json.loads(generated.read_text()), json.loads(LOCK.read_text()))
+        self.assertTrue(self.cache.is_dir())
+        self.assertFalse(self.capture.exists())
 
     def test_dependency_drift_is_rejected(self):
         self.env["CI_TEST_MUTATE_LOCK"] = "1"
