@@ -10,10 +10,10 @@ import SwiftUI
 /// scheme in the environment, including one forced by
 /// `.preferredColorScheme`.
 enum AppPalette {
-    /// Window backdrop: near-white washing into pearl blue in light, deep
-    /// graphite washing into blue-gray in dark. The vertical axis keeps the
-    /// tint even across the reading surface, matching the visual reference.
-    static let windowGradient = LinearGradient(
+    /// Keep the original near-white / pearl-blue field, with the approved
+    /// 45% reference-blue blend fading in toward the bottom in light mode.
+    /// The transparent dark stops leave the existing dark appearance intact.
+    private static let windowBaseGradient = LinearGradient(
         stops: [
             .init(color: dynamic(light: 0xF7F8FA, dark: 0x1B202A), location: 0.00),
             .init(color: dynamic(light: 0xF2F7FA, dark: 0x202838), location: 0.28),
@@ -23,6 +23,24 @@ enum AppPalette {
         startPoint: .top,
         endPoint: .bottom
     )
+
+    static var windowGradient: some View {
+        windowBaseGradient.overlay {
+            LinearGradient(
+                stops: [
+                    .init(color: dynamic(light: 0xADC3DB, dark: 0x000000, darkAlpha: 0), location: 0),
+                    .init(color: dynamic(light: 0x99BEDF, dark: 0x000000, darkAlpha: 0), location: 0.25),
+                    .init(color: dynamic(light: 0x80BBE2, dark: 0x000000, darkAlpha: 0), location: 0.50),
+                    .init(color: dynamic(light: 0x70C7F5, dark: 0x000000, darkAlpha: 0), location: 0.75),
+                    .init(color: dynamic(light: 0x70D0FF, dark: 0x000000, darkAlpha: 0), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .opacity(0.45)
+            .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+        }
+    }
 
     /// Opaque top edge of the conversation backdrop. The transcript masks
     /// this surface vertically so scrolled content disappears beneath the
