@@ -52,6 +52,89 @@ final class TranscriptScrollObserverTests: XCTestCase {
         XCTAssertEqual(loads, 2, "A completed or failed load must allow a fresh wheel notch to retry")
     }
 
+    func testDownwardWheelNearTopNeverLoadsOlderHistory() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        var loads = 0
+        fixture.observer.hasEarlierMessages = true
+        fixture.observer.topThreshold = 160
+        fixture.observer.onReachTop = { loads += 1 }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 60))
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        fixture.observer.handleScrollWheel(DownHistoryWheel(window: fixture.window, point: point))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 0)
+        fixture.observer.historyLoadRevision += 1
+        fixture.observer.handleScrollWheel(DownHistoryWheel(window: fixture.window, point: point))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 0)
+    }
+
+    func testDownwardWheelAtBottomRevealsNewerOnceButProgrammaticScrollDoesNot() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        var loads = 0
+        fixture.observer.hasNewerMessages = true
+        fixture.observer.newerLoadThreshold = 160
+        fixture.observer.onReachBottom = { loads += 1 }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 2000))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(loads, 0)
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        fixture.observer.handleScrollWheel(DownHistoryWheel(window: fixture.window, point: point))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 1)
+        fixture.observer.handleScrollWheel(DownHistoryWheel(window: fixture.window, point: point))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 1)
+    }
+
+    func testTypingInComposerDoesNotRevealNewerMessages() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        var loads = 0
+        fixture.observer.hasNewerMessages = true
+        fixture.observer.newerLoadThreshold = 160
+        fixture.observer.onReachBottom = { loads += 1 }
+        let text = NSTextView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        fixture.scroll.documentView?.addSubview(text)
+        fixture.window.makeFirstResponder(text)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 2000))
+        fixture.observer.handleScrollKey(HistoryKeyEvent(window: fixture.window, keyCode: 121))
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 0)
+    }
+
+    func testKeyboardAndLiveScrollCanRevealNewerMessages() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        var loads = 0
+        fixture.observer.hasNewerMessages = true
+        fixture.observer.newerLoadThreshold = 160
+        fixture.observer.onReachBottom = { loads += 1 }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 1000))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        fixture.observer.handleScrollKey(HistoryKeyEvent(window: fixture.window, keyCode: 121))
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 2000))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 1)
+        fixture.observer.historyLoadRevision += 1
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 1000))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scroll)
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 2000))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(loads, 2)
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: fixture.scroll)
+    }
+
     func testTrackpadLiveScrollStillLoadsEarlierMessages() async throws {
         let fixture = makeFixture()
         defer { fixture.window.close() }

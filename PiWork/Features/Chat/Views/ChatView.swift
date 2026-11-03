@@ -59,6 +59,8 @@ struct ChatView: View {
     @State private var transcriptScrollTaskID: UUID?
     @State private var recordUpdateGeneration = 0
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
+    @State private var transcriptNavigation = TranscriptWindowNavigation()
+    @State private var transcriptViewport = TranscriptViewport()
     @State private var historyLoadID: UUID?
     @State private var historyLoadRevision = 0
     @State private var historyAnchorRestoreTask: Task<Void, Never>?
@@ -120,7 +122,8 @@ struct ChatView: View {
                         } else {
                             transcript(
                                 messages: allMessages,
-                                hiddenMessageCount: messagePresentation.hiddenCount
+                                hiddenMessageCount: messagePresentation.hiddenCount,
+                                hasNewerMessages: messagePresentation.hasNewerMessages
                             )
                                 .transition(.opacity)
                         }
@@ -159,7 +162,8 @@ struct ChatView: View {
                     set: { composerDrafts.set($0, at: \.selectedCommand, for: draftKey) }
                 ),
                 slashCommands: availableSlashCommands,
-                promptHistory: SessionComposerState.promptHistory(in: allMessages),
+                promptHistory: presentedRecord.map { SessionComposerState.promptHistory(inTranscript: $0.transcript) }
+                    ?? SessionComposerState.promptHistory(in: allMessages),
                 imageAttachments: imageAttachments,
                 isProcessingImageAttachments: isProcessingImageAttachments,
                 selectedModelSupportsImages: selectedModelSupportsImages,
@@ -295,6 +299,7 @@ struct ChatView: View {
             historyLoadID = nil
             historyLoadRevision &+= 1
             transcriptMessageLimit = TranscriptWindow.batchSize
+            transcriptNavigation = TranscriptWindowNavigation()
             presentedMessageLimit = SessionPresentationBatch.initialCount
             presentedSessionID = activeSessionId
             loadedToolOutputs.removeAll()
@@ -351,10 +356,11 @@ struct ChatView: View {
 
     private func transcript(
         messages: [PiChatMessage],
-        hiddenMessageCount: Int
+        hiddenMessageCount: Int,
+        hasNewerMessages: Bool
     ) -> some View {
-        // The rail indexes every loaded user turn, not only the recent render
-        // window. Selecting an older mark expands that window before scrolling.
+        // The rail indexes every loaded user turn. Selecting a mark moves the
+        // bounded render window around that turn before scrolling.
         let promptMessages = presentedRecord?.transcript
             .filter { $0.role == .user }
             .map { PiChatMessage(message: $0, isStreaming: false) } ?? messages
@@ -381,17 +387,21 @@ struct ChatView: View {
                             .padding(.vertical, 8)
                             .accessibilityIdentifier("transcript-history-loader")
                         }
-                        // Keep the live tail eagerly measured for stable bottom
-                        // anchoring. Only explicitly expanded history is virtualized.
-                        if messages.count > TranscriptWindow.batchSize {
-                            LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing) {
-                                ForEach(messages.dropLast(TranscriptWindow.batchSize)) { message in
-                                    transcriptRow(message)
-                                }
-                            }
-                        }
-                        ForEach(messages.suffix(TranscriptWindow.batchSize)) { message in
+                        // The window is bounded, so every displayed row can be
+                        // measured without LazyVStack height estimates moving it.
+                        ForEach(messages) { message in
                             transcriptRow(message)
+                        }
+                        if hasNewerMessages {
+                            Button(L10n.string("chat.history.load_newer")) {
+                                loadNewerMessages(messages: messages, using: proxy)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier("transcript-newer-loader")
                         }
 
                         Color.clear
@@ -417,13 +427,21 @@ struct ChatView: View {
                         TranscriptUserScrollObserver(
                             topThreshold: TranscriptLayout.historyLoadThreshold,
                             bottomThreshold: TranscriptLayout.followThreshold,
+                            newerLoadThreshold: max(TranscriptLayout.followThreshold, viewport.size.height * 0.75),
                             hasEarlierMessages: hiddenMessageCount > 0,
+                            hasNewerMessages: hasNewerMessages,
+                            viewport: transcriptViewport,
                             historyLoadRevision: historyLoadRevision,
                             onUserScroll: pauseTranscriptAutoFollow,
                             onReachTop: {
                                 loadEarlierMessages(messages: messages, using: proxy)
                             },
-                            onScrollPositionChange: updateTranscriptAutoFollowFromScrollView
+                            onReachBottom: {
+                                loadNewerMessages(messages: messages, using: proxy)
+                            },
+                            onScrollPositionChange: { nearBottom in
+                                updateTranscriptAutoFollowFromScrollView(isNearBottom: nearBottom && !hasNewerMessages)
+                            }
                         )
                     }
                 }
@@ -449,6 +467,7 @@ struct ChatView: View {
                         .padding(.bottom, 12)
                         .help(L10n.string("chat.scroll_to_latest"))
                         .accessibilityLabel(L10n.string("chat.scroll_to_latest"))
+                        .accessibilityIdentifier("transcript-jump-to-latest")
                         .transition(
                             accessibilityReduceMotion
                                 ? .opacity
@@ -480,6 +499,7 @@ struct ChatView: View {
                     value: isFollowingTranscriptTail
                 )
                 .onPreferenceChange(TranscriptBottomPreferenceKey.self) { bottomY in
+                    guard !hasNewerMessages else { return }
                     let shouldFollow = isFollowingTranscriptTail && !isTranscriptAutoFollowPaused
                     let updated = TranscriptScrollPresentation.updatedAutoFollowState(
                         current: TranscriptAutoFollowState(
@@ -496,6 +516,9 @@ struct ChatView: View {
                     if shouldFollow, !isAdjustingTranscriptScroll {
                         scheduleTranscriptScroll(using: proxy)
                     }
+                }
+                .onPreferenceChange(TranscriptRowFramesPreferenceKey.self) { frames in
+                    transcriptViewport.frames = frames
                 }
                 .onPreferenceChange(PromptRowFramesPreferenceKey.self) { frames in
                     let next = PromptRailPresentation.currentPromptID(
@@ -536,6 +559,14 @@ struct ChatView: View {
         }
         .equatable()
         .background {
+            GeometryReader { row in
+                Color.clear.preference(
+                    key: TranscriptRowFramesPreferenceKey.self,
+                    value: [message.id: row.frame(in: .named(TranscriptLayout.coordinateSpace))]
+                )
+            }
+        }
+        .background {
             if message.role == .user {
                 GeometryReader { row in
                     Color.clear.preference(
@@ -569,19 +600,18 @@ struct ChatView: View {
         isFollowingTranscriptTail = false
         isTranscriptAutoFollowPaused = true
         isAdjustingTranscriptScroll = true
-        if let transcript = presentedRecord?.transcript,
-           let index = transcript.firstIndex(where: { $0.id == entry.id }) {
-            let requiredLimit = transcript.count - index
-            if requiredLimit > min(transcriptMessageLimit, presentedMessageLimit) {
-                transcriptMessageLimit = max(transcriptMessageLimit, requiredLimit)
-                presentedMessageLimit = max(presentedMessageLimit, requiredLimit)
-                let sessionID = activeSessionId
-                DispatchQueue.main.async {
-                    guard activeSessionId == sessionID else { return }
-                    jump(to: entry, using: proxy)
-                }
-                return
+        let window = messagePresentation
+        transcriptNavigation.pin(in: window.sourceIDs)
+        if !window.messages.contains(where: { $0.id == entry.id }), window.sourceIDs.contains(entry.id) {
+            transcriptNavigation.jump(to: entry.id, in: window.sourceIDs)
+            transcriptMessageLimit = transcriptNavigation.count
+            presentedMessageLimit = transcriptNavigation.count
+            let sessionID = activeSessionId
+            DispatchQueue.main.async {
+                guard activeSessionId == sessionID else { return }
+                jump(to: entry, using: proxy)
             }
+            return
         }
         withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.3)) {
             proxy.scrollTo(entry.id, anchor: .top)
@@ -618,6 +648,17 @@ struct ChatView: View {
 
     private func scrollToTranscriptTail(using proxy: ScrollViewProxy) {
         transcriptScrollTask?.cancel()
+        if transcriptNavigation.endID != nil {
+            transcriptNavigation.revealLatest()
+            transcriptMessageLimit = transcriptNavigation.count
+            presentedMessageLimit = transcriptNavigation.count
+            let sessionID = activeSessionId
+            DispatchQueue.main.async {
+                guard activeSessionId == sessionID else { return }
+                scrollToTranscriptTail(using: proxy)
+            }
+            return
+        }
         let sessionID = activeSessionId
         let taskID = UUID()
         transcriptScrollTaskID = taskID
@@ -626,10 +667,8 @@ struct ChatView: View {
         isAdjustingTranscriptScroll = true
         proxy.scrollTo(TranscriptLayout.tailID, anchor: .bottom)
 
-        // A LazyVStack initially positions the tail from estimated heights. As
-        // off-screen Markdown and tool rows are measured, that estimate can
-        // move the real tail well below the viewport. Retry across the settling
-        // window instead of declaring success after the first estimated jump.
+        // Markdown and tool rows can finish layout after the first jump.
+        // Retry while the tail settles; user input cancels the retries.
         transcriptScrollTask = Task { @MainActor in
             defer {
                 if transcriptScrollTaskID == taskID {
@@ -654,9 +693,10 @@ struct ChatView: View {
         messages: [PiChatMessage],
         using proxy: ScrollViewProxy
     ) {
-        guard let anchorID = messages.first?.id, let record = presentedRecord,
+        let window = messagePresentation
+        guard let anchor = messages.first, let record = presentedRecord,
               record.id == activeSessionId, !isSessionTransitioning, historyLoadID == nil,
-              transcriptMessageLimit < record.transcript.count || record.hasEarlierMessages else { return }
+              window.hasCachedEarlierMessages || record.hasEarlierMessages else { return }
         let sessionID = record.id
         let loadID = UUID()
         historyLoadID = loadID
@@ -677,18 +717,20 @@ struct ChatView: View {
             }
             do {
                 let additionalCount: Int
-                if transcriptMessageLimit < record.transcript.count {
+                if window.hasCachedEarlierMessages {
                     additionalCount = TranscriptWindow.batchSize
                 } else {
                     additionalCount = try await sessionStore.loadEarlierMessages(sessionId: sessionID)
                 }
                 guard additionalCount > 0, activeSessionId == sessionID, historyLoadID == loadID else { return }
-                transcriptMessageLimit += max(TranscriptWindow.batchSize, additionalCount)
-                presentedMessageLimit = transcriptMessageLimit
+                transcriptNavigation.revealEarlier(in: messagePresentation.sourceIDs)
+                transcriptMessageLimit = transcriptNavigation.count
+                presentedMessageLimit = transcriptNavigation.count
                 await Task.yield()
                 guard activeSessionId == sessionID, historyLoadID == loadID else { return }
                 restoreTranscriptAnchor(
-                    anchorID,
+                    anchor,
+                    anchorPosition: .top,
                     sessionID: sessionID,
                     restorationID: loadID,
                     using: proxy
@@ -700,21 +742,59 @@ struct ChatView: View {
         }
     }
 
+    private func loadNewerMessages(messages: [PiChatMessage], using proxy: ScrollViewProxy) {
+        let window = messagePresentation
+        guard let last = messages.last, let sessionID = activeSessionId,
+              window.hasNewerMessages, historyLoadID == nil,
+              !isSessionTransitioning, !isAdjustingTranscriptScroll else { return }
+        let captured = transcriptViewport.captureVisibleAnchor(in: messages)
+        let loadID = UUID()
+        historyLoadID = loadID
+        pauseTranscriptAutoFollow()
+        isAdjustingTranscriptScroll = true
+        transcriptNavigation.revealNewer(in: window.sourceIDs)
+        transcriptMessageLimit = transcriptNavigation.count
+        presentedMessageLimit = transcriptNavigation.count
+        let newIDs = Set(messagePresentation.messages.map(\.id))
+        if transcriptViewport.removeLeadingRows(messages, retaining: newIDs) {
+            DispatchQueue.main.async {
+                guard activeSessionId == sessionID, historyLoadID == loadID else { return }
+                historyLoadID = nil
+                historyLoadRevision &+= 1
+                isAdjustingTranscriptScroll = false
+            }
+        } else {
+            restoreTranscriptAnchor(
+                captured?.message ?? last,
+                anchorPosition: captured == nil ? .bottom : .top,
+                viewportOffset: captured?.offset,
+                sessionID: sessionID,
+                restorationID: loadID,
+                using: proxy
+            )
+            historyLoadID = nil
+            historyLoadRevision &+= 1
+        }
+    }
+
     private func restoreTranscriptAnchor(
-        _ anchorID: String,
+        _ anchor: PiChatMessage,
+        anchorPosition: UnitPoint,
+        viewportOffset: CGFloat? = nil,
         sessionID: String,
         restorationID: UUID,
         using proxy: ScrollViewProxy
     ) {
         historyAnchorRestoreTask?.cancel()
         historyAnchorRestoreID = restorationID
-        proxy.scrollTo(anchorID, anchor: .top)
+        let partIDs = Set(anchor.parts.map(\.id))
+        let anchorID = messagePresentation.messages.first {
+            $0.id == anchor.id || $0.parts.contains { partIDs.contains($0.id) }
+        }?.id ?? anchor.id
+        proxy.scrollTo(anchorID, anchor: anchorPosition)
 
-        // Newly prepended LazyVStack rows initially have estimated heights. On
-        // a slower layout pass the first jump can run before the old first row
-        // reaches its final position. Keep restoration independent from the
-        // network/load gate so a second wheel gesture is never blocked by
-        // these layout retries.
+        // Keep restoration independent of the network/load gate so another
+        // wheel gesture can cancel these retries instead of being blocked.
         historyAnchorRestoreTask = Task { @MainActor in
             defer {
                 if historyAnchorRestoreID == restorationID {
@@ -729,8 +809,11 @@ struct ChatView: View {
                 } catch { return }
                 guard !Task.isCancelled, historyAnchorRestoreID == restorationID,
                       activeSessionId == sessionID else { return }
-                proxy.scrollTo(anchorID, anchor: .top)
+                proxy.scrollTo(anchorID, anchor: anchorPosition)
                 await Task.yield()
+                if let viewportOffset {
+                    transcriptViewport.restoreOffset(viewportOffset, for: anchorID)
+                }
             }
         }
     }
@@ -743,6 +826,10 @@ struct ChatView: View {
         historyAnchorRestoreTask = nil
         historyAnchorRestoreID = nil
         isAdjustingTranscriptScroll = false
+        if transcriptNavigation.endID == nil {
+            let sourceIDs = messagePresentation.sourceIDs
+            if !sourceIDs.isEmpty { transcriptNavigation.pin(in: sourceIDs) }
+        }
         guard !isTranscriptAutoFollowPaused else { return }
         isTranscriptAutoFollowPaused = true
         isFollowingTranscriptTail = false
@@ -754,6 +841,7 @@ struct ChatView: View {
         // the observer reports the real AppKit position, including a failed
         // jump that landed short of the tail.
         guard !isAdjustingTranscriptScroll else { return }
+        if isNearBottom, transcriptNavigation.endID != nil { transcriptNavigation.followTail() }
         if isTranscriptAutoFollowPaused == isNearBottom {
             isTranscriptAutoFollowPaused = !isNearBottom
         }
@@ -1357,21 +1445,27 @@ struct ChatView: View {
                     )
             }?.id
         }
-        let visibleWindow = TranscriptProjection.recentMessages(
-            record.transcript,
-            limit: min(transcriptMessageLimit, presentedMessageLimit)
-        ) { message in
-            let chatMessage = PiChatMessage(
-                message: message,
+        let visibleSource = record.transcript.filter { message in
+            PiChatMessage.hasVisibleContent(
+                parts: message.parts,
+                hasCompaction: message.compaction != nil,
                 isStreaming: message.id == streamingMessageID && isExecuting
             )
-            return chatMessage.isVisible ? chatMessage : nil
+        }
+        let sourceIDs = visibleSource.map(\.id)
+        let range = transcriptNavigation.range(
+            in: sourceIDs,
+            presentationLimit: min(transcriptMessageLimit, presentedMessageLimit)
+        )
+        let displayed = visibleSource[range].map { message in
+            PiChatMessage(message: message, isStreaming: message.id == streamingMessageID && isExecuting)
         }
         return TranscriptWindow(
-            messages: AssistantTranscriptPresentation.groupAdjacentTools(
-                in: visibleWindow.messages
-            ),
-            hiddenCount: visibleWindow.hiddenCount + (record.hasEarlierMessages ? 1 : 0)
+            messages: AssistantTranscriptPresentation.groupAdjacentTools(in: displayed),
+            hiddenCount: range.lowerBound + (record.hasEarlierMessages ? 1 : 0),
+            sourceIDs: sourceIDs,
+            hasNewerMessages: range.upperBound < sourceIDs.count,
+            hasCachedEarlierMessages: range.lowerBound > 0
         )
     }
 
@@ -1493,6 +1587,53 @@ private struct SessionOpenFirstFrameReporter: View {
     }
 }
 
+@MainActor final class TranscriptViewport {
+    weak var scrollView: NSScrollView?
+    var frames: [String: CGRect] = [:]
+
+    func captureVisibleAnchor(in messages: [PiChatMessage]) -> (message: PiChatMessage, offset: CGFloat)? {
+        guard let height = scrollView?.contentView.bounds.height else { return nil }
+        return messages.compactMap { message -> (PiChatMessage, CGFloat)? in
+            guard let frame = frames[message.id], frame.maxY > 0, frame.minY < height else { return nil }
+            return (message, frame.minY)
+        }.min { $0.1 < $1.1 }
+    }
+
+    /// Removing rows changes the document origin. Compensate synchronously,
+    /// before the next frame, so advancing the window neither skips nor repeats
+    /// the content under the reader's pointer.
+    func removeLeadingRows(_ oldRows: [PiChatMessage], retaining newIDs: Set<String>) -> Bool {
+        guard let scrollView, let document = scrollView.documentView,
+              let first = oldRows.first, let retained = oldRows.first(where: { newIDs.contains($0.id) }),
+              let firstFrame = frames[first.id], let retainedFrame = frames[retained.id] else { return false }
+        let removedHeight = retainedFrame.minY - firstFrame.minY
+        let clip = scrollView.contentView
+        var bounds = clip.bounds
+        bounds.origin.y += document.isFlipped ? -removedHeight : removedHeight
+        clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+        scrollView.reflectScrolledClipView(clip)
+        return true
+    }
+
+    func restoreOffset(_ offset: CGFloat, for id: String) {
+        guard let scrollView, let document = scrollView.documentView, let frame = frames[id] else { return }
+        let delta = frame.minY - offset
+        guard abs(delta) > 0.5 else { return }
+        let clip = scrollView.contentView
+        var bounds = clip.bounds
+        bounds.origin.y += document.isFlipped ? delta : -delta
+        clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+        scrollView.reflectScrolledClipView(clip)
+    }
+}
+
+private struct TranscriptRowFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 private struct TranscriptBottomPreferenceKey: PreferenceKey {
     static var defaultValue = CGFloat.infinity
 
@@ -1515,20 +1656,28 @@ private struct PromptRowFramesPreferenceKey: PreferenceKey {
 private struct TranscriptUserScrollObserver: NSViewRepresentable {
     let topThreshold: CGFloat
     let bottomThreshold: CGFloat
+    let newerLoadThreshold: CGFloat
     let hasEarlierMessages: Bool
+    let hasNewerMessages: Bool
+    let viewport: TranscriptViewport
     let historyLoadRevision: Int
     let onUserScroll: () -> Void
     let onReachTop: () -> Void
+    let onReachBottom: () -> Void
     let onScrollPositionChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> TranscriptUserScrollObserverView {
         let view = TranscriptUserScrollObserverView()
         view.topThreshold = topThreshold
         view.bottomThreshold = bottomThreshold
+        view.newerLoadThreshold = newerLoadThreshold
         view.hasEarlierMessages = hasEarlierMessages
+        view.hasNewerMessages = hasNewerMessages
+        view.viewport = viewport
         view.historyLoadRevision = historyLoadRevision
         view.onUserScroll = onUserScroll
         view.onReachTop = onReachTop
+        view.onReachBottom = onReachBottom
         view.onScrollPositionChange = onScrollPositionChange
         return view
     }
@@ -1536,10 +1685,14 @@ private struct TranscriptUserScrollObserver: NSViewRepresentable {
     func updateNSView(_ nsView: TranscriptUserScrollObserverView, context: Context) {
         nsView.topThreshold = topThreshold
         nsView.bottomThreshold = bottomThreshold
+        nsView.newerLoadThreshold = newerLoadThreshold
         nsView.hasEarlierMessages = hasEarlierMessages
+        nsView.hasNewerMessages = hasNewerMessages
+        nsView.viewport = viewport
         nsView.historyLoadRevision = historyLoadRevision
         nsView.onUserScroll = onUserScroll
         nsView.onReachTop = onReachTop
+        nsView.onReachBottom = onReachBottom
         nsView.onScrollPositionChange = onScrollPositionChange
     }
 }
@@ -1547,27 +1700,38 @@ private struct TranscriptUserScrollObserver: NSViewRepresentable {
 final class TranscriptUserScrollObserverView: NSView {
     var topThreshold: CGFloat = 0
     var bottomThreshold: CGFloat = 0
+    var newerLoadThreshold: CGFloat = 0
     var hasEarlierMessages = false
+    var hasNewerMessages = false
+    var viewport: TranscriptViewport?
     var historyLoadRevision = 0 {
         didSet {
             guard oldValue != historyLoadRevision else { return }
             historyLoadTrigger.reset()
+            newerLoadTrigger.reset()
             isUserScrolling = false
+            scrollDirection = 0
         }
     }
     var onUserScroll: () -> Void = {}
     var onReachTop: () -> Void = {}
+    var onReachBottom: () -> Void = {}
     var onScrollPositionChange: (Bool) -> Void = { _ in }
 
     private weak var observedScrollView: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var wheelMonitor: Any?
+    private var keyMonitor: Any?
     private var scrollEndWork: DispatchWorkItem?
     private var positionCallbackWork: DispatchWorkItem?
     private var pendingReachedTop = false
+    private var pendingReachedBottom = false
     private var pendingIsNearBottom: Bool?
     private var isUserScrolling = false
+    private var scrollDirection = 0
+    private var previousDistanceFromTop: CGFloat?
     private var historyLoadTrigger = TranscriptHistoryLoadTrigger()
+    private var newerLoadTrigger = TranscriptHistoryLoadTrigger()
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -1595,11 +1759,16 @@ final class TranscriptUserScrollObserverView: NSView {
         removeObserver()
         guard let scrollView else { return }
         observedScrollView = scrollView
+        viewport?.scrollView = scrollView
         scrollView.contentView.postsBoundsChangedNotifications = true
         // Discrete mouse wheels can have no gesture phase and emit no live-
         // scroll notifications. Observe their input before AppKit moves bounds.
         wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             self?.handleScrollWheel(event)
+            return event
+        }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleScrollKey(event)
             return event
         }
         observers.append(NotificationCenter.default.addObserver(
@@ -1635,7 +1804,36 @@ final class TranscriptUserScrollObserverView: NSView {
               scrollView.bounds.contains(scrollView.convert(event.locationInWindow, from: nil)) else { return }
         if let content = window.contentView,
            isOverOtherScrollView(in: content, point: event.locationInWindow, excluding: scrollView) { return }
+        beginUserScroll(direction: event.scrollingDeltaY > 0 ? -1 : 1, scrollView: scrollView)
+    }
+
+    func handleScrollKey(_ event: NSEvent) {
+        guard event.type == .keyDown, let scrollView = observedScrollView,
+              let window = scrollView.window, event.window === window else { return }
+        if let textView = window.firstResponder as? NSTextView, textView.isEditable { return }
+        if let responder = window.firstResponder as? NSView,
+           responder !== scrollView, !responder.isDescendant(of: scrollView) { return }
+        let direction: Int
+        switch event.keyCode {
+        case 125, 121, 119: direction = 1 // down, page down, end
+        case 126, 116, 115: direction = -1 // up, page up, home
+        default: return
+        }
+        beginUserScroll(direction: direction, scrollView: scrollView)
+    }
+
+    private func beginUserScroll(direction: Int, scrollView: NSScrollView) {
+        if let document = scrollView.documentView {
+            previousDistanceFromTop = TranscriptScrollPresentation.distances(
+                documentBounds: document.bounds,
+                visibleRect: scrollView.documentVisibleRect,
+                isFlipped: document.isFlipped
+            ).fromTop
+        }
         isUserScrolling = true
+        scrollDirection = direction
+        if scrollDirection > 0 { pendingReachedTop = false }
+        else { pendingReachedBottom = false }
         onUserScroll()
         reportScrollPosition()
         // Also sample after the wheel has actually moved the clip view, including
@@ -1667,13 +1865,26 @@ final class TranscriptUserScrollObserverView: NSView {
             visibleRect: scrollView.documentVisibleRect,
             isFlipped: documentView.isFlipped
         )
+        if isUserScrolling, let previousDistanceFromTop {
+            let delta = distances.fromTop - previousDistanceFromTop
+            if abs(delta) > 0.5 { scrollDirection = delta > 0 ? 1 : -1 }
+        }
+        previousDistanceFromTop = distances.fromTop
         if historyLoadTrigger.update(
             distanceFromTop: distances.fromTop,
-            isUserScrolling: isUserScrolling,
+            isUserScrolling: isUserScrolling && scrollDirection <= 0,
             hasEarlierMessages: hasEarlierMessages,
             threshold: topThreshold
         ) {
             pendingReachedTop = true
+        }
+        if newerLoadTrigger.update(
+            distanceFromTop: distances.fromBottom,
+            isUserScrolling: isUserScrolling && scrollDirection > 0,
+            hasEarlierMessages: hasNewerMessages,
+            threshold: newerLoadThreshold
+        ) {
+            pendingReachedBottom = true
         }
         // Always report the real position. A programmatic ScrollViewReader jump
         // can land short after lazy row estimates are replaced with real
@@ -1689,13 +1900,16 @@ final class TranscriptUserScrollObserverView: NSView {
             guard let self else { return }
             self.positionCallbackWork = nil
             let reachedTop = self.pendingReachedTop
+            let reachedBottom = self.pendingReachedBottom
             let isNearBottom = self.pendingIsNearBottom
             self.pendingReachedTop = false
+            self.pendingReachedBottom = false
             self.pendingIsNearBottom = nil
             // Never write SwiftUI state from AppKit's bounds notification. It
             // may be emitted inside HostingScrollView.updateValue(), where a
             // synchronous write causes an undefined update/layout feedback loop.
             if reachedTop { self.onReachTop() }
+            if reachedBottom { self.onReachBottom() }
             if let isNearBottom { self.onScrollPositionChange(isNearBottom) }
         }
         positionCallbackWork = work
@@ -1705,13 +1919,19 @@ final class TranscriptUserScrollObserverView: NSView {
     private func removeObserver() {
         if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
         wheelMonitor = nil
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
         scrollEndWork?.cancel()
         scrollEndWork = nil
         positionCallbackWork?.cancel()
         positionCallbackWork = nil
         pendingReachedTop = false
+        pendingReachedBottom = false
         pendingIsNearBottom = nil
         historyLoadTrigger.reset()
+        newerLoadTrigger.reset()
+        scrollDirection = 0
+        previousDistanceFromTop = nil
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }

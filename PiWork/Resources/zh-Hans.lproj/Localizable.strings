@@ -968,6 +968,7 @@
 "context.segment.skills" = "技能";
 "context.segment.context" = "项目上下文";
 "chat.history.load_earlier" = "加载更早的消息";
+"chat.history.load_newer" = "加载较新的消息";
 "chat.history.loading" = "正在加载历史消息…";
 "chat.prompt_rail.title" = "提问";
 "chat.prompt_rail.current" = "当前阅读位置";

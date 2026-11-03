@@ -224,7 +224,15 @@ struct PiChatMessage: Identifiable, Equatable {
     }
 
     var isVisible: Bool {
-        compaction != nil || isStreaming || parts.contains { part in
+        Self.hasVisibleContent(parts: parts, hasCompaction: compaction != nil, isStreaming: isStreaming)
+    }
+
+    static func hasVisibleContent(
+        parts: [SessionTranscriptPart],
+        hasCompaction: Bool,
+        isStreaming: Bool
+    ) -> Bool {
+        hasCompaction || isStreaming || parts.contains { part in
             switch part {
             case .text(_, let text):
                 return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -343,6 +351,9 @@ struct TranscriptWindow: Equatable {
 
     let messages: [PiChatMessage]
     let hiddenCount: Int
+    var sourceIDs: [String] = []
+    var hasNewerMessages = false
+    var hasCachedEarlierMessages = false
 
     init(messages: [PiChatMessage], limit: Int = batchSize) {
         let visibleCount = min(max(limit, 0), messages.count)
@@ -350,9 +361,18 @@ struct TranscriptWindow: Equatable {
         hiddenCount = messages.count - visibleCount
     }
 
-    init(messages: [PiChatMessage], hiddenCount: Int) {
+    init(
+        messages: [PiChatMessage],
+        hiddenCount: Int,
+        sourceIDs: [String] = [],
+        hasNewerMessages: Bool = false,
+        hasCachedEarlierMessages: Bool = false
+    ) {
         self.messages = messages
         self.hiddenCount = max(0, hiddenCount)
+        self.sourceIDs = sourceIDs
+        self.hasNewerMessages = hasNewerMessages
+        self.hasCachedEarlierMessages = hasCachedEarlierMessages
     }
 }
 

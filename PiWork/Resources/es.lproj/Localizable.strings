@@ -968,6 +968,7 @@
 "context.segment.skills" = "Habilidades";
 "context.segment.context" = "Contexto del proyecto";
 "chat.history.load_earlier" = "Cargar mensajes anteriores";
+"chat.history.load_newer" = "Cargar mensajes más recientes";
 "chat.history.loading" = "Cargando mensajes anteriores…";
 "chat.prompt_rail.title" = "Prompts";
 "chat.prompt_rail.current" = "Posición de lectura actual";

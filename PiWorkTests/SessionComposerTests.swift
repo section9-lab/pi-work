@@ -1194,6 +1194,16 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertEqual(SessionComposerState.promptHistory(in: [imageOnly, mixed]), ["分析这张图"])
     }
 
+    func testPromptHistoryUsesAllLoadedUserTurnsWithoutRenderingTheTranscript() {
+        let transcript = [
+            SessionTranscriptMessage(id: "old", role: .user, parts: [.text(id: "old-text", text: "Earlier question")], timestamp: ""),
+            SessionTranscriptMessage(id: "reply", role: .assistant, parts: [.text(id: "reply-text", text: "Response")], timestamp: ""),
+            SessionTranscriptMessage(id: "image", role: .user, parts: [.image(id: "image", mimeType: "image/png", data: nil)], timestamp: ""),
+            SessionTranscriptMessage(id: "latest", role: .user, parts: [.text(id: "first", text: "Latest"), .text(id: "second", text: "question")], timestamp: "")
+        ]
+        XCTAssertEqual(SessionComposerState.promptHistory(inTranscript: transcript), ["Earlier question", "Latest\nquestion"])
+    }
+
     func testConversationSurfaceConnectsImagePastePreviewAndSend() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1694,8 +1704,8 @@ final class SessionComposerTests: XCTestCase {
         )
         let transcriptSource = source[transcriptStart.lowerBound..<transcriptEnd.lowerBound]
         XCTAssertTrue(transcriptSource.contains("VStack(alignment: .leading, spacing: 12)"))
-        XCTAssertTrue(transcriptSource.contains("messages.suffix(TranscriptWindow.batchSize)"))
-        XCTAssertTrue(transcriptSource.contains("if messages.count > TranscriptWindow.batchSize"))
+        XCTAssertTrue(transcriptSource.contains("ForEach(messages)"))
+        XCTAssertFalse(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing)"))
     }
 
     func testChatViewSlicesTranscriptBeforeMappingChatMessages() throws {
@@ -1713,7 +1723,8 @@ final class SessionComposerTests: XCTestCase {
                 .components(separatedBy: "private func transcriptScrollToken").first
         )
 
-        XCTAssertTrue(messages.contains("TranscriptProjection.recentMessages("))
+        XCTAssertTrue(messages.contains("transcriptNavigation.range("))
+        XCTAssertTrue(messages.contains("visibleSource[range].map"))
         XCTAssertFalse(source.contains("let visibleMessages = record.transcript.map"))
     }
 
@@ -1772,7 +1783,8 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains("loadEarlierMessages("))
         XCTAssertTrue(source.contains("try await sessionStore.loadEarlierMessages("))
         XCTAssertTrue(source.contains("record.hasEarlierMessages"))
-        XCTAssertTrue(source.contains("proxy.scrollTo(anchorID, anchor: .top)"))
+        XCTAssertTrue(source.contains("anchorPosition: .top"))
+        XCTAssertTrue(source.contains("proxy.scrollTo(anchorID, anchor: anchorPosition)"))
         XCTAssertFalse(source.contains("accessibilityIdentifier(\"load-earlier-messages\")"))
     }
 

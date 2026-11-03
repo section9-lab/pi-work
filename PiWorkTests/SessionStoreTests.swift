@@ -575,6 +575,169 @@ final class SessionStoreTests: XCTestCase {
         await fixture.store.stop()
     }
 
+    func testHistoryRestoresAnchorWhenAdjacentToolRowsMerge() async throws {
+        let host = FakeAgentHost()
+        var messages = (0..<50).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        func assistant(_ id: String, _ content: [AgentHostSessionMessageContent]) -> AgentHostSessionMessage {
+            AgentHostSessionMessage(id: id, role: .assistant, content: content,
+                timestamp: "2026-08-09T00:00:00.000Z", provider: nil, model: nil,
+                stopReason: nil, errorMessage: nil, toolCallId: nil, toolName: nil, isError: nil)
+        }
+        messages[9] = assistant("preceding", [.text("Preparing"), .toolCall(id: "tool-one", name: "bash", argumentsSummary: "{}")])
+        messages[10] = assistant("old-anchor", [.toolCall(id: "tool-two", name: "bash", argumentsSummary: "{}")])
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+        XCTAssertNotNil(viewport.frames["old-anchor"])
+        scrollHistoryToTop(fixture)
+        for _ in 0..<100 {
+            if viewport.frames["preceding"] != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertNil(viewport.frames["old-anchor"], "The original tool-only row was merged")
+        let restored = try XCTUnwrap(viewport.frames["preceding"])
+        XCTAssertLessThan(abs(restored.minY), 10, "Restore to the merged row containing the original anchor")
+        await fixture.store.stop()
+    }
+
+    func testStreamingNewMessageDoesNotMoveReaderOutOfHistory() async throws {
+        let host = FakeAgentHost()
+        let messages = (0..<120).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+        scrollHistoryToTop(fixture)
+        for _ in 0..<150 {
+            if let frame = viewport.frames["history-80"], abs(frame.minY) < 10 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let restored = try XCTUnwrap(viewport.frames["history-80"])
+        XCTAssertLessThan(abs(restored.minY), 10, "Wait for the history anchor to settle before streaming")
+        let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
+        let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
+        await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
+            sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
+            phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
+            content: nil, toolCall: nil
+        )))
+        for _ in 0..<100 {
+            if (fixture.store.records["session-one"]?.transcript.count ?? 0) > 120 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 120)
+        let after = try XCTUnwrap(viewport.frames[anchor.key])
+        XCTAssertEqual(after.minY, anchor.value.minY, accuracy: 2, "Streaming must not shift the reading position")
+        XCTAssertFalse(viewport.frames.keys.contains { $0.contains("new-turn") })
+        await fixture.store.stop()
+    }
+
+    func testStreamingWhileReadingWithinRecentWindowKeepsTheVisibleAnchor() async throws {
+        let host = FakeAgentHost()
+        let messages = (0..<80).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        fixture.observer.handleScrollWheel(TestPhaseLessScrollWheelEvent(window: fixture.window, point: point))
+        var bounds = fixture.scroll.contentView.bounds
+        bounds.origin.y = max(200, bounds.origin.y - 300)
+        fixture.scroll.contentView.scroll(to: fixture.scroll.contentView.constrainBoundsRect(bounds).origin)
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 160_000_000)
+        let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
+        let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
+        await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
+            sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
+            phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
+            content: nil, toolCall: nil
+        )))
+        for _ in 0..<100 {
+            if (fixture.store.records["session-one"]?.transcript.count ?? 0) > 80 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 80)
+        let after = try XCTUnwrap(viewport.frames[anchor.key])
+        XCTAssertEqual(after.minY, anchor.value.minY, accuracy: 2)
+        XCTAssertFalse(viewport.frames.keys.contains { $0.contains("new-turn") })
+        await fixture.store.stop()
+    }
+
+    func testLongHistoryCanScrollBackToLatestWithoutSkippingRows() async throws {
+        let host = FakeAgentHost()
+        let messages = (0..<500).map { index -> AgentHostSessionMessage in
+            let paragraph = String(repeating: "History content \(index) is presented as Markdown. ", count: 1 + index % 5)
+            let parts: [AgentHostSessionMessageContent] = [.text("## Message \(index)\n\n" + paragraph)]
+            return AgentHostSessionMessage(
+                id: "row-\(index)", role: index % 7 == 0 ? .user : .assistant,
+                content: parts, timestamp: "2026-08-09T00:00:00.000Z", provider: nil,
+                model: nil, stopReason: nil, errorMessage: nil, toolCallId: nil, toolName: nil, isError: nil
+            )
+        }
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+        for _ in 0..<12 {
+            let previousFirst = viewport.frames.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) }.min() ?? 500
+            scrollHistoryToTop(fixture)
+            for _ in 0..<100 {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                let first = viewport.frames.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) }.min() ?? 500
+                if first < previousFirst { break }
+            }
+            try await Task.sleep(nanoseconds: 90_000_000)
+            let first = viewport.frames.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) }.min() ?? 500
+            XCTAssertLessThan(first, previousFirst, "Scrolling up must reveal an earlier bounded window")
+            XCTAssertLessThanOrEqual(viewport.frames.count, TranscriptWindowNavigation.maximumCount)
+        }
+        var seen: Set<Int> = []
+        var lastMaximum = -1
+        var previousVisible: Set<Int> = []
+        var latestVisibleSteps = 0
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        for _ in 0..<500 {
+            fixture.observer.handleScrollWheel(DownHistoryWheel(window: fixture.window, point: point))
+            var proposed = fixture.scroll.contentView.bounds
+            proposed.origin.y += 200
+            fixture.scroll.contentView.scroll(to: fixture.scroll.contentView.constrainBoundsRect(proposed).origin)
+            fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+            NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 30_000_000)
+            let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
+            let indices = Set(visible.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) })
+            XCTAssertLessThanOrEqual(viewport.frames.count, TranscriptWindowNavigation.maximumCount)
+            if let maximum = indices.max() {
+                XCTAssertGreaterThanOrEqual(maximum, lastMaximum, "Scrolling down must not return to earlier rows")
+                if let oldMax = previousVisible.max(), let newMin = indices.min(), newMin > oldMax + 1 {
+                    XCTFail("Scrolling must not skip messages (\(oldMax) to \(newMin))")
+                }
+                lastMaximum = maximum
+                seen.formUnion(indices)
+                previousVisible = indices
+            }
+            if let frame = viewport.frames["row-499"], frame.minY >= 0, frame.maxY <= fixture.scroll.contentView.bounds.height {
+                latestVisibleSteps += 1
+            } else { latestVisibleSteps = 0 }
+            if latestVisibleSteps >= 3 { break }
+        }
+        XCTAssertGreaterThanOrEqual(latestVisibleSteps, 3, "The latest message must remain fully visible")
+        if let first = seen.min() {
+            let missing = Set(first...499).subtracting(seen)
+            XCTAssertTrue(missing.isEmpty, "Every intervening row must be reachable; missing \(missing.sorted().prefix(10))")
+        } else {
+            XCTFail("No transcript rows were visible")
+        }
+        await fixture.store.stop()
+    }
+
     private typealias HistoryFixture = (store: SessionStore, window: NSWindow, scroll: NSScrollView, observer: TranscriptUserScrollObserverView)
 
     private func historyConversation(host: FakeAgentHost) async throws -> HistoryFixture {

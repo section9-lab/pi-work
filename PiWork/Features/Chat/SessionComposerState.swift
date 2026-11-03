@@ -115,6 +115,18 @@ enum SessionComposerState {
         }
     }
 
+    static func promptHistory(inTranscript messages: [SessionTranscriptMessage]) -> [String] {
+        messages.compactMap { message in
+            guard message.role == .user else { return nil }
+            let text = message.parts.compactMap { part -> String? in
+                guard case .text(_, let text) = part,
+                      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                return text
+            }.joined(separator: "\n")
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+    }
+
     static func editorHeight(for contentHeight: CGFloat) -> CGFloat {
         min(max(contentHeight, minimumEditorHeight), maximumEditorHeight)
     }
