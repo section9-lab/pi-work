@@ -3,6 +3,47 @@ import XCTest
 @testable import PiWork
 
 final class AgentHostClientTests: XCTestCase {
+    func testSystemPathMergePreservesInheritedPriorityAndFallsBack() {
+        XCTAssertEqual(
+            AgentHostPath.merging("/custom/bin:/usr/bin", system: "/usr/bin:/opt/homebrew/bin"),
+            "/custom/bin:/usr/bin:/opt/homebrew/bin"
+        )
+        XCTAssertEqual(AgentHostPath.merging("/custom/bin", system: nil), "/custom/bin")
+        XCTAssertNil(AgentHostPath.merging(nil, system: nil))
+        XCTAssertEqual(AgentHostPath.merging(nil, system: "/usr/bin"), "/usr/bin")
+        XCTAssertNil(AgentHostPath.systemPath(helperURL: URL(fileURLWithPath: "/nonexistent/path_helper")))
+    }
+
+    func testSystemPathHelperReadsMacOSPathConfiguration() throws {
+        let path = try XCTUnwrap(AgentHostPath.systemPath())
+        XCTAssertTrue(path.split(separator: ":").contains("/usr/bin"))
+    }
+
+    func testClientAddsSystemPathToInheritedEnvironment() async throws {
+        let script = #"read _; case ":$PATH:" in *:/usr/bin:*) result=found;; *) result=missing;; esac; printf '{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"%s"},"_meta":{"capabilities":[]}}}\n' "$result"; /bin/cat >/dev/null"#
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script],
+            environment: ["PATH": "/custom/bin"]
+        )
+        let hello = try await client.start()
+        XCTAssertEqual(hello.hostVersion, "found")
+        await client.stop()
+    }
+
+    func testClientDoesNotAddSystemPathToIsolatedEnvironment() async throws {
+        let script = #"read _; printf '{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"%s"},"_meta":{"capabilities":[]}}}\n' "$PATH"; /bin/cat >/dev/null"#
+        let client = AgentHostClient(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script],
+            environment: ["PATH": "/custom/bin"],
+            inheritEnvironment: false
+        )
+        let hello = try await client.start()
+        XCTAssertEqual(hello.hostVersion, "/custom/bin")
+        await client.stop()
+    }
+
     func testClientNegotiatesACPAndPassesPrivateEnvironmentToTheHost() async throws {
         let script = #"read _; printf '{"jsonrpc":"2.0","id":"__pi_work_initialize__","result":{"protocolVersion":1,"agentInfo":{"name":"pi-work-agent-host","version":"%s"},"_meta":{"piVersion":"0.84.1","capabilities":[]}}}\n' "$PI_WORK_AUTH_PATH"; cat >/dev/null"#
         let client = AgentHostClient(

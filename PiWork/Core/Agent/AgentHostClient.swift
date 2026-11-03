@@ -18,6 +18,45 @@ enum AgentHostClientError: LocalizedError {
     }
 }
 
+enum AgentHostPath {
+    // Keep the inherited order, then append paths configured by macOS (including Homebrew).
+    static func merging(_ inherited: String?, system: String?) -> String? {
+        guard let system, !system.isEmpty else { return inherited }
+        let original = inherited ?? ""
+        var entries = original.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        if original.isEmpty { entries = [] }
+        var seen = Set(entries)
+        for entry in system.split(separator: ":").map(String.init) where seen.insert(entry).inserted {
+            entries.append(entry)
+        }
+        return entries.joined(separator: ":")
+    }
+
+    static func systemPath(helperURL: URL = URL(fileURLWithPath: "/usr/libexec/path_helper")) -> String? {
+        let helper = Process()
+        helper.executableURL = helperURL
+        helper.arguments = ["-s"]
+        // Do not pass the inherited PATH to the helper: merge it ourselves to preserve its priority.
+        helper.environment = ["PATH": ""]
+        let output = Pipe()
+        helper.standardOutput = output
+        helper.standardError = FileHandle.nullDevice
+        do {
+            try helper.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            helper.waitUntilExit()
+            guard helper.terminationStatus == 0,
+                  let text = String(data: data, encoding: .utf8),
+                  let line = text.split(separator: "\n").first,
+                  line.hasPrefix("PATH=\""),
+                  line.hasSuffix("\"; export PATH;") else { return nil }
+            return String(line.dropFirst("PATH=\"".count).dropLast("\"; export PATH;".count))
+        } catch {
+            return nil
+        }
+    }
+}
+
 actor AgentHostClient {
     private let executableURL: URL
     private let arguments: [String]
@@ -77,13 +116,15 @@ actor AgentHostClient {
         task.executableURL = executableURL
         task.arguments = arguments
         task.currentDirectoryURL = workingDirectory
-        if !environment.isEmpty || !inheritEnvironment {
-            var childEnvironment = inheritEnvironment ? ProcessInfo.processInfo.environment : [:]
-            childEnvironment.removeValue(forKey: "XCTestConfigurationFilePath")
-            task.environment = childEnvironment.merging(environment) {
-                _, override in override
-            }
+        var childEnvironment = inheritEnvironment ? ProcessInfo.processInfo.environment : [:]
+        childEnvironment.removeValue(forKey: "XCTestConfigurationFilePath")
+        childEnvironment.merge(environment) { _, override in override }
+        if inheritEnvironment {
+            childEnvironment["PATH"] = AgentHostPath.merging(
+                childEnvironment["PATH"], system: AgentHostPath.systemPath()
+            )
         }
+        task.environment = childEnvironment
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
