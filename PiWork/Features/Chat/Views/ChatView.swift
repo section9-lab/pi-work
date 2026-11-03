@@ -60,6 +60,8 @@ struct ChatView: View {
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
     @State private var historyLoadID: UUID?
     @State private var historyLoadRevision = 0
+    @State private var historyAnchorRestoreTask: Task<Void, Never>?
+    @State private var historyAnchorRestoreID: UUID?
     @State private var presentedSessionID: String?
     @State private var readySessionPresentationID: String?
     @State private var presentedMessageLimit = TranscriptWindow.batchSize
@@ -235,12 +237,18 @@ struct ChatView: View {
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
             transcriptScrollTaskID = nil
+            historyAnchorRestoreTask?.cancel()
+            historyAnchorRestoreTask = nil
+            historyAnchorRestoreID = nil
             isAdjustingTranscriptScroll = false
         }
         .task(id: activeSessionId) {
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
             transcriptScrollTaskID = nil
+            historyAnchorRestoreTask?.cancel()
+            historyAnchorRestoreTask = nil
+            historyAnchorRestoreID = nil
             isAdjustingTranscriptScroll = false
             await loadSlashCommands()
         }
@@ -654,7 +662,9 @@ struct ChatView: View {
                 if historyLoadID == loadID {
                     historyLoadID = nil
                     historyLoadRevision &+= 1
-                    isAdjustingTranscriptScroll = false
+                    if historyAnchorRestoreID != loadID {
+                        isAdjustingTranscriptScroll = false
+                    }
                 }
             }
             do {
@@ -668,25 +678,51 @@ struct ChatView: View {
                 transcriptMessageLimit += max(TranscriptWindow.batchSize, additionalCount)
                 presentedMessageLimit = transcriptMessageLimit
                 await Task.yield()
-
-                // Newly prepended LazyVStack rows initially have estimated
-                // heights. On a slower layout pass the first anchor jump can
-                // run before the old first row exists at its final position,
-                // leaving the reader at absolute top. Retry within the first
-                // few frames so the previously visible row stays stable.
-                for delay in [0, 16_000_000, 50_000_000] as [UInt64] {
-                    if delay > 0 {
-                        do {
-                            try await Task.sleep(nanoseconds: delay)
-                        } catch { return }
-                    }
-                    guard activeSessionId == sessionID, historyLoadID == loadID else { return }
-                    proxy.scrollTo(anchorID, anchor: .top)
-                    await Task.yield()
-                }
+                guard activeSessionId == sessionID, historyLoadID == loadID else { return }
+                restoreTranscriptAnchor(
+                    anchorID,
+                    sessionID: sessionID,
+                    restorationID: loadID,
+                    using: proxy
+                )
             } catch {
                 guard activeSessionId == sessionID, historyLoadID == loadID else { return }
                 actionFailure = AgentErrorPresentation(error)
+            }
+        }
+    }
+
+    private func restoreTranscriptAnchor(
+        _ anchorID: String,
+        sessionID: String,
+        restorationID: UUID,
+        using proxy: ScrollViewProxy
+    ) {
+        historyAnchorRestoreTask?.cancel()
+        historyAnchorRestoreID = restorationID
+        proxy.scrollTo(anchorID, anchor: .top)
+
+        // Newly prepended LazyVStack rows initially have estimated heights. On
+        // a slower layout pass the first jump can run before the old first row
+        // reaches its final position. Keep restoration independent from the
+        // network/load gate so a second wheel gesture is never blocked by
+        // these layout retries.
+        historyAnchorRestoreTask = Task { @MainActor in
+            defer {
+                if historyAnchorRestoreID == restorationID {
+                    historyAnchorRestoreTask = nil
+                    historyAnchorRestoreID = nil
+                    isAdjustingTranscriptScroll = false
+                }
+            }
+            for delay in [16_000_000, 50_000_000] as [UInt64] {
+                do {
+                    try await Task.sleep(nanoseconds: delay)
+                } catch { return }
+                guard !Task.isCancelled, historyAnchorRestoreID == restorationID,
+                      activeSessionId == sessionID else { return }
+                proxy.scrollTo(anchorID, anchor: .top)
+                await Task.yield()
             }
         }
     }
@@ -695,6 +731,9 @@ struct ChatView: View {
         transcriptScrollTask?.cancel()
         transcriptScrollTask = nil
         transcriptScrollTaskID = nil
+        historyAnchorRestoreTask?.cancel()
+        historyAnchorRestoreTask = nil
+        historyAnchorRestoreID = nil
         isAdjustingTranscriptScroll = false
         guard !isTranscriptAutoFollowPaused else { return }
         isTranscriptAutoFollowPaused = true
