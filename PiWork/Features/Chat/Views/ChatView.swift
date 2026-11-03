@@ -101,26 +101,27 @@ struct ChatView: View {
         let draftKey = composerDraftKey
         VStack(spacing: 0) {
             ZStack {
-                Group {
-                    if allMessages.isEmpty {
-                        emptySession
-                            .transition(.opacity)
-                    } else {
-                        transcript(
-                            messages: allMessages,
-                            hiddenMessageCount: messagePresentation.hiddenCount
-                        )
-                            .transition(.opacity)
-                    }
-                }
-                .allowsHitTesting(!isSessionTransitioning)
-                .accessibilityHidden(isSessionTransitioning)
-                .opacity(isSessionTransitioning ? 0 : 1)
-                .animation(nil, value: isSessionTransitioning)
-
+                // A session swap never mounts the outgoing transcript. The
+                // content is invisible while the mask is up, so rendering it
+                // buys nothing and costs a full transcript layout on every
+                // frame the swap stays open.
                 if isSessionTransitioning {
                     SessionTranscriptLoadingMask()
                         .transition(.opacity)
+                } else {
+                    Group {
+                        if allMessages.isEmpty {
+                            emptySession
+                                .transition(.opacity)
+                        } else {
+                            transcript(
+                                messages: allMessages,
+                                hiddenMessageCount: messagePresentation.hiddenCount
+                            )
+                                .transition(.opacity)
+                        }
+                    }
+                    .transition(.opacity)
                 }
             }
             .animation(
@@ -256,6 +257,18 @@ struct ChatView: View {
                 )
             }
             isPreparingSessionPresentation = true
+            // Leaving the swap is not optional: the loading mask, the disabled
+            // composer, and the hidden transcript all key off it. Every exit
+            // path — cancellation, an early return, a thrown error — has to
+            // close it, so the cleanup lives in one place instead of at each
+            // `return`. Without this a cancelled presentation leaves the chat
+            // permanently masked and unresponsive.
+            defer { finishSessionPresentation(presentationID) }
+            // Backstop for a presentation task that never gets to resume (a
+            // main thread busy with layout can starve the continuation above).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                finishSessionPresentation(presentationID)
+            }
             await Task.yield()
 
             actionFailure = nil
@@ -640,8 +653,15 @@ struct ChatView: View {
     }
 
     private func updateTranscriptAutoFollowFromScrollView(isNearBottom: Bool) {
-        isTranscriptAutoFollowPaused = !isNearBottom
-        isFollowingTranscriptTail = isNearBottom
+        // This runs on every bounds change, including the ones a resizing
+        // viewport produces. Only write when the answer actually changed so a
+        // layout pass cannot feed itself another layout pass.
+        if isTranscriptAutoFollowPaused == isNearBottom {
+            isTranscriptAutoFollowPaused = !isNearBottom
+        }
+        if isFollowingTranscriptTail != isNearBottom {
+            isFollowingTranscriptTail = isNearBottom
+        }
     }
 
     private var emptySession: some View {
@@ -683,6 +703,7 @@ struct ChatView: View {
         @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
         @State private var shimmerProgress: CGFloat = -0.35
+        @State private var sweepsShimmer = true
 
         var body: some View {
             ZStack {
@@ -690,7 +711,7 @@ struct ChatView: View {
 
                 skeletonContent
                     .overlay {
-                        if !accessibilityReduceMotion {
+                        if !accessibilityReduceMotion, sweepsShimmer {
                             GeometryReader { geometry in
                                 LinearGradient(
                                     colors: [
@@ -721,6 +742,13 @@ struct ChatView: View {
                 ) {
                     shimmerProgress = 1.35
                 }
+            }
+            .task {
+                // A swap settles in well under a second; a sweep that repeats
+                // forever only keeps the main thread awake for a mask nobody
+                // is waiting on. Let two passes through, then hold still.
+                try? await Task.sleep(nanoseconds: 2_600_000_000)
+                sweepsShimmer = false
             }
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
@@ -1196,6 +1224,18 @@ struct ChatView: View {
         isLoadingSession
             || isPreparingSessionPresentation
             || (activeSessionId != nil && readySessionPresentationID != sessionPresentationID)
+    }
+
+    /// Commits `presentationID` as presented and clears the in-flight marker.
+    ///
+    /// Idempotent, and a no-op once a newer presentation has taken ownership, so
+    /// overlapping swaps cannot clear each other's state.
+    private func finishSessionPresentation(_ presentationID: String) {
+        guard sessionPresentationID == presentationID else { return }
+        if readySessionPresentationID != presentationID {
+            readySessionPresentationID = presentationID
+        }
+        isPreparingSessionPresentation = false
     }
 
     private var messagePresentation: TranscriptWindow {

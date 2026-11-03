@@ -1559,7 +1559,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(mask.contains(".ignoresSafeArea(.container, edges: .top)"))
     }
 
-    func testSessionTransitionHidesUnderlyingTranscriptOverflow() throws {
+    func testSessionTransitionUnmountsUnderlyingTranscript() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1577,8 +1577,10 @@ final class SessionComposerTests: XCTestCase {
                 .components(separatedBy: "private func transcript(").first
         )
 
-        XCTAssertTrue(body.contains(".opacity(isSessionTransitioning ? 0 : 1)"))
-        XCTAssertTrue(body.contains(".animation(nil, value: isSessionTransitioning)"))
+        XCTAssertTrue(body.contains("if isSessionTransitioning {\n                    SessionTranscriptLoadingMask()"))
+        XCTAssertTrue(body.contains("} else {\n                    Group {"))
+        XCTAssertFalse(body.contains(".opacity(isSessionTransitioning ? 0 : 1)"))
+        XCTAssertFalse(body.contains(".animation(nil, value: isSessionTransitioning)"))
     }
 
     func testSessionTransitionKeepsComposerVisibleButBlocksInteraction() throws {
@@ -1593,8 +1595,10 @@ final class SessionComposerTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("private var isSessionTransitioning: Bool"))
-        XCTAssertTrue(source.contains(".allowsHitTesting(!isSessionTransitioning)"))
-        XCTAssertTrue(source.contains(".accessibilityHidden(isSessionTransitioning)"))
+        // The outgoing transcript is unmounted, not merely hidden from input
+        // and accessibility. Only the composer needs explicit disabling.
+        XCTAssertFalse(source.contains(".allowsHitTesting(!isSessionTransitioning)"))
+        XCTAssertFalse(source.contains(".accessibilityHidden(isSessionTransitioning)"))
         XCTAssertTrue(source.contains(".disabled(isSessionTransitioning)"))
         let composer = try XCTUnwrap(
             source.components(separatedBy: "            SessionComposer(").dropFirst().first?
@@ -1605,6 +1609,50 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(composer.contains("onSend: send"))
         XCTAssertFalse(composer.contains(".overlay"))
         XCTAssertFalse(source.contains("SessionComposerLoadingMask"))
+    }
+
+    func testSessionPresentationCleanupIsDeferredAndIdentityGuarded() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
+            encoding: .utf8
+        )
+        let task = try XCTUnwrap(
+            source.components(separatedBy: ".task(id: sessionPresentationID) {").last?
+                .components(separatedBy: "\n        }").first
+        )
+        let cleanup = try XCTUnwrap(task.range(of: "defer { finishSessionPresentation(presentationID) }"))
+        let suspension = try XCTUnwrap(task.range(of: "await Task.yield()"))
+        XCTAssertLessThan(cleanup.lowerBound, suspension.lowerBound)
+        XCTAssertTrue(task.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 2) {\n                finishSessionPresentation(presentationID)"))
+
+        let finish = try XCTUnwrap(
+            source.components(separatedBy: "private func finishSessionPresentation(_ presentationID: String) {").last?
+                .components(separatedBy: "\n    }").first
+        )
+        let identityGuard = try XCTUnwrap(finish.range(of: "guard sessionPresentationID == presentationID else { return }"))
+        let stateWrite = try XCTUnwrap(finish.range(of: "readySessionPresentationID = presentationID"))
+        XCTAssertLessThan(identityGuard.lowerBound, stateWrite.lowerBound)
+        XCTAssertTrue(finish.contains("isPreparingSessionPresentation = false"))
+    }
+
+    func testSessionLoadingMaskStopsShimmerAfterBoundedTime() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
+            encoding: .utf8
+        )
+        let mask = try XCTUnwrap(
+            source.components(separatedBy: "private struct SessionTranscriptLoadingMask").last?
+                .components(separatedBy: "private struct SkeletonLine").first
+        )
+        XCTAssertTrue(mask.contains("if !accessibilityReduceMotion, sweepsShimmer {"))
+        XCTAssertTrue(mask.contains("Task.sleep(nanoseconds: 2_600_000_000)"))
+        XCTAssertTrue(mask.contains("sweepsShimmer = false"))
     }
 
     func testSessionTransitionStartsWhenPresentationIdentityChanges() throws {
