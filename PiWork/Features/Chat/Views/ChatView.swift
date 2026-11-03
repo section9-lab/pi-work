@@ -55,6 +55,7 @@ struct ChatView: View {
     @State private var isAdjustingTranscriptScroll = false
     @State private var transcriptScrollRequest = 0
     @State private var transcriptScrollTask: Task<Void, Never>?
+    @State private var transcriptScrollTaskID: UUID?
     @State private var recordUpdateGeneration = 0
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
     @State private var historyLoadID: UUID?
@@ -233,10 +234,14 @@ struct ChatView: View {
         .onDisappear {
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
+            transcriptScrollTaskID = nil
+            isAdjustingTranscriptScroll = false
         }
         .task(id: activeSessionId) {
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
+            transcriptScrollTaskID = nil
+            isAdjustingTranscriptScroll = false
             await loadSlashCommands()
         }
         .task(id: gitBranchLoadID) {
@@ -544,6 +549,7 @@ struct ChatView: View {
     private func jump(to entry: PromptRailEntry, using proxy: ScrollViewProxy) {
         transcriptScrollTask?.cancel()
         transcriptScrollTask = nil
+        transcriptScrollTaskID = nil
         isFollowingTranscriptTail = false
         isTranscriptAutoFollowPaused = true
         isAdjustingTranscriptScroll = true
@@ -579,11 +585,15 @@ struct ChatView: View {
     private func scheduleTranscriptScroll(using proxy: ScrollViewProxy) {
         guard transcriptScrollTask == nil else { return }
         let sessionID = activeSessionId
+        let taskID = UUID()
+        transcriptScrollTaskID = taskID
         transcriptScrollTask = Task { @MainActor in
             do {
                 try await Task.sleep(nanoseconds: 50_000_000)
             } catch { return }
+            guard transcriptScrollTaskID == taskID else { return }
             transcriptScrollTask = nil
+            transcriptScrollTaskID = nil
             guard !Task.isCancelled, activeSessionId == sessionID,
                   !isTranscriptAutoFollowPaused else { return }
             scrollToTranscriptTail(using: proxy)
@@ -592,13 +602,35 @@ struct ChatView: View {
 
     private func scrollToTranscriptTail(using proxy: ScrollViewProxy) {
         transcriptScrollTask?.cancel()
-        transcriptScrollTask = nil
+        let sessionID = activeSessionId
+        let taskID = UUID()
+        transcriptScrollTaskID = taskID
         isTranscriptAutoFollowPaused = false
         isFollowingTranscriptTail = true
         isAdjustingTranscriptScroll = true
         proxy.scrollTo(TranscriptLayout.tailID, anchor: .bottom)
-        DispatchQueue.main.async {
-            isAdjustingTranscriptScroll = false
+
+        // A LazyVStack initially positions the tail from estimated heights. As
+        // off-screen Markdown and tool rows are measured, that estimate can
+        // move the real tail well below the viewport. Retry across the settling
+        // window instead of declaring success after the first estimated jump.
+        transcriptScrollTask = Task { @MainActor in
+            defer {
+                if transcriptScrollTaskID == taskID {
+                    transcriptScrollTask = nil
+                    transcriptScrollTaskID = nil
+                    isAdjustingTranscriptScroll = false
+                }
+            }
+            for delay in [16_000_000, 50_000_000, 100_000_000, 200_000_000, 350_000_000] as [UInt64] {
+                do {
+                    try await Task.sleep(nanoseconds: delay)
+                } catch { return }
+                guard !Task.isCancelled, transcriptScrollTaskID == taskID,
+                      activeSessionId == sessionID, !isTranscriptAutoFollowPaused else { return }
+                proxy.scrollTo(TranscriptLayout.tailID, anchor: .bottom)
+                await Task.yield()
+            }
         }
     }
 
@@ -647,15 +679,21 @@ struct ChatView: View {
     }
 
     private func pauseTranscriptAutoFollow() {
+        transcriptScrollTask?.cancel()
+        transcriptScrollTask = nil
+        transcriptScrollTaskID = nil
+        isAdjustingTranscriptScroll = false
         guard !isTranscriptAutoFollowPaused else { return }
         isTranscriptAutoFollowPaused = true
         isFollowingTranscriptTail = false
     }
 
     private func updateTranscriptAutoFollowFromScrollView(isNearBottom: Bool) {
-        // This runs on every bounds change, including the ones a resizing
-        // viewport produces. Only write when the answer actually changed so a
-        // layout pass cannot feed itself another layout pass.
+        // Bounds notifications can arrive while a programmatic jump is still
+        // settling. The jump task owns state until its final retry; afterwards
+        // the observer reports the real AppKit position, including a failed
+        // jump that landed short of the tail.
+        guard !isAdjustingTranscriptScroll else { return }
         if isTranscriptAutoFollowPaused == isNearBottom {
             isTranscriptAutoFollowPaused = !isNearBottom
         }
@@ -1421,6 +1459,9 @@ final class TranscriptUserScrollObserverView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var wheelMonitor: Any?
     private var scrollEndWork: DispatchWorkItem?
+    private var positionCallbackWork: DispatchWorkItem?
+    private var pendingReachedTop = false
+    private var pendingIsNearBottom: Bool?
     private var isUserScrolling = false
     private var historyLoadTrigger = TranscriptHistoryLoadTrigger()
 
@@ -1528,12 +1569,33 @@ final class TranscriptUserScrollObserverView: NSView {
             hasEarlierMessages: hasEarlierMessages,
             threshold: topThreshold
         ) {
-            onReachTop()
+            pendingReachedTop = true
         }
-        let isNearBottom = distances.fromBottom <= bottomThreshold
-        if isUserScrolling || isNearBottom {
-            onScrollPositionChange(isNearBottom)
+        // Always report the real position. A programmatic ScrollViewReader jump
+        // can land short after lazy row estimates are replaced with real
+        // heights; suppressing that `false` left the UI claiming it was at the
+        // latest message and hid the recovery button.
+        pendingIsNearBottom = distances.fromBottom <= bottomThreshold
+        schedulePositionCallbacks()
+    }
+
+    private func schedulePositionCallbacks() {
+        guard positionCallbackWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.positionCallbackWork = nil
+            let reachedTop = self.pendingReachedTop
+            let isNearBottom = self.pendingIsNearBottom
+            self.pendingReachedTop = false
+            self.pendingIsNearBottom = nil
+            // Never write SwiftUI state from AppKit's bounds notification. It
+            // may be emitted inside HostingScrollView.updateValue(), where a
+            // synchronous write causes an undefined update/layout feedback loop.
+            if reachedTop { self.onReachTop() }
+            if let isNearBottom { self.onScrollPositionChange(isNearBottom) }
         }
+        positionCallbackWork = work
+        DispatchQueue.main.async(execute: work)
     }
 
     private func removeObserver() {
@@ -1541,6 +1603,10 @@ final class TranscriptUserScrollObserverView: NSView {
         wheelMonitor = nil
         scrollEndWork?.cancel()
         scrollEndWork = nil
+        positionCallbackWork?.cancel()
+        positionCallbackWork = nil
+        pendingReachedTop = false
+        pendingIsNearBottom = nil
         historyLoadTrigger.reset()
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)

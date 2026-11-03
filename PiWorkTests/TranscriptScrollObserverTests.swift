@@ -39,13 +39,16 @@ final class TranscriptScrollObserverTests: XCTestCase {
         XCTAssertTrue(wheel.phase.isEmpty)
         XCTAssertNil(fixture.scroll.verticalScroller)
         fixture.observer.handleScrollWheel(wheel)
+        try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(loads, 1, "A normal wheel notch at the top must load history even without a bounds change")
         XCTAssertEqual(userScrolls, 1)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(loads, 1, "Repeated bounds notifications must not duplicate the request")
 
         fixture.observer.historyLoadRevision += 1
         fixture.observer.handleScrollWheel(wheel)
+        try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(loads, 2, "A completed or failed load must allow a fresh wheel notch to retry")
     }
 
@@ -60,8 +63,43 @@ final class TranscriptScrollObserverTests: XCTestCase {
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scroll)
         fixture.scroll.contentView.scroll(to: .zero)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+        try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(loads, 1)
         NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: fixture.scroll)
+    }
+
+    func testBoundsChangeDefersNearBottomCallbackUntilAfterTheNotification() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        var positions: [Bool] = []
+        fixture.observer.bottomThreshold = 120
+        fixture.observer.onScrollPositionChange = { positions.append($0) }
+
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 2000))
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+
+        XCTAssertEqual(positions, [], "Bounds notifications can run inside a SwiftUI update and must not synchronously write state")
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(positions, [true])
+    }
+
+    func testProgrammaticScrollThatLandsAwayFromBottomReportsNotNearBottom() async throws {
+        let fixture = makeFixture()
+        defer { fixture.window.close() }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        var positions: [Bool] = []
+        fixture.observer.bottomThreshold = 120
+        fixture.observer.onScrollPositionChange = { positions.append($0) }
+
+        fixture.scroll.contentView.scroll(to: CGPoint(x: 0, y: 1000))
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
+
+        XCTAssertEqual(positions, [])
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(positions, [false], "A failed programmatic jump must restore the jump-to-latest affordance")
     }
 
     func testWheelInsideNestedScrollViewDoesNotLoadTranscriptHistory() async throws {
