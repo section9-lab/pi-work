@@ -725,7 +725,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         XCTAssertTrue(timelineSource.contains(".padding(.vertical, 3)"))
     }
 
-    func testToolGroupHeaderUsesLeadingAlignedContent() throws {
+    func testToolGroupHeaderUsesCompactLeadingAlignedContent() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -753,8 +753,11 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         )
 
         XCTAssertFalse(headerSource.contains("Spacer("))
-        XCTAssertTrue(
+        XCTAssertFalse(
             headerSource.contains(".frame(maxWidth: .infinity, alignment: .leading)")
+        )
+        XCTAssertTrue(
+            toolGroupSource.contains(".frame(maxWidth: .infinity, alignment: .leading)")
         )
     }
 
@@ -776,7 +779,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             "case \"write\": return \"square.and.pencil\""
         ))
         XCTAssertTrue(source.contains(
-            "case \"edit\", \"editor\": return \"pencil\""
+            "case \"edit\", \"editor\": return \"highlighter\""
         ))
         XCTAssertTrue(source.contains("case \"grep\", \"find\": return \"magnifyingglass\""))
         XCTAssertTrue(source.contains("case \"ls\": return \"folder\""))
