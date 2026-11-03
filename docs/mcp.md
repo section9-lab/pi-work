@@ -5,9 +5,30 @@ tool discovery, and execution pipeline. Settings → MCP manages application-lev
 The isolated configuration is `~/Library/Application Support/pi-work/Agent/mcp.json`.
 Repository `.pi/mcp.json` files are not loaded in this first release.
 
+## MCP market
+
+Settings → MCP shows added servers above a searchable, bundled market. The initial
+catalog contains Context7, Playwright, DeepWiki, Exa, Sentry, Linear, Notion,
+Supabase, Stripe, Vercel, Cloudflare Docs, Microsoft Learn, and Hugging Face.
+Browsing presets does not save configurations, contact providers, or execute commands.
+Each card links to the provider's setup guide; provider availability and account limits
+still apply.
+
+Remote presets can be added directly. Those marked as requiring sign-in start the
+existing browser OAuth flow after saving. A connection failure does not remove the
+saved configuration: retry or sign in from the added server's menu. Playwright opens
+a prefilled editor so users can review the `npx` command before downloading and running
+local code; Node.js/npm must already be available. No preset grants Chat or read-only
+permissions automatically.
+
+Existing servers are recognized by endpoint (including renamed/project-scoped HTTP
+configurations) or exact local command and arguments. A conflicting name gets a numeric
+suffix rather than overwriting a custom configuration. Presets are connection recipes,
+not an automatic package updater or a live registry feed.
+
 ## Configure a server
 
-Add a server and choose STDIO or Streamable HTTP. The form provides a server name,
+Choose **Custom server…** and select STDIO or Streamable HTTP. The form provides a server name,
 full command or URL, environment variables or headers, and an optional timeout.
 Names use letters, digits, underscores, and hyphens. Command arguments support quoted
 paths and empty arguments; commands are executed directly without a shell.

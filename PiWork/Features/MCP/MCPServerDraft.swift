@@ -15,7 +15,7 @@ struct MCPKeyValue: Identifiable, Equatable {
 
 enum MCPDraftError: String, LocalizedError {
     case invalidJSON, invalidName, invalidURL, invalidCommand, invalidTimeout
-    case duplicateKey, missingKey, invalidPairs, unsupportedTransport
+    case duplicateKey, missingKey, invalidPairs, unsupportedTransport, duplicateName
     var errorDescription: String? { L10n.string("mcp.validation.\(rawValue)") }
 }
 

@@ -716,6 +716,38 @@
 "mcp.validation.invalidPairs" = "Paste a JSON string map or complete key-value pairs.";
 "mcp.validation.unsupportedTransport" = "This version supports STDIO and Streamable HTTP.";
 
+// MCP market
+"mcp.market.installed" = "Added servers";
+"mcp.market.title" = "MCP market";
+"mcp.market.subtitle" = "Discover tools and add a ready-made connection.";
+"mcp.market.search" = "Search tools by name or purpose…";
+"mcp.market.no_results" = "No matching tools. Try another search or add a custom server.";
+"mcp.market.privacy" = "Presets are not enabled until you add them. Chat and read-only access require separate permission. Sign-in may be required.";
+"mcp.market.documentation" = "View setup guide";
+"mcp.market.local" = "Local · Node.js required";
+"mcp.market.local_warning" = "Adding this server downloads and runs a local Playwright process through npx. Install Node.js first and review the command before continuing.";
+"mcp.market.login_required" = "Remote · Sign-in required";
+"mcp.market.remote" = "Remote";
+"mcp.market.added" = "Added";
+"mcp.market.configure" = "Configure…";
+"mcp.market.connect" = "Connect…";
+"mcp.market.custom" = "Custom server…";
+"mcp.market.empty" = "No servers added. Choose a tool below, or add a custom server.";
+"mcp.validation.duplicateName" = "A server with this name already exists. Choose a different name.";
+"mcp.market.context7.summary" = "Get current library documentation and code examples.";
+"mcp.market.playwright.summary" = "Browse websites and automate clicks, input, and page inspection.";
+"mcp.market.deepwiki.summary" = "Ask questions about public GitHub repositories and read their generated documentation.";
+"mcp.market.exa.summary" = "Search the web and code, and retrieve page content.";
+"mcp.market.sentry.summary" = "Investigate issues, errors, and traces in Sentry.";
+"mcp.market.linear.summary" = "Find, create, and update Linear issues, projects, and comments.";
+"mcp.market.notion.summary" = "Search and manage pages and databases in your Notion workspace.";
+"mcp.market.supabase.summary" = "Manage Supabase projects, database tables, SQL, migrations, and logs.";
+"mcp.market.stripe.summary" = "Work with Stripe customers, payments, subscriptions, and documentation.";
+"mcp.market.vercel.summary" = "Inspect Vercel projects, deployments, logs, and documentation.";
+"mcp.market.cloudflare-docs.summary" = "Search Cloudflare documentation.";
+"mcp.market.microsoft-learn.summary" = "Find official Microsoft and Azure documentation and code examples.";
+"mcp.market.hugging-face.summary" = "Search Hugging Face models, datasets, Spaces, and papers.";
+
 // Computer Use
 "computer_use.title" = "Computer Use";
 "computer_use.enable" = "Enable Computer Use";

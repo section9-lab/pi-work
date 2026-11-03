@@ -716,6 +716,38 @@
 "mcp.validation.invalidPairs" = "文字列の JSON オブジェクト、または完全なキーと値のペアを貼り付けてください。";
 "mcp.validation.unsupportedTransport" = "このバージョンは STDIO と Streamable HTTP に対応しています。";
 
+// MCP market
+"mcp.market.installed" = "追加済み";
+"mcp.market.title" = "MCP マーケット";
+"mcp.market.subtitle" = "便利なツールを見つけ、接続プリセットを追加します。";
+"mcp.market.search" = "名前や用途でツールを検索…";
+"mcp.market.no_results" = "一致するツールがありません。別のキーワードを試すか、カスタムサーバーを追加してください。";
+"mcp.market.privacy" = "プリセットは追加するまで有効になりません。Chat と読み取り専用アクセスには別途許可が必要です。ログインが必要な場合があります。";
+"mcp.market.documentation" = "設定ガイドを表示";
+"mcp.market.local" = "ローカル · Node.js が必要";
+"mcp.market.local_warning" = "追加すると npx が Playwright をダウンロードしてローカルで実行します。Node.js をインストールし、コマンドを確認してから続けてください。";
+"mcp.market.login_required" = "リモート · ログインが必要";
+"mcp.market.remote" = "リモート";
+"mcp.market.added" = "追加済み";
+"mcp.market.configure" = "設定…";
+"mcp.market.connect" = "接続…";
+"mcp.market.custom" = "カスタム追加…";
+"mcp.market.empty" = "サーバーがありません。下のマーケットから選ぶか、カスタムサーバーを追加してください。";
+"mcp.validation.duplicateName" = "同じ名前のサーバーがあります。別の名前を指定してください。";
+"mcp.market.context7.summary" = "ライブラリの最新ドキュメントとコード例を取得します。";
+"mcp.market.playwright.summary" = "Web ページの閲覧、クリックや入力の自動化、内容の確認ができます。";
+"mcp.market.deepwiki.summary" = "公開 GitHub リポジトリについて質問し、生成されたドキュメントを読みます。";
+"mcp.market.exa.summary" = "Web とコードを検索し、ページ内容を取得します。";
+"mcp.market.sentry.summary" = "Sentry の問題、エラー、トレースを調査します。";
+"mcp.market.linear.summary" = "Linear の Issue、プロジェクト、コメントを検索・作成・更新します。";
+"mcp.market.notion.summary" = "Notion ワークスペースのページとデータベースを検索・管理します。";
+"mcp.market.supabase.summary" = "Supabase のプロジェクト、テーブル、SQL、マイグレーション、ログを管理します。";
+"mcp.market.stripe.summary" = "Stripe の顧客、決済、サブスクリプション、ドキュメントを扱います。";
+"mcp.market.vercel.summary" = "Vercel のプロジェクト、デプロイ、ログ、ドキュメントを確認します。";
+"mcp.market.cloudflare-docs.summary" = "Cloudflare の公式ドキュメントを検索します。";
+"mcp.market.microsoft-learn.summary" = "Microsoft と Azure の公式ドキュメントやコード例を検索します。";
+"mcp.market.hugging-face.summary" = "Hugging Face のモデル、データセット、Spaces、論文を検索します。";
+
 // Computer Use
 "computer_use.title" = "Computer Use";
 "computer_use.enable" = "Computer Use を有効にする";

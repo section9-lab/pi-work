@@ -103,8 +103,9 @@ final class LocalizationTests: XCTestCase {
             #"mcp.status.\(server.status)"#: ["unchecked", "connecting", "connected", "disconnected", "needs-auth", "failed"]
                 .map { "mcp.status." + $0 },
             #"mcp.validation.\(rawValue)"#: [MCPDraftError.invalidJSON, .invalidName, .invalidURL, .invalidCommand,
-                                          .invalidTimeout, .duplicateKey, .missingKey, .invalidPairs, .unsupportedTransport]
+                                          .invalidTimeout, .duplicateKey, .missingKey, .invalidPairs, .unsupportedTransport, .duplicateName]
                 .map { "mcp.validation." + $0.rawValue },
+            #"mcp.market.\(id).summary"#: MCPMarketPreset.all.map { "mcp.market." + $0.id + ".summary" },
         ]
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
         let referencedKeys = Set<String>(expression.matches(in: source, range: range).flatMap { match -> [String] in

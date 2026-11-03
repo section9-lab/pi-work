@@ -22,6 +22,7 @@ struct MCPChecks {
         try RunningInputChecks.run()
         try PromptRailChecks.run()
         try checkDrafts()
+        try await checkMarket()
         try checkACPStream()
         try await checkRequestLifetime()
         let repository = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -129,6 +130,55 @@ struct MCPChecks {
         print("MCP native checks: \(count) passed")
     }
 
+    /// Exercise market recipes without contacting providers or launching npx.
+    static func checkMarket() async throws {
+        try expect(MCPMarketPreset.all.map(\.id) == ["context7", "playwright", "deepwiki", "exa", "sentry", "linear", "notion", "supabase", "stripe", "vercel", "cloudflare-docs", "microsoft-learn", "hugging-face"], "Market catalog differs from the selected 13 presets")
+        for preset in MCPMarketPreset.all {
+            try expect(preset.draft().validationError == nil, "Invalid market configuration: \(preset.id)")
+            try expect(MCPStore.webURL(preset.documentationURL) != nil, "Invalid documentation URL")
+            for language in AppLanguage.allCases {
+                let key = "mcp.market.\(preset.id).summary"
+                try expect(L10n.string(key, language: language) != key, "Missing market description: \(key)")
+            }
+        }
+        guard let context7 = MCPMarketPreset.all.first(where: { $0.id == "context7" }),
+              let playwright = MCPMarketPreset.all.first(where: { $0.id == "playwright" }),
+              let sentry = MCPMarketPreset.all.first(where: { $0.id == "sentry" }) else {
+            throw Failure(message: "Missing market test presets")
+        }
+        let service = MCPMarketTestService()
+        let store = MCPStore(service: service)
+        await store.load()
+        try expect(store.servers.isEmpty, "Browsing the market installed a server")
+        let saved = await store.addMarketPreset(context7)
+        try expect(saved && store.installedServer(for: context7) != nil, "One-click add failed")
+        let parameters = await service.lastSave
+        try expect(parameters?.allowInChat == false && parameters?.readOnlyTools.isEmpty == true, "Market add granted extra permissions")
+        let duplicate = await store.addMarketPreset(context7)
+        try expect(!duplicate && store.servers.count == 1, "Market add duplicated an existing endpoint")
+        let local = await store.addMarketPreset(playwright)
+        try expect(!local, "Local market command ran without review")
+        let signedIn = await store.addMarketPreset(sentry)
+        try expect(signedIn && store.authentication?.state == "authorizing", "Market OAuth did not start from the explicit add action")
+        let loginAction = await service.lastAction
+        try expect(loginAction?.action == "login" && loginAction?.name == "sentry", "Wrong market OAuth action")
+
+        let collisionService = MCPMarketTestService(collision: true)
+        let collisionStore = MCPStore(service: collisionService)
+        await collisionStore.load()
+        try expect(collisionStore.availableName(for: context7) == "context7-2", "Market name collision was not resolved")
+        let collisionSaved = await collisionStore.addMarketPreset(context7)
+        try expect(collisionSaved && collisionStore.servers.count == 2 && collisionStore.servers.first?.name == "context7", "Market recipe overwrote a custom server")
+        let collisionParameters = await collisionService.lastSave
+        try expect(collisionParameters?.name == "context7-2", "Market used a conflicting namespace")
+        await collisionService.setFailure(true)
+        let failed = await collisionStore.addMarketPreset(sentry)
+        try expect(!failed && collisionStore.errorMessage != nil && !collisionStore.isWorking, "Failed market add had no recoverable error")
+        await collisionService.setFailure(false)
+        let recovered = await collisionStore.addMarketPreset(sentry)
+        try expect(recovered && collisionStore.errorMessage == nil, "Market add did not recover after failure")
+    }
+
     /// Replay the wire format through the production decoder and reducer. A delta
     /// and its final replacement must identify the same assistant text block.
     static func checkACPStream() throws {
@@ -227,4 +277,43 @@ struct MCPChecks {
         draft.name = "bad name"
         try expect(draft.validationError == .invalidName, "Invalid server name did not block save")
     }
+}
+
+private actor MCPMarketTestService: MCPServicing {
+    var servers: [MCPServer] = []
+    var auth: MCPAuthentication?
+    var lastSave: MCPSaveParameters?
+    var lastAction: MCPActionParameters?
+    var shouldFail = false
+
+    init(collision: Bool = false) {
+        if collision {
+            servers = [MCPServer(name: "context7", transport: "http", enabled: false,
+                configurationJSON: #"{"url":"https://example.com/custom"}"#, allowInChat: false,
+                readOnlyTools: [], status: "unchecked", tools: [], error: nil, canLogin: true, signedIn: false)]
+        }
+    }
+    func setFailure(_ value: Bool) { shouldFail = value }
+    func start() async throws -> AgentHostHelloPayload {
+        AgentHostHelloPayload(hostVersion: "test", piVersion: "1.4.0", capabilities: [],
+            piWorkCapabilities: [.mcpList, .mcpAction, .mcpSave], supportsPiWorkExtensions: true)
+    }
+    func mcpSnapshot() async throws -> MCPSnapshot { snapshot() }
+    func saveMCP(_ parameters: MCPSaveParameters) async throws -> MCPSnapshot {
+        if shouldFail { throw URLError(.cannotConnectToHost) }
+        lastSave = parameters
+        servers.append(MCPServer(name: parameters.name, transport: "http", enabled: true,
+            configurationJSON: parameters.configurationJSON, allowInChat: parameters.allowInChat,
+            readOnlyTools: parameters.readOnlyTools, status: "connected", tools: [], error: nil, canLogin: true, signedIn: false))
+        return snapshot()
+    }
+    func importMCP(_ configurationJSON: String) async throws -> MCPSnapshot { snapshot() }
+    func performMCPAction(_ parameters: MCPActionParameters) async throws -> MCPSnapshot {
+        lastAction = parameters
+        if parameters.action == "login" {
+            auth = MCPAuthentication(name: parameters.name, state: "authorizing", url: "https://example.com/authorize", error: nil)
+        }
+        return snapshot()
+    }
+    private func snapshot() -> MCPSnapshot { MCPSnapshot(servers: servers, errors: [], auth: auth) }
 }

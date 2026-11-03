@@ -1552,7 +1552,7 @@ final class SessionComposerTests: XCTestCase {
         )
         let mask = try XCTUnwrap(
             source.components(separatedBy: "private struct SessionTranscriptLoadingMask").last?
-                .components(separatedBy: "private struct SessionComposerLoadingMask").first
+                .components(separatedBy: "private struct SkeletonLine").first
         )
 
         XCTAssertTrue(mask.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"))
@@ -1581,7 +1581,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(body.contains(".animation(nil, value: isSessionTransitioning)"))
     }
 
-    func testSessionTransitionBlocksUnderlyingTranscriptAndComposerInteraction() throws {
+    func testSessionTransitionKeepsComposerVisibleButBlocksInteraction() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1596,7 +1596,15 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains(".allowsHitTesting(!isSessionTransitioning)"))
         XCTAssertTrue(source.contains(".accessibilityHidden(isSessionTransitioning)"))
         XCTAssertTrue(source.contains(".disabled(isSessionTransitioning)"))
-        XCTAssertTrue(source.contains("SessionComposerLoadingMask()"))
+        let composer = try XCTUnwrap(
+            source.components(separatedBy: "            SessionComposer(").dropFirst().first?
+                .components(separatedBy: "\n        }\n        .overlay(alignment: .top)").first
+        )
+        XCTAssertTrue(composer.contains("selectedProject: $selectedProject"))
+        XCTAssertTrue(composer.contains("selectedModel: selectedModel"))
+        XCTAssertTrue(composer.contains("onSend: send"))
+        XCTAssertFalse(composer.contains(".overlay"))
+        XCTAssertFalse(source.contains("SessionComposerLoadingMask"))
     }
 
     func testSessionTransitionStartsWhenPresentationIdentityChanges() throws {

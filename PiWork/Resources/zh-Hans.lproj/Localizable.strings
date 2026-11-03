@@ -716,6 +716,38 @@
 "mcp.validation.invalidPairs" = "请粘贴 JSON 字符串键值对象或完整的键值对。";
 "mcp.validation.unsupportedTransport" = "当前版本支持 STDIO 和 Streamable HTTP。";
 
+// MCP market
+"mcp.market.installed" = "已添加";
+"mcp.market.title" = "MCP 市场";
+"mcp.market.subtitle" = "发现实用工具，添加预设连接。";
+"mcp.market.search" = "搜索名称或用途，如：网页搜索、开发文档…";
+"mcp.market.no_results" = "没有匹配的工具。试试其他关键词，或自定义添加服务器。";
+"mcp.market.privacy" = "预设不会自动启用，仅在添加后连接。Chat 和只读访问需单独授权，部分服务需要登录。";
+"mcp.market.documentation" = "查看配置指南";
+"mcp.market.local" = "本地 · 需要 Node.js";
+"mcp.market.local_warning" = "添加后将通过 npx 下载并运行本地 Playwright 进程。请先安装 Node.js，并确认下方命令后继续。";
+"mcp.market.login_required" = "远程 · 需要登录";
+"mcp.market.remote" = "远程";
+"mcp.market.added" = "已添加";
+"mcp.market.configure" = "配置…";
+"mcp.market.connect" = "连接…";
+"mcp.market.custom" = "自定义添加…";
+"mcp.market.empty" = "尚未添加服务器。可从下方市场选择工具，或自定义添加。";
+"mcp.validation.duplicateName" = "已存在同名服务器，请使用其他名称。";
+"mcp.market.context7.summary" = "获取开发库的最新文档与代码示例。";
+"mcp.market.playwright.summary" = "浏览网页，自动点击、输入，并检查页面内容。";
+"mcp.market.deepwiki.summary" = "就公开 GitHub 仓库提问，阅读自动生成的项目文档。";
+"mcp.market.exa.summary" = "搜索网页与代码，获取页面内容。";
+"mcp.market.sentry.summary" = "排查 Sentry 中的问题、错误与追踪。";
+"mcp.market.linear.summary" = "查找、创建和更新 Linear 的 Issue、项目与评论。";
+"mcp.market.notion.summary" = "搜索和管理 Notion 工作区中的页面与数据库。";
+"mcp.market.supabase.summary" = "管理 Supabase 项目、数据表、SQL、迁移和日志。";
+"mcp.market.stripe.summary" = "处理 Stripe 客户、支付、订阅，并查阅文档。";
+"mcp.market.vercel.summary" = "查看 Vercel 项目、部署、日志与文档。";
+"mcp.market.cloudflare-docs.summary" = "搜索 Cloudflare 官方文档。";
+"mcp.market.microsoft-learn.summary" = "查找微软与 Azure 官方文档及代码示例。";
+"mcp.market.hugging-face.summary" = "搜索 Hugging Face 的模型、数据集、Spaces 和论文。";
+
 // Computer Use
 "computer_use.title" = "Computer Use";
 "computer_use.enable" = "启用 Computer Use";

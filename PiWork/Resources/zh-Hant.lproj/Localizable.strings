@@ -716,6 +716,38 @@
 "mcp.validation.invalidPairs" = "請貼上 JSON 字串鍵值物件或完整的鍵值對。";
 "mcp.validation.unsupportedTransport" = "目前版本支援 STDIO 和 Streamable HTTP。";
 
+// MCP market
+"mcp.market.installed" = "已加入";
+"mcp.market.title" = "MCP 市集";
+"mcp.market.subtitle" = "探索實用工具，加入預設連線。";
+"mcp.market.search" = "搜尋名稱或用途，例如：網頁搜尋、開發文件…";
+"mcp.market.no_results" = "沒有符合的工具。試試其他關鍵字，或自訂加入伺服器。";
+"mcp.market.privacy" = "預設不會自動啟用，僅在加入後連線。Chat 和唯讀存取需另外授權，部分服務需要登入。";
+"mcp.market.documentation" = "查看設定指南";
+"mcp.market.local" = "本機 · 需要 Node.js";
+"mcp.market.local_warning" = "加入後將透過 npx 下載並執行本機 Playwright 程序。請先安裝 Node.js，並確認下方命令後繼續。";
+"mcp.market.login_required" = "遠端 · 需要登入";
+"mcp.market.remote" = "遠端";
+"mcp.market.added" = "已加入";
+"mcp.market.configure" = "設定…";
+"mcp.market.connect" = "連線…";
+"mcp.market.custom" = "自訂加入…";
+"mcp.market.empty" = "尚未加入伺服器。可從下方市集選擇工具，或自訂加入。";
+"mcp.validation.duplicateName" = "已有同名伺服器，請使用其他名稱。";
+"mcp.market.context7.summary" = "取得開發程式庫的最新文件與程式碼範例。";
+"mcp.market.playwright.summary" = "瀏覽網頁，自動點擊、輸入，並檢查頁面內容。";
+"mcp.market.deepwiki.summary" = "針對公開 GitHub 儲存庫提問，閱讀自動產生的專案文件。";
+"mcp.market.exa.summary" = "搜尋網頁與程式碼，取得頁面內容。";
+"mcp.market.sentry.summary" = "調查 Sentry 中的問題、錯誤與追蹤。";
+"mcp.market.linear.summary" = "尋找、建立和更新 Linear 的 Issue、專案與留言。";
+"mcp.market.notion.summary" = "搜尋和管理 Notion 工作區中的頁面與資料庫。";
+"mcp.market.supabase.summary" = "管理 Supabase 專案、資料表、SQL、遷移和記錄。";
+"mcp.market.stripe.summary" = "處理 Stripe 客戶、付款、訂閱，並查閱文件。";
+"mcp.market.vercel.summary" = "查看 Vercel 專案、部署、記錄與文件。";
+"mcp.market.cloudflare-docs.summary" = "搜尋 Cloudflare 官方文件。";
+"mcp.market.microsoft-learn.summary" = "尋找微軟與 Azure 官方文件及程式碼範例。";
+"mcp.market.hugging-face.summary" = "搜尋 Hugging Face 的模型、資料集、Spaces 和論文。";
+
 // Computer Use
 "computer_use.title" = "Computer Use";
 "computer_use.enable" = "啟用 Computer Use";

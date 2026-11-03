@@ -196,12 +196,9 @@ struct ChatView: View {
                 computerUseStore: computerUseStore
             )
             .frame(maxWidth: 900)
+            // Keep the composer visible while history loads, but prevent
+            // actions from targeting the previously selected conversation.
             .disabled(isSessionTransitioning)
-            .overlay {
-                if isSessionTransitioning {
-                    SessionComposerLoadingMask()
-                }
-            }
             .padding(.horizontal, 28)
             .padding(.bottom, 16)
         }
@@ -779,22 +776,6 @@ struct ChatView: View {
             .padding(.top, 28)
             .padding(.bottom, 20)
             .blur(radius: 0.35)
-        }
-    }
-
-    private struct SessionComposerLoadingMask: View {
-        var body: some View {
-            HStack(spacing: 9) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(L10n.string("chat.session_loading"))
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .foregroundStyle(Color.primary.opacity(0.58))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AppPalette.raisedSurface)
-            .adaptiveCornerRadius(AppCornerRadius.panel)
-            .accessibilityElement(children: .combine)
         }
     }
 

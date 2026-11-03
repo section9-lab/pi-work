@@ -716,6 +716,38 @@
 "mcp.validation.invalidPairs" = "Pega un objeto JSON de cadenas o pares clave-valor completos.";
 "mcp.validation.unsupportedTransport" = "Esta versión admite STDIO y Streamable HTTP.";
 
+// MCP market
+"mcp.market.installed" = "Servidores añadidos";
+"mcp.market.title" = "Mercado MCP";
+"mcp.market.subtitle" = "Descubre herramientas y añade una conexión preconfigurada.";
+"mcp.market.search" = "Buscar herramientas por nombre o uso…";
+"mcp.market.no_results" = "No hay herramientas coincidentes. Prueba otra búsqueda o añade un servidor personalizado.";
+"mcp.market.privacy" = "Las plantillas no se activan hasta que las añades. El acceso de Chat y de solo lectura requiere permisos adicionales. Puede ser necesario iniciar sesión.";
+"mcp.market.documentation" = "Ver guía de configuración";
+"mcp.market.local" = "Local · Requiere Node.js";
+"mcp.market.local_warning" = "Al añadirlo, npx descarga y ejecuta un proceso local de Playwright. Instala Node.js y revisa el comando antes de continuar.";
+"mcp.market.login_required" = "Remoto · Requiere sesión";
+"mcp.market.remote" = "Remoto";
+"mcp.market.added" = "Añadido";
+"mcp.market.configure" = "Configurar…";
+"mcp.market.connect" = "Conectar…";
+"mcp.market.custom" = "Añadir personalizado…";
+"mcp.market.empty" = "No hay servidores. Elige una herramienta del mercado o añade un servidor personalizado.";
+"mcp.validation.duplicateName" = "Ya existe un servidor con este nombre. Elige otro nombre.";
+"mcp.market.context7.summary" = "Obtén documentación actualizada de bibliotecas y ejemplos de código.";
+"mcp.market.playwright.summary" = "Navega por sitios web y automatiza clics, entradas e inspección de páginas.";
+"mcp.market.deepwiki.summary" = "Consulta repositorios públicos de GitHub y lee su documentación generada.";
+"mcp.market.exa.summary" = "Busca en la web y en código, y recupera contenido de páginas.";
+"mcp.market.sentry.summary" = "Investiga incidencias, errores y trazas en Sentry.";
+"mcp.market.linear.summary" = "Busca, crea y actualiza incidencias, proyectos y comentarios de Linear.";
+"mcp.market.notion.summary" = "Busca y gestiona páginas y bases de datos de tu espacio de Notion.";
+"mcp.market.supabase.summary" = "Gestiona proyectos, tablas, SQL, migraciones y registros de Supabase.";
+"mcp.market.stripe.summary" = "Trabaja con clientes, pagos, suscripciones y documentación de Stripe.";
+"mcp.market.vercel.summary" = "Consulta proyectos, despliegues, registros y documentación de Vercel.";
+"mcp.market.cloudflare-docs.summary" = "Busca en la documentación oficial de Cloudflare.";
+"mcp.market.microsoft-learn.summary" = "Encuentra documentación oficial y ejemplos de código de Microsoft y Azure.";
+"mcp.market.hugging-face.summary" = "Busca modelos, conjuntos de datos, Spaces y artículos de Hugging Face.";
+
 // Computer Use
 "computer_use.title" = "Computer Use";
 "computer_use.enable" = "Activar Computer Use";

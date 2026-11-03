@@ -9,23 +9,28 @@ enum MCPMetrics {
     static let cardRadius: CGFloat = 12
     static let controlHeight: CGFloat = 36
     static let iconSize: CGFloat = 16
+    static let marketCardWidth: CGFloat = 240
 }
 
 struct MCPGlyph: View {
     let name: String
     var size: CGFloat = MCPMetrics.iconSize
-    private var image: NSImage {
-        let resource = "Lucide" + name
-        if let image = NSImage(named: resource), image.isValid { return image }
-        guard let url = Bundle.main.url(forResource: resource, withExtension: "pdf"),
-              let image = NSImage(contentsOf: url) else { return NSImage() }
-        image.isTemplate = true
-        image.setName(resource)
-        return image
+    private var symbol: String {
+        switch name {
+        case "RefreshCw": return "arrow.clockwise"
+        case "Ellipsis": return "ellipsis"
+        case "Plus": return "plus"
+        case "Plug": return "powerplug"
+        case "Terminal": return "terminal"
+        case "Globe": return "globe"
+        case "ChevronDown": return "chevron.down"
+        case "Clipboard": return "clipboard"
+        default: return "xmark"
+        }
     }
     var body: some View {
-        Image(nsImage: image)
-            .renderingMode(.template).resizable().scaledToFit()
+        Image(systemName: symbol)
+            .resizable().scaledToFit()
             .frame(width: size, height: size).accessibilityHidden(true)
     }
 }

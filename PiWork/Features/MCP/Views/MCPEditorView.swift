@@ -3,6 +3,7 @@ import SwiftUI
 struct MCPEditorView: View {
     @ObservedObject var store: MCPStore
     let server: MCPServer?
+    private let showsLocalCommandNotice: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var draft: MCPServerDraft
     @State private var allowInChat: Bool
@@ -14,10 +15,11 @@ struct MCPEditorView: View {
     @State private var permissionsExpanded = false
     @State private var advancedExpanded = false
 
-    init(store: MCPStore, server: MCPServer?) {
+    init(store: MCPStore, server: MCPServer?, initialDraft: MCPServerDraft? = nil) {
         self.store = store
         self.server = server
-        _draft = State(initialValue: MCPServerDraft(server: server))
+        showsLocalCommandNotice = initialDraft?.transport == .stdio
+        _draft = State(initialValue: initialDraft ?? MCPServerDraft(server: server))
         _allowInChat = State(initialValue: server?.allowInChat ?? false)
         _readOnlyTools = State(initialValue: Set(server?.readOnlyTools ?? []))
     }
@@ -118,6 +120,11 @@ struct MCPEditorView: View {
         }
         nameField
         if draft.transport == .stdio {
+            if showsLocalCommandNotice {
+                Label(L10n.string("mcp.market.local_warning"), systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             MCPField(title: L10n.string("mcp.command"), required: true, hint: L10n.string("mcp.command_hint")) {
                 MCPCommandInput(text: $draft.commandLine)
             }
@@ -200,6 +207,9 @@ struct MCPEditorView: View {
     private func saveParameters() throws -> MCPSaveParameters {
         var value = draft
         if jsonMode { try value.applyJSON(rawJSON) }
+        if server == nil, store.servers.contains(where: { $0.name == value.name.trimmingCharacters(in: .whitespacesAndNewlines) }) {
+            throw MCPDraftError.duplicateName
+        }
         return MCPSaveParameters(
             name: value.name.trimmingCharacters(in: .whitespacesAndNewlines),
             configurationJSON: try value.configurationJSON(),

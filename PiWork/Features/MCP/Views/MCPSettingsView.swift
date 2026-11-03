@@ -30,13 +30,16 @@ struct MCPSettingsView: View {
                 }
                 ForEach(store.configurationErrors, id: \.self) { error in message(error) }
                 if let auth = store.authentication { authentication(auth) }
+                Text(L10n.string("mcp.market.installed")).font(.headline)
                 if store.isLoading && store.servers.isEmpty {
                     ProgressView(L10n.string("mcp.loading")).frame(maxWidth: .infinity).padding(.vertical, MCPMetrics.pagePadding)
                 } else if store.servers.isEmpty && store.isSupported {
                     emptyState
                 } else {
-                    MCPInput(label: L10n.string("mcp.search"), placeholder: L10n.string("mcp.search"), text: $search)
-                        .accessibilityIdentifier("mcp-search")
+                    if store.servers.count > 5 || !search.isEmpty {
+                        MCPInput(label: L10n.string("mcp.search"), placeholder: L10n.string("mcp.search"), text: $search)
+                            .accessibilityIdentifier("mcp-search")
+                    }
                     VStack(spacing: MCPMetrics.spacing) {
                         if filteredServers.isEmpty { message(L10n.string("mcp.no_results")) }
                         ForEach(filteredServers) { server in
@@ -48,12 +51,18 @@ struct MCPSettingsView: View {
                 }
                 Text(L10n.string("mcp.footer")).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Divider()
+                MCPMarketView(store: store) { preset in
+                    editor = MCPEditorTarget(server: nil, initialDraft: preset.draft(name: store.availableName(for: preset)))
+                }
             }
             .padding(MCPMetrics.pagePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .sheet(item: $editor) { target in MCPEditorView(store: store, server: target.server) }
+        .sheet(item: $editor) { target in
+            MCPEditorView(store: store, server: target.server, initialDraft: target.initialDraft)
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             do {
                 let url = try result.get()
@@ -99,9 +108,9 @@ struct MCPSettingsView: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
                 .fixedSize().accessibilityLabel(L10n.string("mcp.more"))
                 Button { editor = MCPEditorTarget(server: nil) } label: {
-                    MCPActionLabel(title: L10n.string("mcp.create"), icon: "Plus")
+                    MCPActionLabel(title: L10n.string("mcp.market.custom"), icon: "Plus")
                 }
-                .buttonStyle(MCPPrimaryButtonStyle()).accessibilityIdentifier("mcp-add")
+                .buttonStyle(.bordered).accessibilityIdentifier("mcp-add")
             }
             .disabled(store.isWorking || !store.isSupported)
             Text(L10n.string("mcp.subtitle")).foregroundStyle(.secondary)
@@ -111,13 +120,11 @@ struct MCPSettingsView: View {
 
     private var emptyState: some View {
         MCPCard {
-            VStack(spacing: MCPMetrics.spacing) {
-                MCPGlyph(name: "Plug", size: 28).foregroundStyle(.secondary)
-                Text(L10n.string("mcp.empty_title")).font(.headline)
-                Text(L10n.string("mcp.empty")).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button(L10n.string("mcp.add")) { editor = MCPEditorTarget(server: nil) }
-                    .buttonStyle(MCPPrimaryButtonStyle()).disabled(store.isWorking)
-            }.frame(maxWidth: .infinity).padding(.vertical, MCPMetrics.pagePadding)
+            HStack(spacing: MCPMetrics.spacing) {
+                MCPGlyph(name: "Plug", size: 24).foregroundStyle(.secondary)
+                Text(L10n.string("mcp.market.empty")).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -156,6 +163,7 @@ struct MCPSettingsView: View {
 private struct MCPEditorTarget: Identifiable {
     let id = UUID()
     let server: MCPServer?
+    var initialDraft: MCPServerDraft? = nil
 }
 
 private struct MCPServerCard: View {

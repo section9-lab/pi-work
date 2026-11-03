@@ -37,6 +37,42 @@ final class MCPStore: ObservableObject {
         await perform { try await self.service.saveMCP(parameters) }
     }
 
+    func installedServer(for preset: MCPMarketPreset) -> MCPServer? {
+        servers.first(where: preset.matches)
+    }
+
+    func availableName(for preset: MCPMarketPreset) -> String {
+        let names = Set(servers.map(\.name))
+        var name = preset.id
+        var suffix = 2
+        while names.contains(name) {
+            name = "\(preset.id)-\(suffix)"
+            suffix += 1
+        }
+        return name
+    }
+
+    /// A market recipe never overwrites a manually configured namespace or
+    /// silently grants Chat/read-only access. OAuth starts only after this click.
+    func addMarketPreset(_ preset: MCPMarketPreset) async -> Bool {
+        guard isSupported, !isLoading, !isWorking,
+              installedServer(for: preset) == nil,
+              authentication?.state != "authorizing", !preset.isLocal else { return false }
+        do {
+            let draft = preset.draft(name: availableName(for: preset))
+            let saved = await save(MCPSaveParameters(name: draft.name,
+                configurationJSON: try draft.configurationJSON(), allowInChat: false, readOnlyTools: []))
+            if saved, preset.requiresLogin,
+               let server = installedServer(for: preset), server.canLogin, !server.signedIn {
+                await action("login", server: server)
+            }
+            return saved
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func importConfiguration(_ json: String) async -> Bool {
         await perform { try await self.service.importMCP(json) }
     }
