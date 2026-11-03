@@ -54,7 +54,7 @@ Not sure which Mac you have? Open the Apple menu and choose **About This Mac**. 
 
 ## Extend pi as you go
 
-Browse Skills and Extensions without leaving the app. Search or filter the catalogs, find the capability you need, and install it directly into pi-work's isolated environment. Your terminal pi configuration is left untouched.
+Browse Skills and Extensions without leaving the app. Search or filter the catalogs, find the capability you need, and install it into the shared Pi environment at `~/.pi/agent`. Installed capabilities are also available to terminal Pi.
 
 <p align="center">
   <img src="docs/images/skills.png" width="49%" alt="Browse and install Pi skills in the pi-work macOS app">
@@ -95,7 +95,7 @@ See [app updates](docs/app-updates.md) for signing, publishing, and local checks
 
 ### Does pi-work share my terminal Pi settings?
 
-pi-work uses its own agent environment for settings, provider connections, skills, and extensions. Configure your providers inside the app, even if you already use Pi in the terminal.
+Yes. pi-work uses the standard `~/.pi/agent` directory for settings, provider credentials, sessions, skills, and extensions, just like terminal Pi with its default configuration. Changes in either interface affect the shared environment. App-specific data remains in Application Support. Existing data from pi-work's former isolated agent directory is not migrated automatically.
 
 ### Is pi-work part of the upstream Pi project?
 

@@ -404,16 +404,8 @@ actor AgentHostService: AgentHostServicing,
         else {
             throw AgentHostServiceError.executableNotFound
         }
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        let authenticationFile = AgentHostExecutable.authenticationFileURL(
-            applicationSupportDirectory: applicationSupport
-        )
-        let agentDirectory = AgentHostExecutable.agentDirectoryURL(
-            applicationSupportDirectory: applicationSupport
-        )
+        let authenticationFile = AgentHostExecutable.authenticationFileURL()
+        let agentDirectory = AgentHostExecutable.agentDirectoryURL()
         return AgentHostService(
             executableURL: executableURL,
             environment: [

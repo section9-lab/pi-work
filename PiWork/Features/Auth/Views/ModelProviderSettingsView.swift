@@ -83,7 +83,7 @@ private struct SettingsSidebar: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            Text(L10n.string("settings.sidebar.isolated", language: language))
+            Text(L10n.string("settings.sidebar.shared", language: language))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

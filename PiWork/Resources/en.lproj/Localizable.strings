@@ -27,7 +27,7 @@
 "settings.sidebar.personal_preferences" = "Personal Preferences";
 "settings.sidebar.models_auth" = "Providers";
 "settings.sidebar.extensions" = "Plugins";
-"settings.sidebar.isolated" = "pi-work uses an isolated configuration and never modifies terminal pi.";
+"settings.sidebar.shared" = "pi-work shares settings, credentials, skills, and extensions with terminal Pi in ~/.pi/agent.";
 "settings.extensions.title" = "Plugin Settings";
 "settings.extensions.subtitle" = "Manage installed plugin versions, updates, and settings";
 "settings.extensions.update" = "Update";
@@ -176,7 +176,7 @@
 "auth.credentials.title" = "Get your credentials";
 "auth.credentials.help" = "Create or find your credentials in the provider account, then enter them below.";
 "auth.credentials.open_help" = "Open Credential Help";
-"auth.credentials.storage" = "pi-work stores credentials only in its isolated configuration on this Mac.";
+"auth.credentials.storage" = "Provider credentials are stored locally in ~/.pi/agent/auth.json and shared with terminal Pi.";
 "auth.cancelling" = "Cancelling…";
 "auth.waiting" = "Waiting for the provider…";
 "auth.input_placeholder" = "Enter a value";
@@ -530,7 +530,7 @@
 "extensions.installed.empty_message" = "Extensions installed from pi.dev will appear here.";
 "extensions.installed.session_note" = "Changes hot-reload when sessions are idle; pi-work does not need to restart.";
 "extensions.installed.remove_title" = "Remove extension?";
-"extensions.installed.remove_message" = "This removes %@ from pi-work's isolated Agent directory.";
+"extensions.installed.remove_message" = "This removes %@ from the shared Pi agent directory. Terminal Pi is also affected.";
 "extensions.installed.remove" = "Remove";
 "extensions.installed.reveal" = "Show in Finder";
 "extensions.installed.update" = "Update extension";

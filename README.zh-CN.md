@@ -54,7 +54,7 @@
 
 ## 按需扩展 Pi
 
-在应用中浏览 Skills 和 Extensions，搜索或筛选目录，找到需要的能力并直接安装到 pi-work 的独立环境中。终端中已有的 Pi 配置保持不变。
+在应用中浏览 Skills 和 Extensions，搜索或筛选目录，找到需要的能力并安装到 `~/.pi/agent` 共用环境中。安装的能力也可供终端 Pi 使用。
 
 <p align="center">
   <img src="docs/images/skills.png" width="49%" alt="在 pi-work Mac 客户端中浏览和安装 Pi 技能">
@@ -85,7 +85,7 @@
 
 ### 会与终端中的 Pi 共用配置吗？
 
-pi-work 使用独立的代理环境来保存设置、服务商连接、技能和扩展。即使你已在终端中使用 Pi，也需要在应用内配置服务商。
+会。pi-work 使用标准目录 `~/.pi/agent` 保存设置、服务商凭据、会话、技能和扩展，与默认配置的终端 Pi 共用。在任一界面中修改都会影响共用环境。应用自身的数据仍保存在 Application Support 中。原 pi-work 独立 Agent 目录中的数据不会自动迁移。
 
 ### pi-work 属于上游 Pi 项目吗？
 

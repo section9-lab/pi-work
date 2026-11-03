@@ -27,7 +27,7 @@
 "settings.sidebar.personal_preferences" = "개인 환경설정";
 "settings.sidebar.models_auth" = "공급업체";
 "settings.sidebar.extensions" = "플러그인";
-"settings.sidebar.isolated" = "pi-work는 독립된 설정을 사용하며 터미널의 pi를 변경하지 않습니다.";
+"settings.sidebar.shared" = "pi-work는 ~/.pi/agent의 설정, 인증 정보, 스킬 및 확장을 터미널 Pi와 공유합니다.";
 "settings.extensions.title" = "플러그인 설정";
 "settings.extensions.subtitle" = "설치된 플러그인의 버전, 업데이트 및 설정을 관리합니다";
 "settings.extensions.update" = "업데이트";
@@ -176,7 +176,7 @@
 "auth.credentials.title" = "인증 정보 가져오기";
 "auth.credentials.help" = "제공자 계정에서 인증 정보를 만들거나 찾은 다음 아래에 입력하세요.";
 "auth.credentials.open_help" = "인증 정보 도움말 열기";
-"auth.credentials.storage" = "pi-work는 이 Mac의 격리된 구성에만 인증 정보를 저장합니다.";
+"auth.credentials.storage" = "공급자 인증 정보는 이 Mac의 ~/.pi/agent/auth.json에 저장되며 터미널 Pi와 공유됩니다.";
 "auth.cancelling" = "취소 중…";
 "auth.waiting" = "제공자 응답을 기다리는 중…";
 "auth.input_placeholder" = "값 입력";
@@ -530,7 +530,7 @@
 "extensions.installed.empty_message" = "pi.dev에서 설치한 확장 기능이 여기에 표시됩니다.";
 "extensions.installed.session_note" = "변경 사항은 세션이 유휴 상태일 때 동적으로 적용되며 pi-work를 재시작할 필요가 없습니다.";
 "extensions.installed.remove_title" = "확장 기능을 제거할까요?";
-"extensions.installed.remove_message" = "pi-work의 격리된 Agent 디렉터리에서 %@을(를) 제거합니다.";
+"extensions.installed.remove_message" = "공유 Pi 에이전트 디렉터리에서 %@을(를) 제거합니다. 터미널 Pi에도 영향을 줍니다.";
 "extensions.installed.remove" = "제거";
 "extensions.installed.reveal" = "Finder에서 보기";
 "extensions.installed.update" = "확장 기능 업데이트";

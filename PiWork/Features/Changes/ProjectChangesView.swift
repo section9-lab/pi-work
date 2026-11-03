@@ -81,25 +81,17 @@ struct ProjectSessionMenuOverlay: View {
     let project: PiProject
     var reviewTrailingInset: CGFloat = 0
     @Binding var isReviewPresented: Bool
+    var canExport: Bool = false
+    var onExport: () -> Void = {}
     @State private var showsProjectMenu = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.clear.allowsHitTesting(false)
-            Button { showsProjectMenu.toggle() } label: {
-                ProjectSessionMenuIcon().frame(width: 36, height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.primary.opacity(showsProjectMenu || isReviewPresented ? 0.08 : 0)))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(showsProjectMenu ? "" : L10n.string("changes.project_menu"))
-            .accessibilityLabel(L10n.string("changes.project_menu"))
-            .accessibilityIdentifier("project-session-menu-toggle")
-            .background(WindowTitlebarControlRegion())
-            .anchorPreference(key: ProjectSessionMenuAnchorKey.self, value: .bounds) { $0 }
-            .padding(.top, 10)
-            .padding(.trailing, 16 + reviewTrailingInset)
+            sessionActions
+                .background(WindowTitlebarControlRegion())
+                .padding(.top, 10)
+                .padding(.trailing, 16 + reviewTrailingInset)
         }
         .overlayPreferenceValue(ProjectSessionMenuAnchorKey.self) { anchor in
             GeometryReader { geometry in
@@ -122,19 +114,48 @@ struct ProjectSessionMenuOverlay: View {
         .ignoresSafeArea(edges: .top)
         .onChange(of: project.path) { _ in showsProjectMenu = false }
     }
-}
 
-private struct ProjectSessionMenuIcon: View {
-    var body: some View {
-        VStack(spacing: 4) {
-            ForEach(0..<2) { _ in
-                HStack(spacing: 4) {
-                    Circle().stroke(lineWidth: 1.2).frame(width: 4, height: 4)
-                    Capsule().frame(width: 9, height: 1.2)
-                }
-            }
+    @ViewBuilder
+    private var sessionActions: some View {
+        if #available(macOS 26.0, *) {
+            actionButtons
+                .glassEffect(.regular, in: Capsule())
+        } else {
+            actionButtons
+                .background(.regularMaterial, in: Capsule())
         }
-        .accessibilityHidden(true)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 2) {
+            Button {
+                showsProjectMenu = false
+                onExport()
+            } label: {
+                Label(L10n.string("sidebar.export_html_report"), systemImage: "square.and.arrow.up")
+                    .frame(width: 36, height: 32)
+                    .contentShape(Capsule())
+            }
+            .disabled(!canExport)
+            .help(L10n.string("sidebar.export_html_report"))
+            .accessibilityIdentifier("session-export-html")
+
+            Button { showsProjectMenu.toggle() } label: {
+                Label(L10n.string("changes.project_menu"), systemImage: "list.bullet")
+                    .frame(width: 36, height: 32)
+                    .background(Color.primary.opacity(showsProjectMenu || isReviewPresented ? 0.08 : 0), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .help(showsProjectMenu ? "" : L10n.string("changes.project_menu"))
+            .accessibilityIdentifier("project-session-menu-toggle")
+            .anchorPreference(key: ProjectSessionMenuAnchorKey.self, value: .bounds) { $0 }
+        }
+        .font(.system(size: 17, weight: .regular))
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .tint(Color.primary)
+        .padding(4)
+        .accessibilityElement(children: .contain)
     }
 }
 

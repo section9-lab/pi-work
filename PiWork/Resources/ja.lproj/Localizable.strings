@@ -27,7 +27,7 @@
 "settings.sidebar.personal_preferences" = "個人設定";
 "settings.sidebar.models_auth" = "プロバイダー";
 "settings.sidebar.extensions" = "プラグイン";
-"settings.sidebar.isolated" = "pi-work は独立した設定を使用し、ターミナルの pi を変更しません。";
+"settings.sidebar.shared" = "pi-work は ~/.pi/agent の設定、認証情報、スキル、拡張機能をターミナルの Pi と共有します。";
 "settings.extensions.title" = "プラグイン設定";
 "settings.extensions.subtitle" = "インストール済みプラグインのバージョン、更新、設定を管理します";
 "settings.extensions.update" = "更新";
@@ -176,7 +176,7 @@
 "auth.credentials.title" = "認証情報を取得";
 "auth.credentials.help" = "プロバイダーのアカウントで認証情報を作成または確認し、下に入力してください。";
 "auth.credentials.open_help" = "認証情報のヘルプを開く";
-"auth.credentials.storage" = "pi-work は、この Mac 上の隔離された設定にのみ認証情報を保存します。";
+"auth.credentials.storage" = "プロバイダーの認証情報はこの Mac の ~/.pi/agent/auth.json に保存され、ターミナルの Pi と共有されます。";
 "auth.cancelling" = "キャンセル中…";
 "auth.waiting" = "プロバイダーからの応答を待っています…";
 "auth.input_placeholder" = "値を入力";
@@ -530,7 +530,7 @@
 "extensions.installed.empty_message" = "pi.dev からインストールした拡張機能がここに表示されます。";
 "extensions.installed.session_note" = "変更はセッションの待機中に動的に反映され、pi-work の再起動は不要です。";
 "extensions.installed.remove_title" = "拡張機能を削除しますか？";
-"extensions.installed.remove_message" = "pi-work の隔離された Agent ディレクトリから %@ を削除します。";
+"extensions.installed.remove_message" = "共有 Pi エージェントディレクトリから %@ を削除します。ターミナルの Pi にも影響します。";
 "extensions.installed.remove" = "削除";
 "extensions.installed.reveal" = "Finder で表示";
 "extensions.installed.update" = "拡張機能を更新";

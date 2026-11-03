@@ -3,7 +3,7 @@
 Open **Settings → RTK** to reuse an existing RTK installation (0.23 or newer), or
 choose **Install and enable RTK**. Installation uses RTK's official installer,
 including its release checksum verification. New binaries are staged, checked and
-atomically moved into PiWork's isolated agent directory at `bin/rtk`. Updates use
+atomically moved into the shared Pi agent directory at `~/.pi/agent/bin/rtk`. Updates use
 the same process; an existing Homebrew or Cargo installation is left in place.
 
 The enable setting is stored in `rtk.json` in that same directory and defaults to

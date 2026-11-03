@@ -67,11 +67,11 @@ export function createAgentSettingsManager(
   const settings = SettingsManager.create(cwd, agentDirectory(environment), { projectTrusted: false });
   const bunPath = environment.PI_WORK_BUN_PATH?.trim();
   if (bunPath) {
-    // Keep desktop packages independent of the terminal's registry and cached manifest URLs.
+    // Use the bundled runtime only in this process. Persisting its app-specific
+    // path into the shared settings would also change the terminal Pi command.
+    // Override the accessor so reloads and setting changes retain this choice.
     const command = [bunPath, "--registry=https://registry.npmjs.org", "--no-cache"];
-    if (JSON.stringify(settings.getNpmCommand()) !== JSON.stringify(command)) {
-      settings.setNpmCommand(command);
-    }
+    settings.getNpmCommand = () => [...command];
   }
   return settings;
 }

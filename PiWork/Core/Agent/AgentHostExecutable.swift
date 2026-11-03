@@ -42,25 +42,23 @@ enum AgentHostExecutable {
     }
 
     static func authenticationFileURL(
-        applicationSupportDirectory: URL
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        agentDirectoryURL(applicationSupportDirectory: applicationSupportDirectory)
+        agentDirectoryURL(homeDirectory: homeDirectory)
             .appendingPathComponent("auth.json", isDirectory: false)
     }
 
     static func globalInstructionsFileURL(
-        applicationSupportDirectory: URL
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        agentDirectoryURL(applicationSupportDirectory: applicationSupportDirectory)
+        agentDirectoryURL(homeDirectory: homeDirectory)
             .appendingPathComponent("AGENTS.md", isDirectory: false)
     }
 
     static func agentDirectoryURL(
-        applicationSupportDirectory: URL
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        applicationSupportDirectory
-            .appendingPathComponent("pi-work", isDirectory: true)
-            .appendingPathComponent("Agent", isDirectory: true)
+        homeDirectory.appendingPathComponent(".pi/agent", isDirectory: true)
     }
 
     static func resolve(
@@ -129,15 +127,9 @@ final class GlobalAgentInstructionsStore: ObservableObject {
     }
 
     static func applicationDefault() -> GlobalAgentInstructionsStore {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return GlobalAgentInstructionsStore(
+        GlobalAgentInstructionsStore(
             document: GlobalAgentInstructionsDocument(
-                fileURL: AgentHostExecutable.globalInstructionsFileURL(
-                    applicationSupportDirectory: applicationSupport
-                )
+                fileURL: AgentHostExecutable.globalInstructionsFileURL()
             )
         )
     }

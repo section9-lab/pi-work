@@ -62,7 +62,6 @@ struct SidebarView: View {
     var selectedWorkSidebarItem: WorkSidebarItem? = nil
     var pendingWorkSidebarItem: WorkSidebarItem? = nil
     var onSelectWorkSession: (PiProject, AgentHostSessionSummary) -> Void = { _, _ in }
-    var onExportWorkSession: (PiProject, AgentHostSessionSummary) -> Void = { _, _ in }
     var onDeleteWorkSession: (PiProject, AgentHostSessionSummary) -> Void = { _, _ in }
     var onDeleteWorkProject: (PiProject) -> Void = { _ in }
     var onSelectCustomDestination: (SidebarCustomDestination?) -> Void = { _ in }
@@ -168,7 +167,6 @@ struct SidebarView: View {
                                                     onSelectCustomDestination(nil)
                                                     onSelectWorkSession(project, session)
                                                 },
-                                                onExport: { onExportWorkSession(project, session) },
                                                 onDelete: { onDeleteWorkSession(project, session) }
                                             )
                                         }
@@ -548,7 +546,6 @@ private struct WorkSessionRow: View {
     let showsOpening: Bool
     let isSelected: Bool
     let action: () -> Void
-    let onExport: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -584,8 +581,6 @@ private struct WorkSessionRow: View {
         .sessionContextMenu(
             sessionID: session.id,
             cornerRadius: 9,
-            onExport: onExport,
-            canExport: !showsActivity && !showsOpening,
             onDelete: onDelete
         )
         .padding(.leading, 12)
@@ -601,15 +596,11 @@ private extension View {
     func sessionContextMenu(
         sessionID: String,
         cornerRadius: CGFloat = 10,
-        onExport: (() -> Void)? = nil,
-        canExport: Bool = true,
         onDelete: @escaping () -> Void
     ) -> some View {
         modifier(SessionContextMenuModifier(
             sessionID: sessionID,
             cornerRadius: cornerRadius,
-            onExport: onExport,
-            canExport: canExport,
             onDelete: onDelete
         ))
     }
@@ -618,8 +609,6 @@ private extension View {
 private struct SessionContextMenuModifier: ViewModifier {
     let sessionID: String
     let cornerRadius: CGFloat
-    let onExport: (() -> Void)?
-    let canExport: Bool
     let onDelete: () -> Void
 
     func body(content: Content) -> some View {
@@ -632,17 +621,6 @@ private struct SessionContextMenuModifier: ViewModifier {
                     } icon: {
                         Image(systemName: "doc.on.doc")
                     }
-                }
-
-                if let onExport {
-                    Button(action: onExport) {
-                        Label {
-                            Text(L10n.string("sidebar.export_html_report"))
-                        } icon: {
-                            Image(systemName: "doc.richtext")
-                        }
-                    }
-                    .disabled(!canExport)
                 }
 
                 Divider()

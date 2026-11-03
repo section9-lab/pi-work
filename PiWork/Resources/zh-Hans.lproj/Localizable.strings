@@ -27,7 +27,7 @@
 "settings.sidebar.personal_preferences" = "个人偏好";
 "settings.sidebar.models_auth" = "供应商";
 "settings.sidebar.extensions" = "插件";
-"settings.sidebar.isolated" = "pi-work 使用独立配置，不会修改终端中的 pi。";
+"settings.sidebar.shared" = "pi-work 与终端 Pi 共用 ~/.pi/agent 中的设置、凭据、技能和扩展。";
 "settings.extensions.title" = "插件设置";
 "settings.extensions.subtitle" = "管理已安装插件的版本、更新与配置";
 "settings.extensions.update" = "更新";
@@ -176,7 +176,7 @@
 "auth.credentials.title" = "获取认证凭据";
 "auth.credentials.help" = "请在服务商账户中创建或查找凭据，然后在下方输入。";
 "auth.credentials.open_help" = "打开凭据帮助";
-"auth.credentials.storage" = "pi-work 只会将凭据保存在此 Mac 上的隔离配置中。";
+"auth.credentials.storage" = "服务商凭据保存在本机 ~/.pi/agent/auth.json 中，与终端 Pi 共用。";
 "auth.cancelling" = "正在取消…";
 "auth.waiting" = "等待服务商响应…";
 "auth.input_placeholder" = "输入内容";
@@ -530,7 +530,7 @@
 "extensions.installed.empty_message" = "从 pi.dev 安装的扩展会显示在这里。";
 "extensions.installed.session_note" = "变更会在会话空闲时动态加载，无需重启 pi-work。";
 "extensions.installed.remove_title" = "移除扩展？";
-"extensions.installed.remove_message" = "这会从 pi-work 的隔离 Agent 目录中移除 %@。";
+"extensions.installed.remove_message" = "这会从共用的 Pi Agent 目录中移除 %@，终端 Pi 也会受到影响。";
 "extensions.installed.remove" = "移除";
 "extensions.installed.reveal" = "在访达中显示";
 "extensions.installed.update" = "更新扩展";

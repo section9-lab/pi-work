@@ -44,7 +44,7 @@ describe("AgentSettingsCoordinator", () => {
     });
   });
 
-  test("writes desktop settings only inside pi-work's agent directory", async () => {
+  test("writes desktop settings into the configured agent directory", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-work-agent-settings-"));
     try {
       const coordinator = createAgentSettingsCoordinator(
@@ -62,7 +62,7 @@ describe("AgentSettingsCoordinator", () => {
     }
   });
 
-  test("configures Pi's package manager to use pi-work's bundled Bun", async () => {
+  test("uses bundled Bun without writing its path into the shared settings", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-work-agent-bun-settings-"));
     const bunPath = join(directory, "Portable Apps", "PiWork.app", "Contents/Helpers/Bun/arm64/bun");
     try {
@@ -81,25 +81,19 @@ describe("AgentSettingsCoordinator", () => {
         "--registry=https://registry.npmjs.org",
         "--no-cache",
       ]);
-      expect(JSON.parse(await readFile(join(directory, "settings.json"), "utf8")))
-        .toMatchObject({
-          npmCommand: [
-            bunPath,
-            "--registry=https://registry.npmjs.org",
-            "--no-cache",
-          ],
-        });
+      expect(await readFile(join(directory, "settings.json"), "utf8")
+        .catch((error: NodeJS.ErrnoException) => error.code)).toBe("ENOENT");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 
-  test("upgrades an existing bundled Bun command without changing other settings", async () => {
+  test("keeps the terminal package manager unchanged after edits and reloads", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-work-agent-bun-migration-"));
     const bunPath = join(directory, "PiWork.app", "Contents/Helpers/Bun/arm64/bun");
     try {
       const previous = SettingsManager.create(directory, directory);
-      previous.setNpmCommand([bunPath]);
+      previous.setNpmCommand(["npm", "--registry=https://example.test"]);
       previous.setPackages(["npm:example-extension@1.2.3"]);
       await previous.flush();
 
@@ -107,12 +101,17 @@ describe("AgentSettingsCoordinator", () => {
         PI_WORK_AGENT_DIR: directory,
         PI_WORK_BUN_PATH: bunPath,
       });
-      await settings.flush();
+      await new AgentSettingsCoordinator(settings).update({ retryEnabled: false });
+      await settings.reload();
 
+      expect(settings.getNpmCommand()).toEqual([
+        bunPath, "--registry=https://registry.npmjs.org", "--no-cache",
+      ]);
       expect(JSON.parse(await readFile(join(directory, "settings.json"), "utf8")))
         .toMatchObject({
-          npmCommand: [bunPath, "--registry=https://registry.npmjs.org", "--no-cache"],
+          npmCommand: ["npm", "--registry=https://example.test"],
           packages: ["npm:example-extension@1.2.3"],
+          retry: { enabled: false },
         });
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -130,8 +129,10 @@ describe("AgentSettingsCoordinator", () => {
         });
         await settings.flush();
 
-        expect(JSON.parse(await readFile(join(directory, "settings.json"), "utf8")).npmCommand)
+        expect(settings.getNpmCommand())
           .toEqual([bunPath, "--registry=https://registry.npmjs.org", "--no-cache"]);
+        expect(await readFile(join(directory, "settings.json"), "utf8")
+          .catch((error: NodeJS.ErrnoException) => error.code)).toBe("ENOENT");
       }
     } finally {
       await rm(directory, { recursive: true, force: true });

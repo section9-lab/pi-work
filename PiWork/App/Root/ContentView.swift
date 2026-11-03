@@ -45,7 +45,9 @@ struct ContentView: View {
             .overlayPreferenceValue(ProjectReviewControlInsetKey.self) { trailingInset in
                 if let project = changesProject {
                     ProjectSessionMenuOverlay(project: project, reviewTrailingInset: trailingInset,
-                        isReviewPresented: $showsProjectChanges)
+                        isReviewPresented: $showsProjectChanges,
+                        canExport: canExportSelectedSession,
+                        onExport: exportSelectedWorkSession)
                         .id(project.path)
                 }
             }
@@ -79,7 +81,6 @@ struct ContentView: View {
                 selectedWorkSidebarItem: workSession.sidebarItem,
                 pendingWorkSidebarItem: sessionOpeningState.pendingWorkSidebarItem,
                 onSelectWorkSession: openWorkSession,
-                onExportWorkSession: exportWorkSession,
                 onDeleteWorkSession: deleteWorkSession,
                 onDeleteWorkProject: deleteWorkProject,
                 onSelectCustomDestination: {
@@ -423,6 +424,25 @@ struct ContentView: View {
                 agentError = AgentErrorPresentation(error)
             }
         }
+    }
+
+    private var selectedWorkSession: AgentHostSessionSummary? {
+        guard let project = changesProject,
+              let sessionID = sessionStore.selectedWorkSessionIdByProjectPath[project.path] else { return nil }
+        return sessionStore.workSessionsByProjectPath[project.path]?.first { $0.id == sessionID }
+    }
+
+    private var canExportSelectedSession: Bool {
+        guard let session = selectedWorkSession else { return false }
+        return !isOpeningSelectedSession
+            && !activeSessionIDs.contains(session.id)
+            && !exportingSessionIDs.contains(session.id)
+    }
+
+    private func exportSelectedWorkSession() {
+        guard canExportSelectedSession, let project = changesProject,
+              let session = selectedWorkSession else { return }
+        exportWorkSession(project, session)
     }
 
     private func exportWorkSession(

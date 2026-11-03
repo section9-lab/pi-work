@@ -38,6 +38,27 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertFalse(panel.contains("dismiss()"))
     }
 
+    func testSessionChromeGroupsOnlyShareAndProjectMenuAsIcons() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent(
+            "PiWork/Features/Changes/ProjectChangesView.swift"), encoding: .utf8)
+        let overlay = try XCTUnwrap(source.components(separatedBy: "struct ProjectSessionMenuOverlay: View").last?
+            .components(separatedBy: "struct ProjectSessionReviewMenu: View").first)
+        let actions = try XCTUnwrap(overlay.components(separatedBy: "private var actionButtons: some View").last)
+
+        XCTAssertEqual(actions.components(separatedBy: "Button {").count - 1, 2)
+        XCTAssertTrue(actions.contains("systemImage: \"square.and.arrow.up\""))
+        XCTAssertTrue(actions.contains("systemImage: \"list.bullet\""))
+        XCTAssertTrue(actions.contains(".labelStyle(.iconOnly)"))
+        XCTAssertTrue(actions.contains(".disabled(!canExport)"))
+        XCTAssertTrue(actions.contains(".help(L10n.string(\"sidebar.export_html_report\"))"))
+        XCTAssertTrue(actions.contains("onExport()"))
+        XCTAssertTrue(overlay.contains(".glassEffect(.regular, in: Capsule())"))
+        XCTAssertTrue(overlay.contains(".background(.regularMaterial, in: Capsule())"))
+        XCTAssertTrue(overlay.contains("WindowTitlebarControlRegion()"))
+        XCTAssertFalse(overlay.contains("ProjectSessionMenuIcon"))
+    }
+
     func testReviewLayoutNeverExceedsDetailWidthOrResizesSidebar() {
         for width: CGFloat in [0, 180, 480, 640, 700, 701, 900, 1200] {
             for preferred: CGFloat in [200, 420, 900] {
@@ -83,7 +104,8 @@ final class ProjectChangesTests: XCTestCase {
             let control = try XCTUnwrap(findControl(in: host))
             let controlFrame = control.convert(control.bounds, to: host)
             XCTAssertLessThanOrEqual(controlFrame.maxY, 52, "Menu must be in the top window chrome, not a title row")
-            XCTAssertGreaterThan(controlFrame.midX, host.bounds.width - 60)
+            XCTAssertGreaterThan(controlFrame.midX, host.bounds.width - 80)
+            XCTAssertLessThanOrEqual(controlFrame.width, 90, "The chrome contains only two compact actions")
             state.isPresented = true
             try await Task.sleep(nanoseconds: 300_000_000)
             host.layoutSubtreeIfNeeded()

@@ -2,52 +2,46 @@ import XCTest
 @testable import PiWork
 
 final class AgentHostExecutableTests: XCTestCase {
-    func testAgentSettingsDirectoryLivesInPiWorkApplicationSupport() {
-        let applicationSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
+    func testAgentSettingsDirectorySharesTheTerminalPiDirectory() {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Home with spaces", isDirectory: true)
 
-        let result = AgentHostExecutable.agentDirectoryURL(
-            applicationSupportDirectory: applicationSupport
-        )
+        let result = AgentHostExecutable.agentDirectoryURL(homeDirectory: home)
 
-        XCTAssertEqual(
-            result.path,
-            applicationSupport.appendingPathComponent("pi-work/Agent").path
-        )
-        XCTAssertFalse(result.path.contains("/.pi/"))
+        XCTAssertEqual(result.path, home.appendingPathComponent(".pi/agent").path)
     }
 
-    func testAuthenticationFileLivesInPiWorkApplicationSupport() {
-        let applicationSupport = FileManager.default.temporaryDirectory
+    func testAuthenticationFileSharesTheTerminalPiDirectory() {
+        let home = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
 
-        let result = AgentHostExecutable.authenticationFileURL(
-            applicationSupportDirectory: applicationSupport
-        )
+        let result = AgentHostExecutable.authenticationFileURL(homeDirectory: home)
 
-        XCTAssertEqual(
-            result.path,
-            applicationSupport.appendingPathComponent("pi-work/Agent/auth.json").path
-        )
-        XCTAssertFalse(result.path.contains("/.pi/"))
+        XCTAssertEqual(result.path, home.appendingPathComponent(".pi/agent/auth.json").path)
     }
 
-    func testGlobalInstructionsFileLivesInTheIsolatedAgentDirectory() {
-        let applicationSupport = FileManager.default.temporaryDirectory
+    func testGlobalInstructionsFileSharesTheTerminalPiDirectory() {
+        let home = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
 
-        let result = AgentHostExecutable.globalInstructionsFileURL(
-            applicationSupportDirectory: applicationSupport
-        )
+        let result = AgentHostExecutable.globalInstructionsFileURL(homeDirectory: home)
 
+        XCTAssertEqual(result.path, home.appendingPathComponent(".pi/agent/AGENTS.md").path)
+    }
+
+    func testDefaultAgentPathsUseTheCurrentUsersHomeDirectory() {
+        let agentDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent", isDirectory: true)
+
+        XCTAssertEqual(AgentHostExecutable.agentDirectoryURL(), agentDirectory)
         XCTAssertEqual(
-            result.path,
-            applicationSupport.appendingPathComponent("pi-work/Agent/AGENTS.md").path
+            AgentHostExecutable.authenticationFileURL(),
+            agentDirectory.appendingPathComponent("auth.json", isDirectory: false)
         )
-        XCTAssertFalse(result.path.contains("/.pi/"))
+        XCTAssertEqual(
+            AgentHostExecutable.globalInstructionsFileURL(),
+            agentDirectory.appendingPathComponent("AGENTS.md", isDirectory: false)
+        )
     }
 
     func testGlobalInstructionsDocumentTreatsAMissingFileAsEmpty() throws {
@@ -95,7 +89,7 @@ final class AgentHostExecutableTests: XCTestCase {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 
-    func testBundledHostSharesItsIsolatedAgentDirectoryWithExtensions() throws {
+    func testBundledHostSharesTheTerminalPiDirectoryWithExtensionsAndCredentials() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -106,7 +100,11 @@ final class AgentHostExecutableTests: XCTestCase {
             encoding: .utf8
         )
 
+        XCTAssertTrue(source.contains("AgentHostExecutable.agentDirectoryURL()"))
+        XCTAssertTrue(source.contains("AgentHostExecutable.authenticationFileURL()"))
+        XCTAssertTrue(source.contains("\"PI_WORK_AGENT_DIR\": agentDirectory.path"))
         XCTAssertTrue(source.contains("\"PI_CODING_AGENT_DIR\": agentDirectory.path"))
+        XCTAssertTrue(source.contains("\"PI_WORK_AUTH_PATH\": authenticationFile.path"))
     }
 
     func testBuildStagesTheSelfContainedAgentHostAndBunPackageManager() throws {

@@ -2,7 +2,7 @@
 
 PiWork embeds Pi 1.4.0 and uses its native MCP extension, transports, OAuth implementation,
 tool discovery, and execution pipeline. Settings → MCP manages application-level servers.
-The isolated configuration is `~/Library/Application Support/pi-work/Agent/mcp.json`.
+Configuration is shared with terminal Pi at `~/.pi/agent/mcp.json`.
 Repository `.pi/mcp.json` files are not loaded in this first release.
 
 ## MCP market
@@ -76,7 +76,7 @@ interface supports cancellation and a manual callback URL when needed. Pi perfor
 PKCE, dynamic or configured client registration, token refresh and callback validation.
 Sign out removes local credentials; it does not revoke grants at the provider.
 
-OAuth credentials live in the app's `Agent/mcp-auth.json`. Configuration and credentials use
+OAuth credentials live in the shared `~/.pi/agent/mcp-auth.json`. Configuration and credentials use
 owner-only file permissions. Saved header, environment and OAuth client-secret values are
 redacted in management responses. Keep `<stored-secret>` when editing to retain a value;
 replace it to rotate the credential, or remove its field to delete it. Model provider tokens

@@ -524,7 +524,7 @@ final class SidebarHoverActionsTests: XCTestCase {
         XCTAssertTrue(source.contains("onDeleteWorkSession(project, session)"))
     }
 
-    func testOnlyWorkSessionContextMenuOffersHTMLExport() throws {
+    func testHTMLExportHasMovedOutOfSessionContextMenus() throws {
         let source = try sidebarSource()
         let workSessionRow = try XCTUnwrap(
             source.components(separatedBy: "private struct WorkSessionRow").last?
@@ -535,10 +535,10 @@ final class SidebarHoverActionsTests: XCTestCase {
                 .components(separatedBy: "private struct FolderRow").first
         )
 
-        XCTAssertTrue(workSessionRow.contains("onExport: onExport"))
+        XCTAssertFalse(workSessionRow.contains("onExport:"))
         XCTAssertFalse(chatSessionRow.contains("onExport:"))
-        XCTAssertTrue(source.contains("L10n.string(\"sidebar.export_html_report\")"))
-        XCTAssertTrue(source.contains("onExportWorkSession(project, session)"))
+        XCTAssertFalse(source.contains("L10n.string(\"sidebar.export_html_report\")"))
+        XCTAssertFalse(source.contains("onExportWorkSession"))
     }
 
     func testHTMLExportLabelIsLocalizedForEverySupportedLanguage() throws {
@@ -565,7 +565,13 @@ final class SidebarHoverActionsTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("onExportWorkSession: exportWorkSession"))
+        XCTAssertTrue(source.contains("onExport: exportSelectedWorkSession"))
+        XCTAssertTrue(source.contains("canExport: canExportSelectedSession"))
+        XCTAssertTrue(source.contains("sessionStore.selectedWorkSessionIdByProjectPath[project.path]"))
+        XCTAssertTrue(source.contains("first { $0.id == sessionID }"))
+        XCTAssertTrue(source.contains("!isOpeningSelectedSession"))
+        XCTAssertTrue(source.contains("!activeSessionIDs.contains(session.id)"))
+        XCTAssertTrue(source.contains("!exportingSessionIDs.contains(session.id)"))
         XCTAssertTrue(source.contains("try await sessionStore.exportHTMLReport("))
         XCTAssertTrue(source.contains("NSWorkspace.shared.urlForApplication(toOpen: webURL)"))
         XCTAssertTrue(source.contains("withApplicationAt: browserURL"))

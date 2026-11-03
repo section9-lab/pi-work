@@ -18,7 +18,32 @@ struct MCPChecks {
         catch { fputs("MCP checks failed after \(count) checks: \(error)\n", stderr); exit(1) }
     }
 
+    static func checkAgentPaths() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Pi Home with spaces", isDirectory: true)
+        let agent = home.appendingPathComponent(".pi/agent", isDirectory: true)
+        try expect(AgentHostExecutable.agentDirectoryURL(homeDirectory: home) == agent,
+                   "Agent directory does not match terminal Pi")
+        try expect(AgentHostExecutable.authenticationFileURL(homeDirectory: home)
+                   == agent.appendingPathComponent("auth.json", isDirectory: false),
+                   "Credentials do not share the Pi agent directory")
+        try expect(AgentHostExecutable.globalInstructionsFileURL(homeDirectory: home)
+                   == agent.appendingPathComponent("AGENTS.md", isDirectory: false),
+                   "Global instructions do not share the Pi agent directory")
+        let defaultAgent = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent", isDirectory: true)
+        try expect(AgentHostExecutable.agentDirectoryURL() == defaultAgent,
+                   "Default agent directory is not ~/.pi/agent")
+        try expect(AgentHostExecutable.authenticationFileURL()
+                   == defaultAgent.appendingPathComponent("auth.json", isDirectory: false),
+                   "Default credentials are not shared with terminal Pi")
+        try expect(GlobalAgentInstructionsStore.applicationDefault().fileURL
+                   == defaultAgent.appendingPathComponent("AGENTS.md", isDirectory: false),
+                   "Settings editor does not use the shared global instructions")
+    }
+
     static func run() async throws {
+        try checkAgentPaths()
         try RunningInputChecks.run()
         try PromptRailChecks.run()
         try checkDrafts()

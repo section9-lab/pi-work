@@ -27,7 +27,7 @@
 "settings.sidebar.personal_preferences" = "個人偏好";
 "settings.sidebar.models_auth" = "供應商";
 "settings.sidebar.extensions" = "外掛程式";
-"settings.sidebar.isolated" = "pi-work 使用獨立設定，不會修改終端機中的 pi。";
+"settings.sidebar.shared" = "pi-work 與終端機 Pi 共用 ~/.pi/agent 中的設定、憑據、技能和擴充功能。";
 "settings.extensions.title" = "外掛程式設定";
 "settings.extensions.subtitle" = "管理已安裝外掛程式的版本、更新與設定";
 "settings.extensions.update" = "更新";
@@ -176,7 +176,7 @@
 "auth.credentials.title" = "取得認證憑據";
 "auth.credentials.help" = "請在服務商帳戶中建立或尋找憑據，然後在下方輸入。";
 "auth.credentials.open_help" = "開啟憑據說明";
-"auth.credentials.storage" = "pi-work 只會將憑據儲存在此 Mac 的隔離設定中。";
+"auth.credentials.storage" = "服務商憑據儲存在本機 ~/.pi/agent/auth.json 中，與終端機 Pi 共用。";
 "auth.cancelling" = "正在取消…";
 "auth.waiting" = "正在等待服務商回應…";
 "auth.input_placeholder" = "輸入內容";
@@ -530,7 +530,7 @@
 "extensions.installed.empty_message" = "從 pi.dev 安裝的擴充功能會顯示在這裡。";
 "extensions.installed.session_note" = "變更會在工作階段閒置時動態載入，無需重新啟動 pi-work。";
 "extensions.installed.remove_title" = "移除擴充功能？";
-"extensions.installed.remove_message" = "這會從 pi-work 的隔離 Agent 目錄中移除 %@。";
+"extensions.installed.remove_message" = "這會從共用的 Pi Agent 目錄中移除 %@，終端機 Pi 也會受到影響。";
 "extensions.installed.remove" = "移除";
 "extensions.installed.reveal" = "在 Finder 中顯示";
 "extensions.installed.update" = "更新擴充功能";
