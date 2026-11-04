@@ -1704,7 +1704,8 @@ final class SessionComposerTests: XCTestCase {
         )
         let transcriptSource = source[transcriptStart.lowerBound..<transcriptEnd.lowerBound]
         XCTAssertTrue(transcriptSource.contains("VStack(alignment: .leading, spacing: 12)"))
-        XCTAssertTrue(transcriptSource.contains("ForEach(messages)"))
+        XCTAssertTrue(transcriptSource.contains("ForEach(rows)"))
+        XCTAssertTrue(transcriptSource.contains("transcriptToolExpansion.rows(for: messages)"))
         XCTAssertFalse(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing)"))
     }
 
@@ -1718,13 +1719,13 @@ final class SessionComposerTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let messages = try XCTUnwrap(
-            source.components(separatedBy: "private var messagePresentation:").last?
-                .components(separatedBy: "private func transcriptScrollToken").first
-        )
-
-        XCTAssertTrue(messages.contains("transcriptNavigation.range("))
-        XCTAssertTrue(messages.contains("visibleSource[range].map"))
+        let projection = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "PiWork/Features/Chat/TranscriptPresentation.swift"), encoding: .utf8)
+        let slice = try XCTUnwrap(projection.range(of: "let source = visibleSource[range]"))
+        let mapping = try XCTUnwrap(projection.range(of: "let displayed = source.map"))
+        XCTAssertTrue(source.contains("transcriptPresentation.project("))
+        XCTAssertTrue(projection.contains("navigation.range(in: sourceIDs"))
+        XCTAssertLessThan(slice.lowerBound, mapping.lowerBound, "Slice before converting timestamps and presentation values")
         XCTAssertFalse(source.contains("let visibleMessages = record.transcript.map"))
     }
 
@@ -1919,7 +1920,7 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(timelineSource.contains("Button(action: copyMessage)"))
         XCTAssertFalse(timelineSource.contains(".background(AppPalette.translucentSurface"))
         XCTAssertFalse(timelineSource.contains(".adaptiveCornerRadius(18)"))
-        XCTAssertTrue(source.contains("MessageClipboard.copy(message.copyableText)"))
+        XCTAssertTrue(source.contains("MessageClipboard.copy(currentMessageForActions.copyableText)"))
         XCTAssertTrue(source.contains("L10n.string(\"chat.message.copy\")"))
     }
 

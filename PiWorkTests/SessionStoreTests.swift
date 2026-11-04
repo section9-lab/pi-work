@@ -287,6 +287,94 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testFirstPromptUpdatesSidebarAndPersistsTitleBeforeResponse() async throws {
+        for profile in [AgentHostSessionProfile.chat, .work] {
+            let host = FakeAgentHost()
+            await host.holdPromptResponses(true)
+            let store = SessionStore(service: host)
+            _ = try await store.createDraft(
+                cwd: "/tmp/project",
+                sessionDirectory: nil,
+                profile: profile
+            )
+
+            let prompt = Task {
+                try await store.submitPrompt(sessionId: "session-one", text: "  Fix\n the build  ")
+            }
+            try await waitUntil { await host.hasPendingPrompt }
+
+            XCTAssertEqual(store.records["session-one"]?.descriptor.title, "Fix the build")
+            XCTAssertEqual(store.records["session-one"]?.runState, .submitting)
+            let sidebarTitle = profile == .chat
+                ? store.chatSessions.first?.title
+                : store.workSessionsByProjectPath["/tmp/project"]?.first?.title
+            XCTAssertEqual(sidebarTitle, "Fix the build")
+            try await waitUntil { await host.renamedTitles == ["Fix the build"] }
+            XCTAssertEqual(store.records["session-one"]?.runState, .submitting)
+
+            await host.completePrompt()
+            _ = try await prompt.value
+            await store.stop()
+        }
+    }
+
+    func testSlowTitleSaveDoesNotBlockPromptCompletion() async throws {
+        let host = FakeAgentHost()
+        await host.holdRenameResponses(true)
+        let store = SessionStore(service: host)
+        _ = try await store.createDraft(cwd: "/tmp/project", sessionDirectory: nil, profile: .chat)
+        var completed = false
+        let prompt = Task {
+            _ = try await store.submitPrompt(sessionId: "session-one", text: "Fix the build")
+            completed = true
+        }
+
+        try await waitUntil { await host.hasPendingRename }
+        try await waitUntil { completed }
+        XCTAssertTrue(completed)
+        XCTAssertEqual(store.records["session-one"]?.runState, .idle)
+        XCTAssertEqual(store.chatSessions.first?.title, "Fix the build")
+
+        await host.completeRename()
+        try await prompt.value
+        await store.stop()
+    }
+
+    func testRenameFailureKeepsLocalTitleAndDoesNotFailPrompt() async throws {
+        let host = FakeAgentHost()
+        await host.rejectRenames(true)
+        let store = SessionStore(service: host)
+        _ = try await store.createDraft(cwd: "/tmp/project", sessionDirectory: nil, profile: .chat)
+
+        _ = try await store.submitPrompt(sessionId: "session-one", text: "Fix the build")
+        try await waitUntil { await host.renamedTitles == ["Fix the build"] }
+
+        XCTAssertEqual(store.records["session-one"]?.runState, .idle)
+        XCTAssertEqual(store.records["session-one"]?.descriptor.title, "Fix the build")
+        XCTAssertEqual(store.chatSessions.first?.title, "Fix the build")
+        _ = try await store.submitPrompt(sessionId: "session-one", text: "Continue")
+        XCTAssertEqual(store.chatSessions.first?.title, "Fix the build")
+        await store.stop()
+    }
+
+    func testPromptDoesNotOverwriteAnExistingTitle() async throws {
+        let host = FakeAgentHost()
+        let store = SessionStore(service: host)
+        _ = try await store.createDraft(cwd: "/tmp/project", sessionDirectory: nil, profile: .chat)
+        await host.emit(.sessionInfoChanged(.init(
+            sessionId: "session-one", sequence: 1, title: "My custom title", updatedAt: nil
+        )))
+        try await waitUntil { store.chatSessions.first?.title == "My custom title" }
+
+        _ = try await store.submitPrompt(sessionId: "session-one", text: "Fix the build")
+
+        XCTAssertEqual(store.records["session-one"]?.descriptor.title, "My custom title")
+        XCTAssertEqual(store.chatSessions.first?.title, "My custom title")
+        let renamedTitles = await host.renamedTitles
+        XCTAssertTrue(renamedTitles.isEmpty)
+        await store.stop()
+    }
+
     func testPromptForwardsImagesToTheAgentHost() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot())
@@ -491,14 +579,14 @@ final class SessionStoreTests: XCTestCase {
 
     func testMouseWheelAtTopRevealsCachedHistoryInActualChatView() async throws {
         let host = FakeAgentHost()
-        await host.setSnapshot(makeStoreSnapshot(messages: (1...80).map {
+        await host.setSnapshot(makeStoreSnapshot(messages: (1...140).map {
             makeSessionMessage(id: "cached-\($0)", text: "Cached question \($0)")
         }))
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
-        let oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        let oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
         scrollHistoryToTop(fixture)
-        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
         XCTAssertGreaterThan(fixture.scroll.contentView.bounds.minY, 160, "Keep the previously visible row anchored after prepending")
         XCTAssertLessThan(fixture.scroll.contentView.bounds.maxY, fixture.scroll.documentView?.bounds.maxY ?? 0,
                           "Reading history must not jump back to the latest message")
@@ -519,9 +607,9 @@ final class SessionStoreTests: XCTestCase {
         ))
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
-        var oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        var oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
         scrollHistoryToTop(fixture)
-        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
         var requests = await host.transcriptPageCount
         XCTAssertEqual(requests, 1)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 80)
@@ -531,9 +619,9 @@ final class SessionStoreTests: XCTestCase {
                 makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
             }, revision: "history-revision", nextCursor: nil, hasMore: false
         ))
-        oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
         scrollHistoryToTop(fixture)
-        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
         requests = await host.transcriptPageCount
         XCTAssertEqual(requests, 2)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 120)
@@ -566,9 +654,9 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(requests, 1)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 40)
         await host.rejectTranscriptPages(false)
-        let oldHeight = fixture.scroll.documentView?.bounds.height ?? 0
+        let oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
         scrollHistoryToTop(fixture)
-        try await waitForHistoryHeight(fixture.scroll, greaterThan: oldHeight)
+        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
         requests = await host.transcriptPageCount
         XCTAssertEqual(requests, 2)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 80)
@@ -577,7 +665,7 @@ final class SessionStoreTests: XCTestCase {
 
     func testHistoryRestoresAnchorWhenAdjacentToolRowsMerge() async throws {
         let host = FakeAgentHost()
-        var messages = (0..<50).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        var messages = (0..<110).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
         func assistant(_ id: String, _ content: [AgentHostSessionMessageContent]) -> AgentHostSessionMessage {
             AgentHostSessionMessage(id: id, role: .assistant, content: content,
                 timestamp: "2026-08-09T00:00:00.000Z", provider: nil, model: nil,
@@ -591,31 +679,38 @@ final class SessionStoreTests: XCTestCase {
         let viewport = try XCTUnwrap(fixture.observer.viewport)
         XCTAssertNotNil(viewport.frames["old-anchor"])
         scrollHistoryToTop(fixture)
-        for _ in 0..<100 {
-            if viewport.frames["preceding"] != nil { break }
+        let expectedOffset = try XCTUnwrap(viewport.currentFrame(for: "old-anchor")).minY
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            if viewport.frames["old-anchor"] == nil,
+               let restored = viewport.currentFrame(for: "preceding"),
+               abs(restored.minY - expectedOffset) <= 2 { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        try await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertNil(viewport.frames["old-anchor"], "The original tool-only row was merged")
-        let restored = try XCTUnwrap(viewport.frames["preceding"])
-        XCTAssertLessThan(abs(restored.minY), 10, "Restore to the merged row containing the original anchor")
+        let restored = try XCTUnwrap(viewport.currentFrame(for: "preceding"))
+        XCTAssertEqual(restored.minY, expectedOffset, accuracy: 2,
+                       "Restore the original offset in the merged row; tool=\(String(describing: viewport.currentFrame(for: "tool:tool-two"))), scroll=\(fixture.scroll.contentView.bounds.minY)")
         await fixture.store.stop()
     }
 
     func testStreamingNewMessageDoesNotMoveReaderOutOfHistory() async throws {
         let host = FakeAgentHost()
-        let messages = (0..<120).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        let messages = (0..<180).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
         await host.setSnapshot(makeStoreSnapshot(messages: messages))
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
         let viewport = try XCTUnwrap(fixture.observer.viewport)
         scrollHistoryToTop(fixture)
+        let expectedOffset = try XCTUnwrap(viewport.currentFrame(for: "history-80")).minY
         for _ in 0..<150 {
-            if let frame = viewport.frames["history-80"], abs(frame.minY) < 10 { break }
+            if viewport.frames["history-0"] != nil,
+               let frame = viewport.currentFrame(for: "history-80"), abs(frame.minY - expectedOffset) < 2 { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         let restored = try XCTUnwrap(viewport.frames["history-80"])
-        XCTAssertLessThan(abs(restored.minY), 10, "Wait for the history anchor to settle before streaming")
+        XCTAssertEqual(restored.minY, expectedOffset, accuracy: 2, "Wait for the exact history offset before streaming")
         let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
         let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
         await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
@@ -624,11 +719,11 @@ final class SessionStoreTests: XCTestCase {
             content: nil, toolCall: nil
         )))
         for _ in 0..<100 {
-            if (fixture.store.records["session-one"]?.transcript.count ?? 0) > 120 { break }
+            if (fixture.store.records["session-one"]?.transcript.count ?? 0) > 180 { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 120)
+        XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 180)
         let after = try XCTUnwrap(viewport.frames[anchor.key])
         XCTAssertEqual(after.minY, anchor.value.minY, accuracy: 2, "Streaming must not shift the reading position")
         XCTAssertFalse(viewport.frames.keys.contains { $0.contains("new-turn") })
@@ -684,7 +779,7 @@ final class SessionStoreTests: XCTestCase {
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
         let viewport = try XCTUnwrap(fixture.observer.viewport)
-        for _ in 0..<12 {
+        for _ in 0..<4 {
             let previousFirst = viewport.frames.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) }.min() ?? 500
             scrollHistoryToTop(fixture)
             for _ in 0..<100 {
@@ -777,24 +872,25 @@ final class SessionStoreTests: XCTestCase {
     }
 
     private func scrollHistoryToTop(_ fixture: HistoryFixture) {
-        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        let point = fixture.scroll.convert(CGPoint(x: 5, y: 5), to: nil)
         fixture.observer.handleScrollWheel(TestPhaseLessScrollWheelEvent(window: fixture.window, point: point))
         fixture.scroll.contentView.scroll(to: .zero)
         fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
     }
 
-    private func waitForHistoryHeight(_ scroll: NSScrollView, greaterThan oldHeight: CGFloat) async throws {
+    private func waitForHistoryWindow(_ fixture: HistoryFixture, previousIDs: Set<String>) async throws {
         for _ in 0..<100 {
             try await Task.sleep(nanoseconds: 20_000_000)
-            scroll.window?.contentView?.layoutSubtreeIfNeeded()
-            if (scroll.documentView?.bounds.height ?? 0) > oldHeight + 100 {
-                // Let the stable-row restoration and loading-header update settle.
-                try await Task.sleep(nanoseconds: 80_000_000)
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            let ids = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
+            if !ids.isEmpty, ids != previousIDs {
+                // Fixed windows change identities, not necessarily document height.
+                try await Task.sleep(nanoseconds: 100_000_000)
                 return
             }
         }
-        XCTFail("Scrolling to the top did not render earlier messages")
+        XCTFail("Scrolling to the top did not change the historical window")
     }
 
     func testLoadsEarlierTranscriptPageIntoTheOpenSession() async throws {
@@ -1271,7 +1367,7 @@ final class SessionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.records["session-one"]?.runState, .failed)
         XCTAssertEqual(store.records["session-one"]?.messages.last?.content, [.text("Hello")])
-        XCTAssertEqual(store.records["session-one"]?.descriptor.title, "New Session")
+        XCTAssertEqual(store.records["session-one"]?.descriptor.title, "Hello")
         XCTAssertNil(store.records["session-one"]?.activeTurnId)
         let promptTexts = await host.promptTexts
         XCTAssertEqual(promptTexts, ["Hello"])
@@ -1374,6 +1470,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.records["session-one"]?.runState, .idle)
         XCTAssertNil(store.records["session-one"]?.activeTurnId)
         XCTAssertEqual(store.records["session-one"]?.descriptor.title, "Build the feature")
+        try await waitUntil { await host.renamedTitles == ["Build the feature"] }
         let promptTexts = await host.promptTexts
         let renamedTitles = await host.renamedTitles
         XCTAssertEqual(promptTexts, ["Build the feature"])
@@ -1554,7 +1651,8 @@ final class SessionStoreTests: XCTestCase {
     }
 }
 
-private actor FakeAgentHost: AgentHostServicing {
+// Shared fixture for Store and real transcript integration acceptance tests.
+actor FakeAgentHost: AgentHostServicing {
     private var serverEventContinuation: AsyncStream<AgentHostServerEvent>.Continuation!
     private var lifecycleContinuation: AsyncStream<AgentHostServiceLifecycleEvent>.Continuation!
     private let serverEvents: AsyncStream<AgentHostServerEvent>
@@ -1569,9 +1667,16 @@ private actor FakeAgentHost: AgentHostServicing {
         nextCursor: nil,
         hasMore: false
     )
+    private var transcriptPagesByCursor: [String: AgentHostSessionTranscriptPageResult] = [:]
+    private var transcriptPageDelayNanoseconds: UInt64 = 0
     private var gitBranchesResult = AgentHostGitBranchesResult.unavailable
     private var shouldEmitRunningBeforeResponse = false
     private var shouldRejectPrompts = false
+    private var shouldHoldPromptResponses = false
+    private var pendingPrompt: CheckedContinuation<Void, Never>?
+    private var shouldRejectRenames = false
+    private var shouldHoldRenameResponses = false
+    private var pendingRename: CheckedContinuation<Void, Never>?
     private var shouldRejectSnapshots = false
     private var shouldRejectTranscriptPages = false
     private var shouldRejectModelCatalog = false
@@ -1650,7 +1755,14 @@ private actor FakeAgentHost: AgentHostServicing {
 
     func setTranscriptPage(_ page: AgentHostSessionTranscriptPageResult) {
         transcriptPageResult = page
+        transcriptPagesByCursor = [:]
     }
+
+    func setTranscriptPagesByCursor(_ pages: [String: AgentHostSessionTranscriptPageResult]) {
+        transcriptPagesByCursor = pages
+    }
+
+    func setTranscriptPageDelay(nanoseconds: UInt64) { transcriptPageDelayNanoseconds = nanoseconds }
 
     func rejectTranscriptPages(_ enabled: Bool) {
         shouldRejectTranscriptPages = enabled
@@ -1666,6 +1778,32 @@ private actor FakeAgentHost: AgentHostServicing {
 
     func rejectPrompts(_ enabled: Bool) {
         shouldRejectPrompts = enabled
+    }
+
+    func holdPromptResponses(_ enabled: Bool) {
+        shouldHoldPromptResponses = enabled
+    }
+
+    var hasPendingPrompt: Bool { pendingPrompt != nil }
+
+    func completePrompt() {
+        pendingPrompt?.resume()
+        pendingPrompt = nil
+    }
+
+    func rejectRenames(_ enabled: Bool) {
+        shouldRejectRenames = enabled
+    }
+
+    func holdRenameResponses(_ enabled: Bool) {
+        shouldHoldRenameResponses = enabled
+    }
+
+    var hasPendingRename: Bool { pendingRename != nil }
+
+    func completeRename() {
+        pendingRename?.resume()
+        pendingRename = nil
     }
 
     func setOpenSessionTimeoutsRemaining(_ count: Int) {
@@ -1810,10 +1948,11 @@ private actor FakeAgentHost: AgentHostServicing {
         requestID: String
     ) async throws -> AgentHostSessionTranscriptPageResult {
         transcriptPageCount += 1
+        if transcriptPageDelayNanoseconds > 0 { try await Task.sleep(nanoseconds: transcriptPageDelayNanoseconds) }
         if shouldRejectTranscriptPages {
             throw AgentHostClientError.requestFailed(code: "history_fixture_failure", message: "History transport fixture unavailable")
         }
-        return transcriptPageResult
+        return transcriptPagesByCursor[cursor] ?? transcriptPageResult
     }
 
     func toolOutput(
@@ -1851,6 +1990,12 @@ private actor FakeAgentHost: AgentHostServicing {
         requestID: String
     ) async throws -> AgentHostSessionRenameResult {
         renamedTitles.append(title)
+        if shouldRejectRenames {
+            throw FakeAgentHostError.renameRejected
+        }
+        if shouldHoldRenameResponses {
+            await withCheckedContinuation { pendingRename = $0 }
+        }
         return AgentHostSessionRenameResult(sessionId: sessionId, title: title)
     }
 
@@ -1964,6 +2109,9 @@ private actor FakeAgentHost: AgentHostServicing {
         if shouldRejectPrompts {
             throw FakeAgentHostError.promptRejected
         }
+        if shouldHoldPromptResponses {
+            await withCheckedContinuation { pendingPrompt = $0 }
+        }
         if shouldEmitRunningBeforeResponse {
             serverEventContinuation.yield(
                 .sessionStateChanged(
@@ -2014,9 +2162,10 @@ private actor FakeAgentHost: AgentHostServicing {
 
 private enum FakeAgentHostError: Error {
     case promptRejected
+    case renameRejected
 }
 
-private struct HTMLExportRequest: Equatable {
+struct HTMLExportRequest: Equatable {
     let sessionId: String
     let path: String
     let sessionDirectory: String?
@@ -2024,17 +2173,17 @@ private struct HTMLExportRequest: Equatable {
     let outputPath: String
 }
 
-private struct ApprovalResolution: Equatable {
+struct ApprovalResolution: Equatable {
     let requestId: String
     let decision: AgentHostApprovalDecision
 }
 
-private struct ElicitationResolution: Equatable {
+struct ElicitationResolution: Equatable {
     let requestId: String
     let response: AgentHostACPElicitationResponse
 }
 
-private struct ModelOptionSelection: Equatable {
+struct ModelOptionSelection: Equatable {
     let option: AgentHostModelOption
     let enabled: Bool
 }

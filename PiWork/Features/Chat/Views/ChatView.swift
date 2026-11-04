@@ -57,11 +57,15 @@ struct ChatView: View {
     @State private var transcriptScrollRequest = 0
     @State private var transcriptScrollTask: Task<Void, Never>?
     @State private var transcriptScrollTaskID: UUID?
-    @State private var recordUpdateGeneration = 0
+    @StateObject private var transcriptPresentation = TranscriptPresentationCache()
+    @StateObject private var transcriptToolExpansion = TranscriptToolExpansionState()
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
     @State private var transcriptNavigation = TranscriptWindowNavigation()
     @State private var transcriptViewport = TranscriptViewport()
     @State private var historyLoadID: UUID?
+    @State private var historyPrefetchTask: Task<Void, Never>?
+    @State private var historyPrefetchID: UUID?
+    @State private var historyPrefetchCursor: String?
     @State private var historyLoadRevision = 0
     @State private var historyAnchorRestoreTask: Task<Void, Never>?
     @State private var historyAnchorRestoreID: UUID?
@@ -100,8 +104,6 @@ struct ChatView: View {
     }
 
     var body: some View {
-        // Only updates for this conversation invalidate its transcript.
-        let _ = recordUpdateGeneration
         let messagePresentation = messagePresentation
         let allMessages = messagePresentation.messages
         let draftKey = composerDraftKey
@@ -123,8 +125,10 @@ struct ChatView: View {
                             transcript(
                                 messages: allMessages,
                                 hiddenMessageCount: messagePresentation.hiddenCount,
-                                hasNewerMessages: messagePresentation.hasNewerMessages
+                                hasNewerMessages: messagePresentation.hasNewerMessages,
+                                sourceSpans: messagePresentation.sourceSpans
                             )
+                                .id(sessionPresentationID)
                                 .transition(.opacity)
                         }
                     }
@@ -237,13 +241,17 @@ struct ChatView: View {
                     .accessibilityHidden(true)
             }
         }
-        .onReceive(sessionStore.recordUpdates) { changedIDs in
-            if activeSessionId.map(changedIDs.contains) == true
-                || presentedSessionID.map(changedIDs.contains) == true {
-                recordUpdateGeneration &+= 1
+        .environment(\.transcriptToolExpansion, transcriptToolExpansion)
+        .onReceive(sessionStore.transcriptUpdates) { update in
+            if activeSessionId.map(update.structuralSessionIDs.contains) == true
+                || presentedSessionID.map(update.structuralSessionIDs.contains) == true {
+                transcriptPresentation.invalidate()
             }
         }
         .onDisappear {
+            historyPrefetchTask?.cancel()
+            historyPrefetchTask = nil; historyPrefetchID = nil; historyPrefetchCursor = nil
+            transcriptPresentation.clear()
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
             transcriptScrollTaskID = nil
@@ -253,6 +261,8 @@ struct ChatView: View {
             isAdjustingTranscriptScroll = false
         }
         .task(id: activeSessionId) {
+            historyPrefetchTask?.cancel()
+            historyPrefetchTask = nil; historyPrefetchID = nil; historyPrefetchCursor = nil
             transcriptScrollTask?.cancel()
             transcriptScrollTask = nil
             transcriptScrollTaskID = nil
@@ -267,6 +277,8 @@ struct ChatView: View {
         }
         .task(id: sessionPresentationID) {
             guard activeSessionId != nil else {
+                transcriptPresentation.clear()
+                transcriptToolExpansion.reset()
                 presentedSessionID = nil
                 readySessionPresentationID = nil
                 isPreparingSessionPresentation = false
@@ -304,6 +316,9 @@ struct ChatView: View {
             presentedSessionID = activeSessionId
             loadedToolOutputs.removeAll()
             loadingToolOutputIDs.removeAll()
+            transcriptToolExpansion.reset()
+            transcriptViewport.frames = [:]
+            transcriptViewport.partFrames = [:]
             isTranscriptAutoFollowPaused = false
             isFollowingTranscriptTail = true
             transcriptScrollRequest &+= 1
@@ -357,7 +372,8 @@ struct ChatView: View {
     private func transcript(
         messages: [PiChatMessage],
         hiddenMessageCount: Int,
-        hasNewerMessages: Bool
+        hasNewerMessages: Bool,
+        sourceSpans: [String: TranscriptRowSourceSpan]
     ) -> some View {
         // The rail indexes every loaded user turn. Selecting a mark moves the
         // bounded render window around that turn before scrolling.
@@ -365,6 +381,7 @@ struct ChatView: View {
             .filter { $0.role == .user }
             .map { PiChatMessage(message: $0, isStreaming: false) } ?? messages
         let prompts = PromptRailPresentation.entries(from: promptMessages)
+        let rows = transcriptToolExpansion.rows(for: messages)
         return GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
@@ -389,8 +406,8 @@ struct ChatView: View {
                         }
                         // The window is bounded, so every displayed row can be
                         // measured without LazyVStack height estimates moving it.
-                        ForEach(messages) { message in
-                            transcriptRow(message)
+                        ForEach(rows) { row in
+                            transcriptRow(row.message, isGrouped: sourceSpans[row.message.id]?.isGrouped == true)
                         }
                         if hasNewerMessages {
                             Button(L10n.string("chat.history.load_newer")) {
@@ -423,6 +440,13 @@ struct ChatView: View {
                     .padding(.leading, PromptRailLayout.transcriptInset)
                     .padding(.trailing, PromptRailLayout.transcriptTrailingInset(hasPrompts: !prompts.isEmpty))
                     .padding(.vertical, 16)
+                    .coordinateSpace(name: TranscriptLayout.documentCoordinateSpace)
+                    .transaction { transaction in
+                        if historyLoadID != nil || isAdjustingTranscriptScroll {
+                            transaction.animation = nil
+                            transaction.disablesAnimations = true
+                        }
+                    }
                     .background {
                         TranscriptUserScrollObserver(
                             topThreshold: TranscriptLayout.historyLoadThreshold,
@@ -520,6 +544,9 @@ struct ChatView: View {
                 .onPreferenceChange(TranscriptRowFramesPreferenceKey.self) { frames in
                     transcriptViewport.frames = frames
                 }
+                .onPreferenceChange(TranscriptPartFramesPreferenceKey.self) { frames in
+                    transcriptViewport.partFrames = frames
+                }
                 .onPreferenceChange(PromptRowFramesPreferenceKey.self) { frames in
                     let next = PromptRailPresentation.currentPromptID(
                         in: prompts,
@@ -546,23 +573,26 @@ struct ChatView: View {
         }
     }
 
-    private func transcriptRow(_ message: PiChatMessage) -> some View {
+    private func transcriptRow(_ message: PiChatMessage, isGrouped: Bool) -> some View {
+        TranscriptMessageSnapshotView(fallback: message, store: sessionStore,
+            sessionID: presentedSessionID ?? "", isGrouped: isGrouped) { snapshot in
         ChatMessageRow(
-            message: message,
+            message: snapshot,
             loadedToolOutputs: loadedToolOutputs,
             loadingToolOutputIDs: loadingToolOutputIDs,
             onLoadToolOutput: loadToolOutput,
-            canRetryCompaction: canCompact,
+            canRetryCompaction: snapshot.compaction != nil && canCompact,
             onRetryCompaction: { compactContext(nil) }
         ) { approval, decision in
             resolve(approval: approval, decision: decision)
         }
         .equatable()
+        }
         .background {
             GeometryReader { row in
                 Color.clear.preference(
                     key: TranscriptRowFramesPreferenceKey.self,
-                    value: [message.id: row.frame(in: .named(TranscriptLayout.coordinateSpace))]
+                    value: [message.id: row.frame(in: .named(TranscriptLayout.documentCoordinateSpace))]
                 )
             }
         }
@@ -588,7 +618,9 @@ struct ChatView: View {
             }
         }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.3), value: highlightedPromptID == message.id)
-        .id(message.id)
+        // Scroll identity is separate from row identity: merging tool groups
+        // must not reset the retained controls, focus or expanded details.
+        .background { Color.clear.id(message.id).allowsHitTesting(false).accessibilityHidden(true) }
     }
 
     /// Scrolling to an anchor alone leaves the reader wondering whether the jump
@@ -694,12 +726,15 @@ struct ChatView: View {
         using proxy: ScrollViewProxy
     ) {
         let window = messagePresentation
-        guard let anchor = messages.first, let record = presentedRecord,
+        let captured = transcriptViewport.captureVisibleAnchor(in: messages)
+        let visibleSources = transcriptViewport.visibleSourceBounds(in: window)
+        guard let anchor = captured?.message ?? messages.first, let record = presentedRecord,
               record.id == activeSessionId, !isSessionTransitioning, historyLoadID == nil,
               window.hasCachedEarlierMessages || record.hasEarlierMessages else { return }
         let sessionID = record.id
         let loadID = UUID()
         historyLoadID = loadID
+        historyPrefetchCursor = nil // Explicit user input may retry a failed prefetch.
         actionFailure = nil
         transcriptScrollTask?.cancel()
         transcriptScrollTask = nil
@@ -722,8 +757,10 @@ struct ChatView: View {
                 } else {
                     additionalCount = try await sessionStore.loadEarlierMessages(sessionId: sessionID)
                 }
-                guard additionalCount > 0, activeSessionId == sessionID, historyLoadID == loadID else { return }
-                transcriptNavigation.revealEarlier(in: messagePresentation.sourceIDs)
+                guard activeSessionId == sessionID, historyLoadID == loadID,
+                      additionalCount > 0 || messagePresentation.hasCachedEarlierMessages else { return }
+                transcriptNavigation.revealEarlier(in: messagePresentation.sourceIDs,
+                    retainingThroughID: visibleSources?.lastID)
                 transcriptMessageLimit = transcriptNavigation.count
                 presentedMessageLimit = transcriptNavigation.count
                 await Task.yield()
@@ -731,14 +768,39 @@ struct ChatView: View {
                 restoreTranscriptAnchor(
                     anchor,
                     anchorPosition: .top,
+                    viewportOffset: captured?.offset,
+                    partID: captured?.partID,
                     sessionID: sessionID,
                     restorationID: loadID,
                     using: proxy
                 )
+                prefetchEarlierIfNeeded()
             } catch {
                 guard activeSessionId == sessionID, historyLoadID == loadID else { return }
                 actionFailure = AgentErrorPresentation(error)
             }
+        }
+    }
+
+    /// Fetch one page ahead without moving the pinned window or blocking cached
+    /// navigation. A foreground load joins this Store request if it is still pending.
+    private func prefetchEarlierIfNeeded() {
+        let window = messagePresentation
+        guard historyPrefetchTask == nil, !isSessionTransitioning,
+              let record = presentedRecord, record.id == activeSessionId,
+              record.hasEarlierMessages, let cursor = record.historyCursor,
+              historyPrefetchCursor != cursor,
+              window.sourceIDs.count >= TranscriptWindow.batchSize,
+              window.sourceRange.lowerBound < TranscriptWindowNavigation.navigationStep else { return }
+        let sessionID = record.id
+        let id = UUID()
+        historyPrefetchID = id; historyPrefetchCursor = cursor
+        historyPrefetchTask = Task { @MainActor in
+            defer {
+                if historyPrefetchID == id { historyPrefetchTask = nil; historyPrefetchID = nil }
+            }
+            do { _ = try await sessionStore.loadEarlierMessages(sessionId: sessionID) }
+            catch { /* Preserve current history; an explicit wheel/click can retry. */ }
         }
     }
 
@@ -748,15 +810,22 @@ struct ChatView: View {
               window.hasNewerMessages, historyLoadID == nil,
               !isSessionTransitioning, !isAdjustingTranscriptScroll else { return }
         let captured = transcriptViewport.captureVisibleAnchor(in: messages)
+        var next = transcriptNavigation
+        next.revealNewer(in: window.sourceIDs,
+            retainingFromID: transcriptViewport.visibleSourceBounds(in: window)?.firstID)
+        guard next != transcriptNavigation else {
+            historyLoadRevision &+= 1 // Re-arm when a tall visible source must stay pinned.
+            return
+        }
         let loadID = UUID()
         historyLoadID = loadID
         pauseTranscriptAutoFollow()
         isAdjustingTranscriptScroll = true
-        transcriptNavigation.revealNewer(in: window.sourceIDs)
+        transcriptNavigation = next
         transcriptMessageLimit = transcriptNavigation.count
         presentedMessageLimit = transcriptNavigation.count
         let newIDs = Set(messagePresentation.messages.map(\.id))
-        if transcriptViewport.removeLeadingRows(messages, retaining: newIDs) {
+        if captured?.partID == nil, transcriptViewport.removeLeadingRows(messages, retaining: newIDs) {
             DispatchQueue.main.async {
                 guard activeSessionId == sessionID, historyLoadID == loadID else { return }
                 historyLoadID = nil
@@ -768,6 +837,7 @@ struct ChatView: View {
                 captured?.message ?? last,
                 anchorPosition: captured == nil ? .bottom : .top,
                 viewportOffset: captured?.offset,
+                partID: captured?.partID,
                 sessionID: sessionID,
                 restorationID: loadID,
                 using: proxy
@@ -781,6 +851,7 @@ struct ChatView: View {
         _ anchor: PiChatMessage,
         anchorPosition: UnitPoint,
         viewportOffset: CGFloat? = nil,
+        partID: String? = nil,
         sessionID: String,
         restorationID: UUID,
         using proxy: ScrollViewProxy
@@ -788,7 +859,8 @@ struct ChatView: View {
         historyAnchorRestoreTask?.cancel()
         historyAnchorRestoreID = restorationID
         let partIDs = Set(anchor.parts.map(\.id))
-        let anchorID = messagePresentation.messages.first {
+        let expectedRows = Set(messagePresentation.messages.map(\.id))
+        let anchorID = partID ?? messagePresentation.messages.first {
             $0.id == anchor.id || $0.parts.contains { partIDs.contains($0.id) }
         }?.id ?? anchor.id
         proxy.scrollTo(anchorID, anchor: anchorPosition)
@@ -803,16 +875,29 @@ struct ChatView: View {
                     isAdjustingTranscriptScroll = false
                 }
             }
-            for delay in [16_000_000, 50_000_000] as [UInt64] {
-                do {
-                    try await Task.sleep(nanoseconds: delay)
-                } catch { return }
+            // Preference dictionaries can still describe the *old* window
+            // after Task.yield, especially under layout or scheduler pressure.
+            // Correcting against those coordinates can move to the wrong row.
+            let deadline = ContinuousClock.now + .seconds(2)
+            var stableSamples = 0
+            while ContinuousClock.now < deadline {
+                do { try await Task.sleep(nanoseconds: 30_000_000) } catch { return }
                 guard !Task.isCancelled, historyAnchorRestoreID == restorationID,
                       activeSessionId == sessionID else { return }
-                proxy.scrollTo(anchorID, anchor: anchorPosition)
-                await Task.yield()
-                if let viewportOffset {
-                    transcriptViewport.restoreOffset(viewportOffset, for: anchorID)
+                guard transcriptViewport.hasFrames(forExactly: expectedRows) else {
+                    stableSamples = 0
+                    continue
+                }
+                if let viewportOffset, let frame = transcriptViewport.currentFrame(for: anchorID) {
+                    if abs(frame.minY - viewportOffset) <= 0.5 {
+                        stableSamples += 1
+                        if stableSamples >= 3 { return }
+                    } else {
+                        stableSamples = 0
+                        transcriptViewport.restoreOffset(viewportOffset, for: anchorID)
+                    }
+                } else {
+                    proxy.scrollTo(anchorID, anchor: anchorPosition)
                 }
             }
         }
@@ -1435,38 +1520,9 @@ struct ChatView: View {
         guard let record = presentedRecord else {
             return TranscriptWindow(messages: [], hiddenCount: 0)
         }
-        let streamingMessageID = record.activeTurnId.flatMap { turnId in
-            let messageID = "turn:\(turnId):assistant"
-            return record.transcript.last { message in
-                message.role == .assistant
-                    && (
-                        message.id == messageID
-                            || message.id.hasPrefix("\(messageID):")
-                    )
-            }?.id
-        }
-        let visibleSource = record.transcript.filter { message in
-            PiChatMessage.hasVisibleContent(
-                parts: message.parts,
-                hasCompaction: message.compaction != nil,
-                isStreaming: message.id == streamingMessageID && isExecuting
-            )
-        }
-        let sourceIDs = visibleSource.map(\.id)
-        let range = transcriptNavigation.range(
-            in: sourceIDs,
-            presentationLimit: min(transcriptMessageLimit, presentedMessageLimit)
-        )
-        let displayed = visibleSource[range].map { message in
-            PiChatMessage(message: message, isStreaming: message.id == streamingMessageID && isExecuting)
-        }
-        return TranscriptWindow(
-            messages: AssistantTranscriptPresentation.groupAdjacentTools(in: displayed),
-            hiddenCount: range.lowerBound + (record.hasEarlierMessages ? 1 : 0),
-            sourceIDs: sourceIDs,
-            hasNewerMessages: range.upperBound < sourceIDs.count,
-            hasCachedEarlierMessages: range.lowerBound > 0
-        )
+        return transcriptPresentation.project(record: record,
+            structuralRevision: sessionStore.transcriptStructureRevision(sessionID: record.id),
+            navigation: transcriptNavigation, limit: min(transcriptMessageLimit, presentedMessageLimit))
     }
 
     private func transcriptScrollToken(for messages: [PiChatMessage]) -> String {
@@ -1565,6 +1621,7 @@ struct ChatView: View {
 
 private enum TranscriptLayout {
     static let coordinateSpace = "transcript-scroll"
+    static let documentCoordinateSpace = "transcript-document"
     static let tailID = "transcript-tail"
     static let rowSpacing: CGFloat = 12
     static let historyLoadThreshold: CGFloat = 160
@@ -1589,14 +1646,96 @@ private struct SessionOpenFirstFrameReporter: View {
 
 @MainActor final class TranscriptViewport {
     weak var scrollView: NSScrollView?
-    var frames: [String: CGRect] = [:]
+    private var absoluteFrames: [String: CGRect] = [:]
+    private var absolutePartFrames: [String: CGRect] = [:]
+    private var normalizedFrames: [String: CGRect] = [:]
+    private var normalizedPartFrames: [String: CGRect] = [:]
+    private var normalizedAt: CGFloat?
+    private var partsNormalizedAt: CGFloat?
 
-    func captureVisibleAnchor(in messages: [PiChatMessage]) -> (message: PiChatMessage, offset: CGFloat)? {
+    // Preferences are measured in the document, not the moving viewport. This
+    // makes an edge-wheel callback correct even before SwiftUI's next layout.
+    // Normalized snapshots are cached for repeated reads at the same position.
+    var frames: [String: CGRect] {
+        get {
+            let offset = scrollOffset
+            if normalizedAt != offset {
+                normalizedFrames = absoluteFrames.mapValues { $0.offsetBy(dx: 0, dy: -offset) }
+                normalizedAt = offset
+            }
+            return normalizedFrames
+        }
+        set { absoluteFrames = newValue; normalizedAt = nil }
+    }
+    var partFrames: [String: CGRect] {
+        get {
+            let offset = scrollOffset
+            if partsNormalizedAt != offset {
+                normalizedPartFrames = absolutePartFrames.mapValues { $0.offsetBy(dx: 0, dy: -offset) }
+                partsNormalizedAt = offset
+            }
+            return normalizedPartFrames
+        }
+        set { absolutePartFrames = newValue; partsNormalizedAt = nil }
+    }
+    private var scrollOffset: CGFloat {
+        guard let scrollView, let document = scrollView.documentView else { return 0 }
+        return TranscriptScrollPresentation.distances(documentBounds: document.bounds,
+            visibleRect: scrollView.documentVisibleRect, isFlipped: document.isFlipped).fromTop
+    }
+    private func adjusted(_ frame: CGRect) -> CGRect { frame.offsetBy(dx: 0, dy: -scrollOffset) }
+
+    func currentFrame(for id: String) -> CGRect? {
+        (absolutePartFrames[id] ?? absoluteFrames[id]).map { adjusted($0) }
+    }
+
+    func hasFrames(forExactly ids: Set<String>) -> Bool {
+        absoluteFrames.count == ids.count && absoluteFrames.keys.allSatisfy(ids.contains)
+    }
+
+    func captureVisibleAnchor(in messages: [PiChatMessage]) -> (message: PiChatMessage, offset: CGFloat, partID: String?)? {
         guard let height = scrollView?.contentView.bounds.height else { return nil }
-        return messages.compactMap { message -> (PiChatMessage, CGFloat)? in
-            guard let frame = frames[message.id], frame.maxY > 0, frame.minY < height else { return nil }
-            return (message, frame.minY)
-        }.min { $0.1 < $1.1 }
+        for message in messages {
+            guard let raw = absoluteFrames[message.id] else { continue }
+            let frame = adjusted(raw)
+            guard frame.maxY > 0, frame.minY < height else { continue }
+            let parts = message.parts.compactMap { part -> (String, CGRect)? in
+                guard let raw = absolutePartFrames[part.id] else { return nil }
+                let rect = adjusted(raw)
+                return rect.maxY > 0 && rect.minY < height ? (part.id, rect) : nil
+            }
+            if let part = parts.min(by: { $0.1.minY < $1.1.minY }) {
+                return (message, part.1.minY, part.0)
+            }
+            return (message, frame.minY, nil)
+        }
+        return nil
+    }
+
+    /// Retain the source messages actually visible, including individual tools
+    /// inside a tall merged group. Small/collapsed documents can page normally.
+    func visibleSourceBounds(in window: TranscriptWindow) -> TranscriptRowSourceSpan? {
+        guard let scrollView, let document = scrollView.documentView,
+              document.bounds.height > scrollView.contentView.bounds.height + 1 else { return nil }
+        let height = scrollView.contentView.bounds.height
+        var ids: [String] = []
+        for message in window.messages {
+            guard let raw = absoluteFrames[message.id] else { continue }
+            let frame = adjusted(raw)
+            guard frame.maxY > 0, frame.minY < height else { continue }
+            let visibleParts = message.parts.compactMap { part -> String? in
+                guard let raw = absolutePartFrames[part.id] else { return nil }
+                let rect = adjusted(raw)
+                guard rect.maxY > 0, rect.minY < height else { return nil }
+                return window.sourceMessageIDsByPartID[part.id]
+            }
+            if !visibleParts.isEmpty { ids += visibleParts }
+            else if let span = window.sourceSpans[message.id] { ids += [span.firstID, span.lastID] }
+        }
+        let indices = ids.compactMap { window.sourcePositions[$0] ?? window.sourceIDs.firstIndex(of: $0) }
+        guard let first = indices.min(), let last = indices.max() else { return nil }
+        if first == window.sourceRange.lowerBound && last == window.sourceRange.upperBound - 1 { return nil }
+        return TranscriptRowSourceSpan(firstID: window.sourceIDs[first], lastID: window.sourceIDs[last])
     }
 
     /// Removing rows changes the document origin. Compensate synchronously,
@@ -1616,7 +1755,8 @@ private struct SessionOpenFirstFrameReporter: View {
     }
 
     func restoreOffset(_ offset: CGFloat, for id: String) {
-        guard let scrollView, let document = scrollView.documentView, let frame = frames[id] else { return }
+        guard let scrollView, let document = scrollView.documentView else { return }
+        guard let frame = currentFrame(for: id) else { return }
         let delta = frame.minY - offset
         guard abs(delta) > 0.5 else { return }
         let clip = scrollView.contentView
@@ -3892,8 +4032,14 @@ private let assistantMarkdownTheme = Theme.gitHub
     }
 
 private struct ChatMessageRow: View, Equatable {
+    @Environment(\.transcriptToolExpansion) private var expansionState
+    @Environment(\.transcriptMessagePresentation) private var snapshotSource
+
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.message == rhs.message
+        // An executing row owns mutable presentation state. Equality is only a
+        // reuse boundary for static rows, never a gate on live/terminal delivery.
+        if lhs.message.isStreaming || rhs.message.isStreaming { return false }
+        return lhs.message == rhs.message
             && lhs.loadedToolOutputs == rhs.loadedToolOutputs
             && lhs.loadingToolOutputIDs == rhs.loadingToolOutputIDs
             && lhs.canRetryCompaction == rhs.canRetryCompaction
@@ -4019,6 +4165,11 @@ private struct ChatMessageRow: View, Equatable {
             : CGSize(width: 64, height: 64)
     }
 
+    private var currentMessageForActions: PiChatMessage {
+        guard let current = snapshotSource?.message, current.id == message.id else { return message }
+        return current
+    }
+
     private var assistantTimeline: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 11) {
@@ -4039,11 +4190,15 @@ private struct ChatMessageRow: View, Equatable {
     }
 
     private var assistantBlocks: [AssistantTranscriptBlock] {
-        AssistantTranscriptPresentation.blocks(from: message.parts)
+        AssistantTranscriptPresentation.blocks(from: message.parts).map { block in
+            guard case .tools(let group) = block,
+                  let identity = expansionState?.groupIdentity(for: group.tools) else { return block }
+            return .tools(AssistantToolGroup(id: identity, tools: group.tools))
+        }
     }
 
     private var assistantMetadataAnchorID: String? {
-        guard message.hasCopyableText else { return nil }
+        guard currentMessageForActions.hasCopyableText else { return nil }
         return AssistantTranscriptPresentation.metadataAnchorID(in: assistantBlocks)
     }
 
@@ -4131,7 +4286,7 @@ private struct ChatMessageRow: View, Equatable {
     }
 
     private func copyMessage() {
-        guard MessageClipboard.copy(message.copyableText) else { return }
+        guard MessageClipboard.copy(currentMessageForActions.copyableText) else { return }
         copyFeedbackResetTask?.cancel()
         withAnimation(.easeOut(duration: 0.12)) {
             isMessageCopied = true
@@ -4155,7 +4310,7 @@ private struct ChatMessageRow: View, Equatable {
         switch block {
         case .text(let id, let text):
             VStack(alignment: .leading, spacing: 4) {
-                AssistantMarkdownView(text: text, isStreaming: message.isStreaming)
+                AssistantMarkdownView(text: text, isStreaming: message.isStreaming, blockID: id)
                     .markdownTheme(assistantMarkdownTheme)
                     .textSelection(.enabled)
                 if id == assistantMetadataAnchorID {
@@ -4314,6 +4469,7 @@ private struct AssistantThinkingView: View {
 
 private struct AssistantToolGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.transcriptToolExpansion) private var expansionState
 
     let group: AssistantToolGroup
     let loadedToolOutputs: [String: String]
@@ -4343,7 +4499,9 @@ private struct AssistantToolGroupView: View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 guard canToggleExpansion else { return }
-                manualExpansion = !isExpanded
+                let next = !isExpanded
+                manualExpansion = next
+                expansionState?.set(next, for: group.tools)
             } label: {
                 HStack(spacing: 8) {
                     statusIcon
@@ -4395,6 +4553,13 @@ private struct AssistantToolGroupView: View {
                             onLoadFullOutput: { onLoadToolOutput(tool) },
                             onResolve: onResolve
                         )
+                        .id("tool:\(tool.id)")
+                        .background {
+                            GeometryReader { part in
+                                Color.clear.preference(key: TranscriptPartFramesPreferenceKey.self,
+                                    value: ["tool:\(tool.id)": part.frame(in: .named(TranscriptLayout.documentCoordinateSpace))])
+                            }
+                        }
                     }
                 }
                 .padding(.leading, 12)
@@ -4411,7 +4576,7 @@ private struct AssistantToolGroupView: View {
     }
 
     private var isExpanded: Bool {
-        group.status.isExpanded(manualSelection: manualExpansion)
+        group.status.isExpanded(manualSelection: expansionState?.selection(for: group.tools) ?? manualExpansion)
     }
 
     private var canToggleExpansion: Bool {
@@ -4461,6 +4626,7 @@ private struct AssistantToolGroupView: View {
 
 private struct AssistantToolStepRow: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.transcriptToolExpansion) private var expansionState
 
     let tool: SessionToolRecord
     let loadedOutput: String?
@@ -4469,7 +4635,7 @@ private struct AssistantToolStepRow: View {
     let onResolve: (AgentHostApprovalRequest, AgentHostApprovalDecision) -> Void
 
     @StateObject private var inputCache = ToolInputPresentationCache()
-    @State private var isDetailExpanded = false
+    @State private var isDetailExpanded: Bool?
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
@@ -4477,8 +4643,10 @@ private struct AssistantToolStepRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
                 guard hasDetails else { return }
-                isDetailExpanded.toggle()
-                if isDetailExpanded, tool.outputTruncated, loadedOutput == nil {
+                let next = !(expansionState?.detailSelection(for: tool.id) ?? isDetailExpanded ?? false)
+                isDetailExpanded = next
+                expansionState?.setDetail(next, for: tool.id)
+                if next, tool.outputTruncated, loadedOutput == nil {
                     onLoadFullOutput()
                 }
             } label: {
@@ -4508,6 +4676,12 @@ private struct AssistantToolStepRow: View {
                         .font(.system(size: 12))
                         .monospacedDigit()
                         .fixedSize()
+                    } else if let lineCount = presentation.writtenLineCount {
+                        Text("+\(lineCount)")
+                            .foregroundStyle(Color.green)
+                            .font(.system(size: 12))
+                            .monospacedDigit()
+                            .fixedSize()
                     }
 
                     if hasDetails {
@@ -4601,7 +4775,7 @@ private struct AssistantToolStepRow: View {
 
     private var showsDetails: Bool {
         tool.state == .awaitingApproval
-            || isDetailExpanded
+            || (expansionState?.detailSelection(for: tool.id) ?? isDetailExpanded ?? false)
     }
 
     private var hasDetails: Bool {

@@ -2,6 +2,31 @@ import XCTest
 @testable import PiWork
 
 final class TranscriptWindowNavigationTests: XCTestCase {
+    func testHistoryNeverGrowsBeyondOneHundredSources() {
+        let ids = (0..<1000).map(String.init)
+        var window = TranscriptWindowNavigation()
+        for _ in 0..<20 {
+            XCTAssertEqual(window.range(in: ids).count, 100)
+            window.revealEarlier(in: ids)
+        }
+        XCTAssertEqual(window.range(in: ids), 0..<100)
+    }
+
+    func testMovementRetainsTheWholeVisibleSourceIntervalWhenRequested() {
+        let ids = (0..<1000).map(String.init)
+        var window = TranscriptWindowNavigation()
+        window.jump(to: "500", in: ids)
+        let before = window.range(in: ids)
+        let visibleFirst = before.lowerBound + 15
+        window.revealNewer(in: ids, retainingFromID: String(visibleFirst))
+        XCTAssertEqual(window.range(in: ids).lowerBound, visibleFirst)
+        let later = window.range(in: ids)
+        let visibleLast = later.upperBound - 10
+        window.revealEarlier(in: ids, retainingThroughID: String(visibleLast))
+        XCTAssertTrue(window.range(in: ids).contains(visibleLast))
+        XCTAssertEqual(window.range(in: ids).count, 100)
+    }
+
     func testEmptyAndShortSessionsAreSafe() {
         var window = TranscriptWindowNavigation()
         window.revealEarlier(in: [])
@@ -17,9 +42,9 @@ final class TranscriptWindowNavigationTests: XCTestCase {
     }
 
     func testMovingEarlierAndLaterKeepsOverlapAndHasABoundedWindow() {
-        let ids = (0..<500).map(String.init)
+        let ids = (0..<1500).map(String.init)
         var window = TranscriptWindowNavigation()
-        XCTAssertEqual(Array(ids[window.range(in: ids)]), Array(ids[460..<500]))
+        XCTAssertEqual(Array(ids[window.range(in: ids)]), Array(ids[1400..<1500]))
         for _ in 0..<12 {
             let before = window.range(in: ids)
             window.revealEarlier(in: ids)
@@ -85,7 +110,7 @@ final class TranscriptWindowNavigationTests: XCTestCase {
     }
 
     func testPrependingRemoteHistoryPreservesTheExistingWindow() {
-        var ids = (200..<300).map(String.init)
+        var ids = (200..<400).map(String.init)
         var window = TranscriptWindowNavigation()
         for _ in 0..<3 { window.revealEarlier(in: ids) }
         let before = Array(ids[window.range(in: ids)])

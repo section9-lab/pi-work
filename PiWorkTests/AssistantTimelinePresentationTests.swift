@@ -54,7 +54,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
     }
 
     func testTranscriptWindowInitiallyKeepsOnlyNewestMessages() {
-        let messages = (0..<75).map { index in
+        let messages = (0..<135).map { index in
             PiChatMessage(id: "message-\(index)", role: .user, text: "Message \(index)")
         }
 
@@ -66,7 +66,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
     }
 
     func testTranscriptWindowCanRevealOneOlderBatch() {
-        let messages = (0..<95).map { index in
+        let messages = (0..<215).map { index in
             PiChatMessage(id: "message-\(index)", role: .user, text: "Message \(index)")
         }
 
@@ -75,13 +75,13 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             limit: TranscriptWindow.batchSize * 2
         )
 
-        XCTAssertEqual(window.messages.count, 80)
+        XCTAssertEqual(window.messages.count, 200)
         XCTAssertEqual(window.messages.first?.id, "message-15")
         XCTAssertEqual(window.hiddenCount, 15)
     }
 
     func testTranscriptProjectionBoundsSourceBeforeBuildingChatMessages() {
-        let transcript = (0..<95).map { index in
+        let transcript = (0..<155).map { index in
             SessionTranscriptMessage(
                 id: "message-\(index)",
                 role: .user,
@@ -95,13 +95,13 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             limit: TranscriptWindow.batchSize
         )
 
-        XCTAssertEqual(sourceWindow.messages.count, 40)
+        XCTAssertEqual(sourceWindow.messages.count, 100)
         XCTAssertEqual(sourceWindow.messages.first?.id, "message-55")
         XCTAssertEqual(sourceWindow.hiddenCount, 55)
     }
 
     func testTranscriptProjectionReturnsNewestVisibleMessages() {
-        let messages = (0..<90).map { index in
+        let messages = (0..<210).map { index in
             SessionTranscriptMessage(
                 id: "message-\(index)",
                 role: .user,
@@ -118,9 +118,9 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             return index.isMultiple(of: 2) ? message.id : nil
         }
 
-        XCTAssertEqual(window.messages.count, 40)
+        XCTAssertEqual(window.messages.count, 100)
         XCTAssertEqual(window.messages.first, "message-10")
-        XCTAssertEqual(window.messages.last, "message-88")
+        XCTAssertEqual(window.messages.last, "message-208")
         XCTAssertEqual(window.hiddenCount, 10)
     }
 
@@ -699,7 +699,8 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         let transcriptSource = String(source[transcriptStart.lowerBound..<emptySessionStart.lowerBound])
 
         XCTAssertTrue(transcriptSource.contains("VStack(alignment: .leading, spacing: 12)"))
-        XCTAssertTrue(transcriptSource.contains("ForEach(messages)"))
+        XCTAssertTrue(transcriptSource.contains("ForEach(rows)"))
+        XCTAssertTrue(transcriptSource.contains("transcriptToolExpansion.rows(for: messages)"))
         XCTAssertFalse(transcriptSource.contains("LazyVStack(alignment: .leading, spacing: TranscriptLayout.rowSpacing)"))
         XCTAssertTrue(source.contains(".equatable()"))
     }
@@ -1008,9 +1009,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            source.contains("guard message.hasCopyableText else { return nil }")
+            source.contains("guard currentMessageForActions.hasCopyableText else { return nil }")
         )
-        XCTAssertTrue(source.contains("MessageClipboard.copy(message.copyableText)"))
+        XCTAssertTrue(source.contains("MessageClipboard.copy(currentMessageForActions.copyableText)"))
+        XCTAssertTrue(source.contains("snapshotSource?.message"))
     }
 
     func testAssistantMetadataOnlyAppearsWhileItsTextIsHovered() throws {

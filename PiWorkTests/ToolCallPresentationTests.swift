@@ -2,6 +2,48 @@ import XCTest
 @testable import PiWork
 
 final class ToolCallPresentationTests: XCTestCase {
+    func testWriteCountsLinesWithoutCountingTheTrailingNewlineAsAnExtraLine() {
+        let cases: [(String, Int)] = [
+            ("", 0),
+            ("hello", 1),
+            ("hello\n", 1),
+            ("first\nsecond", 2),
+            ("first\nsecond\n", 2),
+            ("\n", 1),
+            ("first\n\n", 2),
+            ("first\r\nsecond\r\n", 2),
+            ("你好 👋\n世界", 2)
+        ]
+        for (content, expected) in cases {
+            let tool = SessionToolRecord(id: "write", name: "write", summary: "", rawInput: .object([
+                "path": .string("file.txt"), "content": .string(content)
+            ]), state: .completed, isError: false)
+            let presentation = ToolCallPresentation(tool: tool)
+            XCTAssertEqual(presentation.writtenLineCount, expected, "Content: \(content.debugDescription)")
+            XCTAssertEqual(presentation.summary, "file.txt")
+        }
+    }
+
+    func testWriteLineCountSupportsSummaryJSONFallback() {
+        let tool = SessionToolRecord(id: "write", name: "Write",
+            summary: #"{"path":"file.txt","content":"first\nsecond\n"}"#,
+            state: .completed, isError: false)
+        XCTAssertEqual(ToolCallPresentation(tool: tool).writtenLineCount, 2)
+    }
+
+    func testWriteLineCountIsHiddenForMissingOrIncompleteContentAndOtherTools() {
+        for summary in ["", #"{"path":"file.txt"}"#, #"{"path":"file.txt","content":null}"#,
+                        #"{"path":"file.txt","content":"partial"#] {
+            let tool = SessionToolRecord(id: "write", name: "write", summary: summary,
+                state: .running, isError: nil)
+            XCTAssertNil(ToolCallPresentation(tool: tool).writtenLineCount)
+        }
+        let read = SessionToolRecord(id: "read", name: "read", summary: "", rawInput: .object([
+            "path": .string("file.txt"), "content": .string("first\nsecond")
+        ]), state: .completed, isError: false)
+        XCTAssertNil(ToolCallPresentation(tool: read).writtenLineCount)
+    }
+
     func testEditUsesHighlighterIconIncludingEditorAlias() {
         for name in ["edit", "editor", "Editor"] {
             let tool = SessionToolRecord(id: name, name: name, summary: "", state: .completed, isError: nil)

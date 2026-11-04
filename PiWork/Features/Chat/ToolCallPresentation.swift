@@ -18,6 +18,7 @@ final class ToolCallPresentation {
     let title: String
     let iconName: String
     let summary: String
+    let writtenLineCount: Int?
     private let name: String
     private let input: AgentHostJSONValue?
     private let fallbackSummary: String
@@ -43,6 +44,13 @@ final class ToolCallPresentation {
             try? JSONDecoder().decode(AgentHostJSONValue.self, from: $0)
         }
         let object = input?.objectValue
+        if name == "write", let content = object?["content"]?.stringValue {
+            // Count without allocating a second copy or an array of lines.
+            let newlines = content.utf8.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
+            writtenLineCount = newlines + (content.isEmpty || content.utf8.last == 0x0A ? 0 : 1)
+        } else {
+            writtenLineCount = nil
+        }
         summary = ["path", "command", "query", "url", "pattern"]
             .compactMap { object?[$0]?.stringValue }
             .first(where: { !$0.isEmpty }) ?? tool.summary

@@ -15,6 +15,23 @@ final class ToolInputPresentationCacheTests: XCTestCase {
         XCTAssertEqual(completed.edit?.diffSummary.deletions, 1)
     }
 
+    func testWriteLineCountUpdatesWithInputAndIsReusedOnCompletion() {
+        let cache = ToolInputPresentationCache()
+        func tool(content: String, state: SessionToolRunState) -> SessionToolRecord {
+            SessionToolRecord(id: "write", name: "write", summary: "", rawInput: .object([
+                "path": .string("file.txt"), "content": .string(content)
+            ]), state: state, isError: nil)
+        }
+        let first = cache.value(for: tool(content: "first\n", state: .running))
+        let updated = cache.value(for: tool(content: "first\nsecond\n", state: .running))
+        let completed = cache.value(for: tool(content: "first\nsecond\n", state: .completed))
+
+        XCTAssertEqual(first.call.writtenLineCount, 1)
+        XCTAssertEqual(updated.call.writtenLineCount, 2)
+        XCTAssertFalse(first === updated)
+        XCTAssertTrue(updated === completed)
+    }
+
     func testChangedArgumentsInvalidatePresentationEvenWhenSummaryIsUnchanged() {
         let cache = ToolInputPresentationCache()
         let first = cache.value(for: SessionToolRecord(id: "read", name: "read", summary: "", rawInput: .object(["path": .string("first.swift")]), state: .running, isError: nil))

@@ -66,11 +66,9 @@ struct CompactionRecordView: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .opacity(canExpand ? 1 : 0)
-                        Image(systemName: compaction.status == .failed
-                              ? "exclamationmark.circle" : "arrow.down.right.and.arrow.up.left")
+                        Image(systemName: isExpanded
+                              ? "arrow.up.left.and.arrow.down.right"
+                              : "arrow.down.right.and.arrow.up.left")
                         Text(L10n.string(CompactionPresentation.titleKey(compaction.status)))
                         Spacer(minLength: 8)
                         if let tokens = CompactionPresentation.tokenText(compaction) {

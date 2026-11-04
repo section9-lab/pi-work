@@ -100,6 +100,14 @@ final class CompactionTests: XCTestCase {
         XCTAssertEqual(CompactionPresentation.titleKey(.cancelled), "chat.compaction.cancelled")
     }
 
+    func testCompactionReductionPercentage() throws {
+        XCTAssertEqual(try XCTUnwrap(CompactionPresentation.reductionPercentage(before: 41_164, after: 23_217)), 43.599, accuracy: 0.01)
+        XCTAssertEqual(CompactionPresentation.reductionPercentage(before: 100, after: 0), 100)
+        XCTAssertEqual(CompactionPresentation.reductionPercentage(before: 100, after: 120), -20)
+        XCTAssertNil(CompactionPresentation.reductionPercentage(before: 0, after: 0))
+        XCTAssertNil(CompactionPresentation.reductionPercentage(before: 100, after: -1))
+    }
+
     func testCompactCommandUsesAnExactWhitespaceBoundary() {
         XCTAssertEqual(CompactionPresentation.instructions(in: "/compact"), "")
         XCTAssertEqual(CompactionPresentation.instructions(in: "/compact\t保留设计决策"), "保留设计决策")

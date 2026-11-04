@@ -460,17 +460,6 @@ struct SessionStoreReducer {
         records[sessionId] = record
     }
 
-    mutating func revertGeneratedTitle(sessionId: String, title: String) {
-        guard var record = records[sessionId], record.descriptor.title == title else { return }
-        record.descriptor = AgentHostSessionDescriptor(
-            id: record.descriptor.id,
-            path: record.descriptor.path,
-            cwd: record.descriptor.cwd,
-            title: "New Session"
-        )
-        records[sessionId] = record
-    }
-
     mutating func requestAbort(sessionId: String) {
         guard var record = records[sessionId],
               record.runState == .running || record.runState == .submitting else {
@@ -856,7 +845,8 @@ struct SessionStoreReducer {
         return []
     }
 
-    private func eventIdentity(_ event: AgentHostServerEvent) -> (sessionId: String, sequence: Int)? {
+    // Also used by the Store to conservatively route presentation invalidations.
+    func eventIdentity(_ event: AgentHostServerEvent) -> (sessionId: String, sequence: Int)? {
         switch event {
         case .sessionStateChanged(let payload):
             return (payload.sessionId, payload.sequence)
@@ -1531,6 +1521,26 @@ final class SessionStore: ObservableObject {
     private(set) var records: [String: SessionRecord] = [:]
     private let recordsSubject = CurrentValueSubject<[String: SessionRecord], Never>([:])
     private let recordUpdatesSubject = PassthroughSubject<Set<String>, Never>()
+    private let transcriptUpdatesSubject = PassthroughSubject<SessionTranscriptUpdate, Never>()
+    private var pendingTextUpdates: [String: Set<String>] = [:]
+    private var pendingStructuralUpdates: Set<String> = []
+    private var transcriptRevision: UInt64 = 0
+    private var transcriptRevisions: [String: UInt64] = [:]
+    private(set) var latestTranscriptUpdate = SessionTranscriptUpdate.empty
+    private var streamingTranscriptIDs: [String: String] = [:]
+
+    var transcriptUpdates: AnyPublisher<SessionTranscriptUpdate, Never> {
+        transcriptUpdatesSubject.eraseToAnyPublisher()
+    }
+
+    func transcriptStructureRevision(sessionID: String) -> UInt64 {
+        transcriptRevisions[sessionID] ?? 0
+    }
+
+    func streamingTranscriptMessageID(sessionID: String) -> String? {
+        streamingTranscriptIDs[sessionID]
+    }
+
     var recordsPublisher: AnyPublisher<[String: SessionRecord], Never> {
         recordsSubject.eraseToAnyPublisher()
     }
@@ -1561,7 +1571,11 @@ final class SessionStore: ObservableObject {
     private var supportsACPImagePrompts = false
     private var selectedSessionIds: Set<String> = []
     private var snapshotRequestsInFlight: Set<String> = []
-    private var historyRequestsInFlight: Set<String> = []
+    private struct HistoryLoad {
+        let id: UUID
+        let task: Task<Int, Error>
+    }
+    private var historyLoads: [String: HistoryLoad] = [:]
     private var sessionRecency: [String] = []
 
     init(
@@ -1789,6 +1803,7 @@ final class SessionStore: ObservableObject {
             provisionalSessionID = nil
         } catch {
             if let provisionalSessionID {
+                cancelHistoryLoad(sessionID: provisionalSessionID)
                 reducer.remove(sessionId: provisionalSessionID)
                 publishReducerState()
             }
@@ -1865,6 +1880,10 @@ final class SessionStore: ObservableObject {
     }
 
     func loadEarlierMessages(sessionId: String) async throws -> Int {
+        guard !isStopped else { throw AgentHostServiceError.stopped }
+        // A foreground wheel can join a prefetch. Share both the RPC and the
+        // merge, rather than returning zero or prepending the same page twice.
+        if let pending = historyLoads[sessionId] { return try await pending.task.value }
         guard let record = reducer.records[sessionId] else {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
@@ -1872,21 +1891,32 @@ final class SessionStore: ObservableObject {
         guard supportsPiWorkCapability(.sessionTranscriptPage) else {
             throw AgentHostServiceError.missingPiWorkCapability(.sessionTranscriptPage)
         }
-        guard historyRequestsInFlight.insert(sessionId).inserted else { return 0 }
-        defer { historyRequestsInFlight.remove(sessionId) }
-
-        let page = try await service.transcriptPage(
-            sessionId: sessionId,
-            cursor: cursor,
-            limit: TranscriptWindow.batchSize,
-            requestID: UUID().uuidString
-        )
-        guard reducer.records[sessionId]?.historyRevision == page.revision else {
-            throw SessionStoreError.historyChanged(sessionId)
+        let revision = record.historyRevision
+        let id = UUID()
+        let request = Task<Int, Error> { [weak self] in
+            guard let self else { throw AgentHostServiceError.stopped }
+            defer { if self.historyLoads[sessionId]?.id == id { self.historyLoads[sessionId] = nil } }
+            let page = try await self.service.transcriptPage(sessionId: sessionId, cursor: cursor,
+                limit: TranscriptWindow.batchSize, requestID: UUID().uuidString)
+            try Task.checkCancellation()
+            guard !self.isStopped else { throw AgentHostServiceError.stopped }
+            guard page.sessionId == sessionId,
+                  self.reducer.records[sessionId]?.historyRevision == revision,
+                  self.reducer.records[sessionId]?.historyRevision == page.revision,
+                  self.reducer.records[sessionId]?.historyCursor == cursor,
+                  !page.hasMore || (page.nextCursor != nil && page.nextCursor != cursor) else {
+                throw SessionStoreError.historyChanged(sessionId)
+            }
+            let loaded = self.reducer.prependTranscriptPage(page)
+            self.publishReducerState()
+            return loaded
         }
-        let loadedCount = reducer.prependTranscriptPage(page)
-        publishReducerState()
-        return loadedCount
+        historyLoads[sessionId] = HistoryLoad(id: id, task: request)
+        return try await request.value
+    }
+
+    private func cancelHistoryLoad(sessionID: String) {
+        historyLoads.removeValue(forKey: sessionID)?.task.cancel()
     }
 
     @discardableResult
@@ -2027,7 +2057,16 @@ final class SessionStore: ObservableObject {
         guard reducer.records[sessionId]?.activeTurnId == turnId else {
             throw SessionStoreError.sessionBusy(sessionId)
         }
+        for case .renameSession(let sessionId, let title) in effects {
+            updateSummaryTitle(sessionId: sessionId, title: title)
+        }
         publishReducerState()
+        // Persist the optimistic title independently of the potentially long-running turn.
+        if !effects.isEmpty {
+            Task { [weak self] in
+                await self?.process(effects)
+            }
+        }
 
         do {
             let accepted = try await service.prompt(
@@ -2039,7 +2078,6 @@ final class SessionStore: ObservableObject {
             )
             reducer.promptCompleted(sessionId: accepted.sessionId, turnId: accepted.turnId)
             publishReducerState()
-            await process(effects)
             return turnId
         } catch {
             reducer.promptFailed(
@@ -2047,9 +2085,6 @@ final class SessionStore: ObservableObject {
                 turnId: turnId,
                 message: String(describing: error)
             )
-            for case .renameSession(let effectSessionId, let title) in effects {
-                reducer.revertGeneratedTitle(sessionId: effectSessionId, title: title)
-            }
             publishReducerState()
             throw error
         }
@@ -2285,6 +2320,7 @@ final class SessionStore: ObservableObject {
             sessionId: sessionId,
             requestID: UUID().uuidString
         )
+        cancelHistoryLoad(sessionID: sessionId)
         reducer.remove(sessionId: sessionId)
         selectedSessionIds.remove(sessionId)
         if selectedChatSessionId == sessionId {
@@ -2308,6 +2344,7 @@ final class SessionStore: ObservableObject {
             sessionDirectory: sessionDirectory,
             requestID: UUID().uuidString
         )
+        cancelHistoryLoad(sessionID: summary.id)
         reducer.remove(sessionId: summary.id)
         selectedSessionIds.remove(summary.id)
         if profile == .chat {
@@ -2348,6 +2385,8 @@ final class SessionStore: ObservableObject {
     func stop() async {
         guard !isStopped else { return }
         isStopped = true
+        for load in historyLoads.values { load.task.cancel() }
+        historyLoads.removeAll()
         // Preserve the last received text, and leave no delayed UI work alive.
         publishReducerState()
         eventTask?.cancel()
@@ -2392,7 +2431,20 @@ final class SessionStore: ObservableObject {
             }
             return
         }
+        let identity = reducer.eventIdentity(event)
+        let textUpdate = SessionTextUpdateIdentity(event)
+        let wasExistingText = textUpdate.map { $0.sequence > 0 && $0.matches(reducer.records[$0.sessionID], sequence: $0.sequence - 1) } ?? false
+        let previousCount = identity.flatMap { reducer.records[$0.sessionId]?.transcript.count }
         let effects = reducer.receive(event, timestamp: Self.timestamp(from: now()))
+        if let identity {
+            if let textUpdate, wasExistingText,
+               textUpdate.matches(reducer.records[identity.sessionId], sequence: identity.sequence),
+               previousCount == reducer.records[identity.sessionId]?.transcript.count {
+                pendingTextUpdates[identity.sessionId, default: []].insert(textUpdate.messageID)
+            } else {
+                pendingStructuralUpdates.insert(identity.sessionId)
+            }
+        }
         if case .sessionInfoChanged(let payload) = event,
            let title = payload.title {
             updateSummaryTitle(sessionId: payload.sessionId, title: title)
@@ -2435,14 +2487,14 @@ final class SessionStore: ObservableObject {
             case .requestSnapshot(let sessionId):
                 await repairSnapshot(sessionId: sessionId)
             case .renameSession(let sessionId, let title):
-                guard supportsPiWorkCapability(.sessionRename) else { continue }
+                guard supportsPiWorkCapability(.sessionRename),
+                      reducer.records[sessionId]?.descriptor.title == title else { continue }
                 do {
                     _ = try await service.renameSession(
                         sessionId: sessionId,
                         title: title,
                         requestID: UUID().uuidString
                     )
-                    updateSummaryTitle(sessionId: sessionId, title: title)
                 } catch {
                     // The optimistic local title remains useful; a later list refresh reconciles it.
                 }
@@ -2576,11 +2628,35 @@ final class SessionStore: ObservableObject {
         streamingPublishTask?.cancel()
         streamingPublishTask = nil
         let next = reducer.records
-        let changedIDs = Set(records.keys).union(next.keys).filter { id in
+        var changedIDs = Set(records.keys).union(next.keys).filter { id in
             // Compare the sequence first, avoiding transcript equality on every delta.
             records[id]?.lastSequence != next[id]?.lastSequence || records[id] != next[id]
         }
+        if isStopped { changedIDs.formUnion(streamingTranscriptIDs.keys) }
+        // Clear even ignored/duplicate batches; they must not taint a later one.
+        let textUpdates = pendingTextUpdates
+        let structuralUpdates = pendingStructuralUpdates
+        pendingTextUpdates.removeAll(keepingCapacity: true)
+        pendingStructuralUpdates.removeAll(keepingCapacity: true)
         guard !changedIDs.isEmpty else { return }
+        for id in changedIDs {
+            streamingTranscriptIDs[id] = isStopped ? nil : next[id]?.streamingTranscriptMessageID
+        }
+        var contentMessageIDs: [String: Set<String>] = [:]
+        if !notifyWorkspace {
+            for id in changedIDs where !structuralUpdates.contains(id) {
+                if let messages = textUpdates[id], !messages.isEmpty { contentMessageIDs[id] = messages }
+            }
+        }
+        let structuralIDs = Set(changedIDs).subtracting(contentMessageIDs.keys)
+        if !structuralIDs.isEmpty {
+            transcriptRevision &+= 1
+            for id in structuralIDs { transcriptRevisions[id] = next[id] == nil ? nil : transcriptRevision }
+        }
+        let transcriptUpdate = SessionTranscriptUpdate(
+            structuralSessionIDs: structuralIDs, contentMessageIDs: contentMessageIDs
+        )
+        latestTranscriptUpdate = transcriptUpdate
         let workspaceChanged = notifyWorkspace || changedIDs.contains { id in
             records[id]?.runState != next[id]?.runState
                 || records[id]?.descriptor != next[id]?.descriptor
@@ -2589,6 +2665,7 @@ final class SessionStore: ObservableObject {
         records = next
         recordsSubject.send(next)
         recordUpdatesSubject.send(Set(changedIDs))
+        transcriptUpdatesSubject.send(transcriptUpdate)
     }
 
     private func touchSession(_ sessionId: String) {
@@ -2621,6 +2698,7 @@ final class SessionStore: ObservableObject {
                     sessionId: sessionId,
                     requestID: UUID().uuidString
                 )
+                cancelHistoryLoad(sessionID: sessionId)
                 reducer.remove(sessionId: sessionId)
                 selectedSessionIds.remove(sessionId)
                 sessionRecency.removeAll { $0 == sessionId }

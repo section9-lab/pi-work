@@ -146,7 +146,15 @@ enum CompactionPresentation {
         guard let after = compaction.estimatedTokensAfter else {
             return L10n.format("chat.compaction.tokens_before", beforeText)
         }
-        return L10n.format("chat.compaction.tokens_after", beforeText, after.formatted())
+        let tokens = L10n.format("chat.compaction.tokens_after", beforeText, after.formatted())
+        guard let reduction = reductionPercentage(before: before, after: after) else { return tokens }
+        let percentage = reduction.formatted(.number.precision(.fractionLength(1)))
+        return "\(tokens) · \(L10n.format("chat.compaction.tokens_reduction", percentage))"
+    }
+
+    static func reductionPercentage(before: Int, after: Int) -> Double? {
+        guard before > 0, after >= 0 else { return nil }
+        return (Double(before) - Double(after)) / Double(before) * 100
     }
 }
 
@@ -347,13 +355,17 @@ struct PiChatMessage: Identifiable, Equatable {
 }
 
 struct TranscriptWindow: Equatable {
-    static let batchSize = 40
+    static let batchSize = 100
 
     let messages: [PiChatMessage]
     let hiddenCount: Int
     var sourceIDs: [String] = []
     var hasNewerMessages = false
     var hasCachedEarlierMessages = false
+    var sourceRange: Range<Int> = 0..<0
+    var sourceSpans: [String: TranscriptRowSourceSpan] = [:]
+    var sourceMessageIDsByPartID: [String: String] = [:]
+    var sourcePositions: [String: Int] = [:]
 
     init(messages: [PiChatMessage], limit: Int = batchSize) {
         let visibleCount = min(max(limit, 0), messages.count)
