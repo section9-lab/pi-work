@@ -1,0 +1,44 @@
+[
+  {
+    "name": "unmounted-mixed-1000",
+    "description": "Store-only reference: 1000 mixed-complex history sources, no visible UI.",
+    "env": { "PERF_DIAG_MODE": "unmounted", "PERF_DIAG_ROWS": "1000" },
+    "expect_complete": true,
+    "expect_render": false
+  },
+  {
+    "name": "mounted-mixed-1000",
+    "description": "Same input with the visible transcript and normal, self-scheduled layout.",
+    "env": { "PERF_DIAG_MODE": "mounted", "PERF_DIAG_ROWS": "1000" },
+    "expect_complete": true,
+    "expect_render": true
+  },
+  {
+    "name": "forced-mixed-1000",
+    "description": "Visible transcript plus benchmark-style forced layout and tail scrolling.",
+    "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "1000" },
+    "expect_complete": true,
+    "expect_render": true
+  },
+  {
+    "name": "forced-mixed-3",
+    "description": "Near-empty history isolates the live reply's own layout cost.",
+    "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "3" },
+    "expect_complete": true,
+    "expect_render": true
+  },
+  {
+    "name": "forced-plain-3",
+    "description": "Near-empty history with a plain-text live body as the cheap control.",
+    "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "3", "PERF_DIAG_BODY_PLAIN": "1" },
+    "expect_complete": true,
+    "expect_render": true
+  },
+  {
+    "name": "forced-plain-history-1000",
+    "description": "Short-text history isolates history-source volume from Markdown depth.",
+    "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "1000", "PERF_DIAG_HISTORY_PLAIN": "1" },
+    "expect_complete": true,
+    "expect_render": true
+  }
+]
