@@ -16,6 +16,32 @@ struct ProjectDisclosureState: Equatable {
     }
 }
 
+/// The store supplies sessions newest-first. Keep a compact list without hiding selection.
+struct SidebarSessionList {
+    static let collapsedLimit = 5
+
+    let visibleSessions: [AgentHostSessionSummary]
+    let hiddenCount: Int
+    let canToggle: Bool
+
+    init(sessions: [AgentHostSessionSummary], isExpanded: Bool, selectedSessionID: String?) {
+        canToggle = sessions.count > Self.collapsedLimit
+        if isExpanded || !canToggle {
+            visibleSessions = sessions
+        } else {
+            var visible = Array(sessions.prefix(Self.collapsedLimit))
+            if let selectedSessionID,
+               !visible.contains(where: { $0.id == selectedSessionID }),
+               let selected = sessions.first(where: { $0.id == selectedSessionID }) {
+                // Replace the last preview row, rather than growing the collapsed list.
+                visible[visible.count - 1] = selected
+            }
+            visibleSessions = visible
+        }
+        hiddenCount = sessions.count - visibleSessions.count
+    }
+}
+
 struct SidebarHoverActionVisibility {
     let isHovering: Bool
 

@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "執行階段將重試被中斷的請求。";
 "chat.compaction.tokens_before" = "壓縮前 %@ tokens";
 "chat.compaction.tokens_after" = "%@ → 約 %@ tokens";
+"chat.compaction.tokens_reduction" = "減少約 %@%%";
 "chat.compaction.action" = "立即壓縮上下文…";
 "chat.compaction.instructions" = "摘要重點（選填）";
 "chat.compaction.start" = "開始壓縮";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "擴充功能";
 "sidebar.project_folders" = "專案資料夾";
 "sidebar.no_session" = "暫無工作階段";
+"sidebar.show_more_sessions" = "查看更多（%ld）";
+"sidebar.show_fewer_sessions" = "收合";
 "sidebar.collapse_project" = "收合 %@";
 "sidebar.expand_project" = "展開 %@";
 "sidebar.new_project_session" = "在 %@ 中建立工作階段";

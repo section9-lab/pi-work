@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "중단된 요청을 다시 시도합니다.";
 "chat.compaction.tokens_before" = "압축 전 %@ 토큰";
 "chat.compaction.tokens_after" = "%@ → 약 %@ 토큰";
+"chat.compaction.tokens_reduction" = "약 %@%% 감소";
 "chat.compaction.action" = "지금 컨텍스트 압축…";
 "chat.compaction.instructions" = "요약 중점 (선택)";
 "chat.compaction.start" = "압축 시작";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "확장 기능";
 "sidebar.project_folders" = "프로젝트 폴더";
 "sidebar.no_session" = "세션 없음";
+"sidebar.show_more_sessions" = "더 보기 (%ld)";
+"sidebar.show_fewer_sessions" = "접기";
 "sidebar.collapse_project" = "%@ 접기";
 "sidebar.expand_project" = "%@ 펼치기";
 "sidebar.new_project_session" = "%@에서 세션 시작";

@@ -69,6 +69,7 @@ struct SidebarView: View {
 
     @State private var selectedCustomDestination: SidebarCustomDestination?
     @State private var projectDisclosureState = ProjectDisclosureState()
+    @State private var sessionListDisclosureState = ProjectDisclosureState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,6 +135,12 @@ struct SidebarView: View {
                             ForEach(projectStore.projects) { project in
                                 let sessions = workSessionsByProjectPath[project.path] ?? []
                                 let isExpanded = projectDisclosureState.isExpanded(project.id)
+                                let showsAllSessions = sessionListDisclosureState.isExpanded(project.id)
+                                let sessionList = SidebarSessionList(
+                                    sessions: sessions,
+                                    isExpanded: showsAllSessions,
+                                    selectedSessionID: displayedWorkSessionID(in: project)
+                                )
                                 FolderRow(
                                     project: project,
                                     isSelected: displayedWorkSidebarItem == .project(project.id),
@@ -150,7 +157,7 @@ struct SidebarView: View {
                                     if sessions.isEmpty {
                                         WorkSessionEmptyState()
                                     } else {
-                                        ForEach(sessions) { session in
+                                        ForEach(sessionList.visibleSessions) { session in
                                             WorkSessionRow(
                                                 session: session,
                                                 showsActivity: activeSessionIDs.contains(session.id),
@@ -168,6 +175,14 @@ struct SidebarView: View {
                                                     onSelectWorkSession(project, session)
                                                 },
                                                 onDelete: { onDeleteWorkSession(project, session) }
+                                            )
+                                        }
+                                        if sessionList.canToggle {
+                                            WorkSessionListToggleRow(
+                                                projectID: project.id,
+                                                isExpanded: showsAllSessions,
+                                                hiddenCount: sessionList.hiddenCount,
+                                                action: { sessionListDisclosureState.toggle(project.id) }
                                             )
                                         }
                                     }
@@ -200,6 +215,12 @@ struct SidebarView: View {
 
     private var displayedWorkSidebarItem: WorkSidebarItem? {
         pendingWorkSidebarItem ?? selectedWorkSidebarItem
+    }
+
+    private func displayedWorkSessionID(in project: PiProject) -> String? {
+        guard case let .session(projectID, sessionID)? = displayedWorkSidebarItem,
+              projectID == project.id else { return nil }
+        return sessionID
     }
 
     private func navigationRow(_ destination: SidebarCustomDestination) -> some View {
@@ -651,6 +672,36 @@ private struct SessionContextMenuFocusModifier: ViewModifier {
         } else {
             content.focusable(false)
         }
+    }
+}
+
+private struct WorkSessionListToggleRow: View {
+    let projectID: UUID
+    let isExpanded: Bool
+    let hiddenCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(isExpanded
+                    ? L10n.string("sidebar.show_fewer_sessions")
+                    : L10n.format("sidebar.show_more_sessions", hiddenCount))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 10)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 9, tracksHover: false))
+        .padding(.leading, 12)
+        .padding(.trailing, 4)
+        .compositingGroup()
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .accessibilityIdentifier("work-session-list-toggle-\(projectID.uuidString)")
     }
 }
 

@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "中断したリクエストを再試行します。";
 "chat.compaction.tokens_before" = "圧縮前 %@ トークン";
 "chat.compaction.tokens_after" = "%@ → 約 %@ トークン";
+"chat.compaction.tokens_reduction" = "約 %@%% 削減";
 "chat.compaction.action" = "今すぐコンテキストを圧縮…";
 "chat.compaction.instructions" = "要約の重点（任意）";
 "chat.compaction.start" = "圧縮を開始";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "拡張機能";
 "sidebar.project_folders" = "プロジェクトフォルダ";
 "sidebar.no_session" = "セッションはありません";
+"sidebar.show_more_sessions" = "さらに表示（%ld）";
+"sidebar.show_fewer_sessions" = "折りたたむ";
 "sidebar.collapse_project" = "%@ を折りたたむ";
 "sidebar.expand_project" = "%@ を展開";
 "sidebar.new_project_session" = "%@ でセッションを開始";

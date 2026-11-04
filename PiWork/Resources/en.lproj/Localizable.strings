@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "The runtime will retry the interrupted request.";
 "chat.compaction.tokens_before" = "From %@ tokens";
 "chat.compaction.tokens_after" = "%@ → ≈ %@ tokens";
+"chat.compaction.tokens_reduction" = "≈ %@%% reduced";
 "chat.compaction.action" = "Compact context now…";
 "chat.compaction.instructions" = "Summary focus (optional)";
 "chat.compaction.start" = "Start compaction";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "Extensions";
 "sidebar.project_folders" = "Project Folders";
 "sidebar.no_session" = "No sessions";
+"sidebar.show_more_sessions" = "Show more (%ld)";
+"sidebar.show_fewer_sessions" = "Show less";
 "sidebar.collapse_project" = "Collapse %@";
 "sidebar.expand_project" = "Expand %@";
 "sidebar.new_project_session" = "Start a session in %@";

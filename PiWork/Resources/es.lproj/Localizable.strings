@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "Se reintentará la solicitud interrumpida.";
 "chat.compaction.tokens_before" = "Desde %@ tokens";
 "chat.compaction.tokens_after" = "%@ → ≈ %@ tokens";
+"chat.compaction.tokens_reduction" = "≈ %@%% menos";
 "chat.compaction.action" = "Compactar contexto ahora…";
 "chat.compaction.instructions" = "Enfoque del resumen (opcional)";
 "chat.compaction.start" = "Iniciar compactación";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "Extensiones";
 "sidebar.project_folders" = "Carpetas de proyectos";
 "sidebar.no_session" = "No hay sesiones";
+"sidebar.show_more_sessions" = "Ver más (%ld)";
+"sidebar.show_fewer_sessions" = "Ver menos";
 "sidebar.collapse_project" = "Contraer %@";
 "sidebar.expand_project" = "Expandir %@";
 "sidebar.new_project_session" = "Iniciar una sesión en %@";

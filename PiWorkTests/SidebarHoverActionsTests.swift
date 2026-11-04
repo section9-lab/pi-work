@@ -2,6 +2,104 @@ import XCTest
 import SwiftUI
 @testable import PiWork
 
+final class SidebarSessionListTests: XCTestCase {
+    func testUpToFiveSessionsNeedNoToggle() {
+        for count in 0...5 {
+            let sessions = makeSessions(count)
+            let list = SidebarSessionList(sessions: sessions, isExpanded: false, selectedSessionID: nil)
+            XCTAssertEqual(list.visibleSessions, sessions)
+            XCTAssertEqual(list.hiddenCount, 0)
+            XCTAssertFalse(list.canToggle)
+        }
+    }
+
+    func testCollapsedListShowsFiveRecentSessionsAndRemainingCount() {
+        let sessions = makeSessions(14)
+        let list = SidebarSessionList(sessions: sessions, isExpanded: false, selectedSessionID: nil)
+        XCTAssertEqual(list.visibleSessions, Array(sessions.prefix(5)))
+        XCTAssertEqual(list.hiddenCount, 9)
+        XCTAssertTrue(list.canToggle)
+    }
+
+    func testExpandedListShowsAllSessionsAndCanStillCollapse() {
+        let sessions = makeSessions(14)
+        let list = SidebarSessionList(sessions: sessions, isExpanded: true, selectedSessionID: nil)
+        XCTAssertEqual(list.visibleSessions, sessions)
+        XCTAssertEqual(list.hiddenCount, 0)
+        XCTAssertTrue(list.canToggle)
+    }
+
+    func testCollapsingKeepsAnOlderSelectionVisibleWithoutExceedingFiveRows() {
+        let sessions = makeSessions(14)
+        let list = SidebarSessionList(sessions: sessions, isExpanded: false, selectedSessionID: "session-10")
+        XCTAssertEqual(list.visibleSessions.map(\.id), ["session-0", "session-1", "session-2", "session-3", "session-10"])
+        XCTAssertEqual(list.hiddenCount, 9)
+    }
+
+    func testRecentOrDeletedSelectionDoesNotDisplaceRecentSessions() {
+        let sessions = makeSessions(14)
+        for selectedID in ["session-2", "deleted-session"] {
+            let list = SidebarSessionList(sessions: sessions, isExpanded: false, selectedSessionID: selectedID)
+            XCTAssertEqual(list.visibleSessions, Array(sessions.prefix(5)))
+            XCTAssertEqual(list.hiddenCount, 9)
+        }
+    }
+
+    func testProjectsExpandIndependentlyFromEachOtherAndFolderDisclosure() {
+        let first = UUID()
+        let second = UUID()
+        let sessions = makeSessions(14)
+        var folderDisclosure = ProjectDisclosureState()
+        var sessionDisclosure = ProjectDisclosureState()
+        folderDisclosure.toggle(first)
+        folderDisclosure.toggle(second)
+        sessionDisclosure.toggle(first)
+
+        XCTAssertEqual(SidebarSessionList(sessions: sessions, isExpanded: sessionDisclosure.isExpanded(first), selectedSessionID: nil).visibleSessions.count, 14)
+        XCTAssertEqual(SidebarSessionList(sessions: sessions, isExpanded: sessionDisclosure.isExpanded(second), selectedSessionID: nil).visibleSessions.count, 5)
+        sessionDisclosure.toggle(first)
+        XCTAssertEqual(SidebarSessionList(sessions: sessions, isExpanded: sessionDisclosure.isExpanded(first), selectedSessionID: nil).visibleSessions.count, 5)
+        XCTAssertTrue(folderDisclosure.isExpanded(first))
+        XCTAssertTrue(folderDisclosure.isExpanded(second))
+    }
+
+    func testNewAndDeletedSessionsUpdateThePreviewAndToggle() {
+        let original = makeSessions(6)
+        let afterCreation = SidebarSessionList(sessions: [makeSessions(7)[6]] + original, isExpanded: false, selectedSessionID: "session-6")
+        XCTAssertEqual(afterCreation.visibleSessions.first?.id, "session-6")
+        XCTAssertEqual(afterCreation.hiddenCount, 2)
+        let afterDeletion = SidebarSessionList(sessions: Array(original.prefix(5)), isExpanded: true, selectedSessionID: nil)
+        XCTAssertFalse(afterDeletion.canToggle)
+        XCTAssertEqual(afterDeletion.hiddenCount, 0)
+    }
+
+    func testLocalizedToggleLabelsShowRemainingCount() {
+        XCTAssertEqual(L10n.format("sidebar.show_more_sessions", language: .simplifiedChinese, 9), "查看更多（9）")
+        XCTAssertEqual(L10n.string("sidebar.show_fewer_sessions", language: .simplifiedChinese), "收起")
+    }
+
+    func testSidebarUsesPreviewAndSeparateSessionDisclosure() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("PiWork/Features/Sidebar/Views/SidebarView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("ForEach(sessionList.visibleSessions)"))
+        XCTAssertTrue(source.contains("if sessionList.canToggle"))
+        XCTAssertTrue(source.contains("sessionListDisclosureState.toggle(project.id)"))
+        XCTAssertTrue(source.contains("selectedSessionID: displayedWorkSessionID(in: project)"))
+        XCTAssertTrue(source.contains("sidebar.show_more_sessions"))
+        XCTAssertTrue(source.contains("sidebar.show_fewer_sessions"))
+    }
+
+    private func makeSessions(_ count: Int) -> [AgentHostSessionSummary] {
+        (0..<count).map { index in
+            AgentHostSessionSummary(
+                id: "session-\(index)", path: "/tmp/session-\(index).jsonl", cwd: "/tmp/project",
+                title: "Session \(index)", firstMessage: "", messageCount: 0,
+                createdAt: "2026-11-04T00:00:00Z", modifiedAt: "2026-11-04T00:00:00Z"
+            )
+        }
+    }
+}
+
 final class SidebarHoverActionsTests: XCTestCase {
     func testSidebarTabSelectionAnimatesOnlyTheIndicatorOffset() throws {
         let source = try sidebarSource()

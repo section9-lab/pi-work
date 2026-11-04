@@ -20,6 +20,7 @@
 "chat.compaction.will_retry" = "运行时将重试被中断的请求。";
 "chat.compaction.tokens_before" = "压缩前 %@ tokens";
 "chat.compaction.tokens_after" = "%@ → 约 %@ tokens";
+"chat.compaction.tokens_reduction" = "减少约 %@%%";
 "chat.compaction.action" = "立即压缩上下文…";
 "chat.compaction.instructions" = "摘要重点（可选）";
 "chat.compaction.start" = "开始压缩";
@@ -309,6 +310,8 @@
 "sidebar.extensions" = "扩展";
 "sidebar.project_folders" = "项目文件夹";
 "sidebar.no_session" = "暂无会话";
+"sidebar.show_more_sessions" = "查看更多（%ld）";
+"sidebar.show_fewer_sessions" = "收起";
 "sidebar.collapse_project" = "收起 %@";
 "sidebar.expand_project" = "展开 %@";
 "sidebar.new_project_session" = "基于 %@ 新建会话";
