@@ -38,8 +38,21 @@ So the bottleneck is **per-publish window-wide layout invalidation of unchanged 
 ## Consequences for the fix direction
 
 - Window virtualization (Plan 1) attacking this relayout directly is the right lever; narrower "make Markdown faster" work (parser, caching, text rendering) is NOT supported by the data.
-- A streaming row subtree should stop propagating geometry invalidation into sibling subtrees (candidate: isolate the streaming row from the shared stack chain, e.g. separate container for live tail), which may complement window virtualization.
 - Plan 2 (async event consumption) cannot fix these numbers: the store side already keeps up (receive backlog 0 on this idle machine); the loss happens while the main actor is inside layout.
+
+## Container-level isolation experiment: negative result
+
+A first implementation of the isolation idea split the row list into segment containers so the streaming row owns its own subtree (`TranscriptStreamingIsolation`, one `VStack` per segment, unchanged row order and identity). It passed the full 788-test Debug suite. Under the same idle-machine conditions the diagnosis matrix showed a **regression**, not a win:
+
+| Scenario (complex×1000, streaming live) | Baseline container A/B | Isolated containers |
+|---|---:|---:|
+| mounted-mixed-1000 publish lag | 2194 ms | 4292 ms |
+| forced-mixed-1000 publish lag | 2362 ms | 4608 ms |
+| forced-mixed-3 publish lag | 919 ms | ~1082 ms |
+
+Baseline was re-measured right before/after the experiment on the same machine (`build/TranscriptAcceptance/perf-baseline-b/`, `perf-isolation-prof/`). The recursive stack summary explains the extra cost: within 15,973 samples of `StackLayout.placeChildren`, 13,912 sit in `LayoutEngineBox.explicitAlignment(_:)` — the nested segment containers added one more alignment-query boundary per row without cutting the per-publish whole-stack placement. The per-publish cost is re-resolving the entire stack's placement/alignment, not merely the streaming row's subtree, so ownership separation via plain nested containers does not remove it.
+
+The production change was reverted after this experiment; the harness, the records in `perf-isolation-{a,prof}` and the demo remain as documentation. Next levers must remove the per-publish full-stack placement itself (true window virtualization, or moving the streaming reply out of the shared layout graph entirely, e.g. a separately-hosted view at the tail), measured against the same matrix.
 
 ## Limits
 

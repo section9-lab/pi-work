@@ -49,5 +49,6 @@ The summarizer (`scripts/summarize-transcript-diagnosis.py`) fails (exit 1) when
 - The producer emits into an in-process fake host; real IPC and disk are not covered.
 - `SessionStoreDiagnostics` compiles into Debug and `TRANSCRIPT_ACCEPTANCE` builds only; the counting is cheap but nonzero — do not use Debug runs for baselines that should exclude it.
 - This harness never substitutes for the acceptance suite (correctness gates, history navigation, coverage).
+- Ambient load moves absolute numbers a lot; when A/B-comparing a change, re-measure the baseline in the same session on the same idle machine (see the negative container-isolation result in `stream-bottleneck-2026-11-04.md`).
 
 Sample profiles are summarized by `scripts/summarize-diagnosis-profiles.py` (top-of-stack leaves by module plus approximate ancestor shares). See [`stream-bottleneck-2026-11-04.md`](stream-bottleneck-2026-11-04.md) for the first round of analysis.

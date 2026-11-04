@@ -77,7 +77,7 @@
       <h3>为什么兄弟行会跟着倒霉</h3>
       <div class="formula">文本增量 → 直流行 subtree 高度变化<span class="bad"> ①</span><br>　　　　　 → 父级 VStack 高度变化<span class="bad"> ②</span><br>　　　　　 → 所有子行 placeSubviews / sizeThatFits<span class="bad"> ③</span><br>　　　　　 → 未变的 99 条历史 × 每一次增量</div>
       <p>③里没有任何“内容变了”，但它们的几何依赖了②，于是每次增量都被动重算。实测里这正是热点的形状：增量到达时，热点是栈布局机器（placeSubviews、sizeThatFits、AG 遍历），而不是 Markdown 解析或文字排版。</p>
-      <div class="data-note">实测参考（单次·非性能跑分）：同输入强制布局下，复杂历史 100 行 +3.1s；把历史换成短文本后 +0.20s；复杂直播体自身 +1.3s。隔离的最大的那块，正是①→③的链路。</div></section>
+      <div class="data-note">实测参考（单次·非性能跑分）：同输入强制布局下，复杂历史 100 行 +3.1s；把历史换成短文本后 +0.20s；复杂直播体自身 +1.3s。<strong>实验注记（2026-11-04）：按本页思路将直播行放入独立子容器后，同环境复测反而是 2.2s → 4.3s 的倒退——SwiftUI 在每次发布时仍需为整个栈重跑 placeChildren/对齐解析（递归栈里 explicitAlignment 占 13.9k/16k），单纯容器归属分离不够。下一步必须消除每次发布触发的全栈放置本身（窗口虚拟化或把直播回复完全挪出共享布局图）。见 stream-bottleneck-2026-11-04.md。</strong></div></section>
     <section class="explain"><span class="section-index">02 / 隔离的不是内容，是布局所有权</span>
       <h3>直播行搬家后少了什么</h3>
       <div class="formula">外层 VStack<br>├─ 历史容器（172 缓冲 + 视口 + 99 条）✋ 不再知道<br>└─ 隔离容器（只装直播行）<br>　　└─ 直流行 subtree <strong>①②③ 都留在这里</strong></div>
