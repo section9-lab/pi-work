@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>100 条，也可以轻一点 · pi-work 性能机制演示</title>
+<style>
+:root{color-scheme:light;--ink:#162b3a;--muted:#647987;--line:#dfe7eb;--paper:#fff;--bg:#f3f7fa;--blue:#315de7;--warm:#bd6b32;--warm-bg:#fcf2e9;--green:#167969;--green-bg:#eaf5f0;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:radial-gradient(ellipse at 12% 0,#e5efff 0,transparent 48%),var(--bg);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}button{font:inherit;cursor:pointer}button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:3px solid #789aff;outline-offset:3px}button:disabled{opacity:.38;cursor:not-allowed}button{touch-action:manipulation}main{max-width:1376px;margin:auto;padding:46px 36px 64px}.eyebrow{font:11px var(--mono);letter-spacing:2px;color:var(--blue);display:flex;align-items:center;gap:9px}.eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}.hero{display:flex;justify-content:space-between;align-items:end;gap:30px;margin-bottom:24px}h1{font-size:clamp(29px,3.2vw,46px);letter-spacing:-1.7px;line-height:1.23;margin:15px 0 12px}h1 span{color:var(--blue)}.intro{color:var(--muted);max-width:760px;margin:0;font-size:14px}.badge{white-space:nowrap;border:1px solid #ccd8e4;border-radius:20px;padding:6px 12px;font:11px var(--mono);color:var(--muted);background:#ffffff80}.notice{font-size:12px;color:#596d7c;border:1px solid #dae4ed;background:#ffffffad;border-radius:12px;padding:12px 16px;margin-bottom:22px}.notice strong{color:#314e67}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0 0 19px}.segmented{display:flex;padding:4px;border-radius:11px;background:#e6edf3;gap:3px;margin-right:auto}.segmented button{border:0;background:none;color:var(--muted);border-radius:7px;padding:7px 13px;font-size:12px}.segmented button[aria-pressed="true"]{background:white;box-shadow:0 1px 5px #1b3b5b12;color:var(--ink);font-weight:600}.btn{padding:9px 13px;border:1px solid #d4dfe6;background:white;color:var(--ink);border-radius:9px;font-size:12px}.btn.primary{background:var(--blue);color:white;border-color:var(--blue);min-width:116px}.btn:hover:not(:disabled){filter:brightness(.97)}.btn.quiet{background:transparent;color:var(--muted)}.comparison{display:grid;grid-template-columns:1fr 1fr;gap:20px}.panel{--accent:var(--warm);--tint:var(--warm-bg);min-width:0;border:1px solid #dbe4e9;background:var(--paper);border-radius:19px;box-shadow:0 10px 32px #203b5010;overflow:hidden}.panel.optimized{--accent:var(--green);--tint:var(--green-bg)}.panel-heading{padding:21px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:start;justify-content:space-between;gap:8px}.version{font:10px var(--mono);letter-spacing:1.4px;color:var(--accent);margin-bottom:6px}.panel h2{margin:0;font-size:19px;letter-spacing:-.5px}.panel-heading p{font-size:12px;color:var(--muted);margin:5px 0 0}.number{font:32px/1.1 var(--mono);color:var(--accent);text-align:right}.number small{display:block;color:var(--muted);font:10px/2 -apple-system,sans-serif}.map-area{padding:15px 24px 13px}.map-meta{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:9px}.range-label{color:var(--accent);font-family:var(--mono);font-weight:600}.track{position:relative;height:23px;border-radius:5px;background:repeating-linear-gradient(90deg,#e8eef2 0,#e8eef2 calc(1% - 2px),transparent calc(1% - 2px),transparent 1%);overflow:hidden}.window-range{height:100%;position:absolute;background:var(--accent);opacity:.72;transition:left .35s,width .35s;border-radius:4px}.tail-dot{position:absolute;right:1px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 2px white}.map-axis{display:flex;justify-content:space-between;color:#8ca0ad;font:9px var(--mono);margin-top:5px}.window-note{color:var(--muted);font-size:11px;margin-top:8px;min-height:18px}.chat-shell{margin:0 16px;border:1px solid #e2e9ee;border-radius:12px;overflow:hidden;transition:border-color .15s}.chat-header{background:#f8fafc;padding:8px 13px;display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--muted);border-bottom:1px solid #e8eef2}.status-dot{width:5px;height:5px;border-radius:50%;background:#a0b0ba;display:inline-block;margin-right:5px}.status-dot.on{background:var(--green)}.viewport{height:302px;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto;background:linear-gradient(#fcfdff,white);position:relative;padding:0 16px;scrollbar-width:thin;scrollbar-color:#cdd9e2 transparent}.message{padding:17px 2px 16px;border-bottom:1px solid #eef2f5;position:relative;min-height:98px}.message:last-child{border-bottom:0}.message .who{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--muted);margin-bottom:6px}.avatar{width:18px;height:18px;display:inline-grid;place-items:center;border-radius:5px;background:#ecf0f8;color:#59749c;font-size:10px}.message.user .avatar{background:#eaf3ef;color:#478573}.message .id{margin-left:auto;font:9px var(--mono);color:#98a8b3}.message h4{font-size:13px;margin:5px 0;color:#253f53}.message p{font-size:12px;margin:6px 0;color:#617585}.message code{font:10px/1.6 var(--mono);background:#edf2f7;border-radius:4px;padding:1px 4px;color:#527291}.message pre{padding:9px 11px;margin:8px 0 4px;border:1px solid #e1e9ef;background:#f5f8fb;border-radius:7px;overflow:auto}.message pre code{background:none;padding:0;color:#456484}.message ul{font-size:11px;color:#627987;padding-left:18px;margin:5px 0}.message table{border-collapse:collapse;width:100%;font-size:10px;margin-top:8px;color:#637c8b}.message th,.message td{border:1px solid #e1e9ef;padding:4px 8px;text-align:left}.message.anchor{box-shadow:inset 3px 0 var(--accent);background:var(--tint)}.anchor-tag{display:none;color:var(--accent);font-size:9px;margin-left:4px}.anchor .anchor-tag{display:inline}.reply.live-pulse{animation:replyPulse .65s ease-out}.live-label{color:var(--blue);font-size:9px}.caret{display:inline-block;width:5px;height:12px;vertical-align:-2px;background:var(--green);margin-left:3px}.idle-reply{color:#91a1ae;font-size:11px}.panel.parent-pulse .chat-shell{animation:parentPulse .65s ease-out}.history-safe{padding:9px 16px;color:var(--accent);background:var(--tint);font-size:11px;min-height:37px;border-bottom:1px solid #e2e9ee}.metrics{padding:16px 24px 17px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.metric+.metric{border-left:1px solid var(--line);padding-left:16px}.metric .label{font-size:10px;color:var(--muted);display:block}.metric strong{font:23px/1.6 var(--mono);font-weight:500}.metric small{display:block;font-size:9px;color:#8a9ca9}.path{margin:0 16px 16px;padding:12px;border-radius:9px;background:#f5f8fa;font:10px/1.9 var(--mono);color:#788c99}.path b{font-weight:600;color:var(--accent)}.path .node{padding:2px 4px;border-radius:3px}.path .active{background:var(--tint);color:var(--accent)}.bottom-bar{display:flex;gap:14px;align-items:center;justify-content:space-between;margin:18px 0 30px;color:var(--muted);font-size:11px}.store{display:flex;align-items:center;gap:9px}.store-icon{width:26px;height:26px;border:1px solid #d9e3ea;border-radius:8px;background:white;display:grid;place-items:center;color:var(--blue)}#store-count{font-family:var(--mono);color:var(--ink)}.event-text{font-size:11px;text-align:right;max-width:670px}.concepts{display:grid;grid-template-columns:1fr 1fr;gap:20px}.explain{border:1px solid #dce5ec;border-radius:14px;padding:22px 24px;background:#ffffffb5}.section-index{color:var(--blue);font:10px var(--mono);letter-spacing:1px}.explain h3{font-size:17px;margin:6px 0 10px}.explain p{font-size:12px;color:var(--muted);margin:8px 0}.formula{background:#edf2f8;border-radius:8px;padding:11px 13px;margin:12px 0;font:11px/1.8 var(--mono);color:#4d6581}.formula strong{color:var(--green)}.footnote{font-size:11px;line-height:1.8;color:#8496a3;margin:24px 0 0}.footnote a{color:var(--blue);text-decoration:none}.kbd{font:10px var(--mono);border:1px solid #cfdce6;padding:1px 5px;border-radius:4px}details{margin-top:12px}summary{cursor:pointer;color:#4b6681;font-size:12px}.conditions{padding-left:18px;font-size:11px;color:var(--muted)}.flash-key{display:inline-block;width:7px;height:7px;background:var(--warm);border-radius:2px;margin:0 5px 0 12px}.flash-key.green{background:var(--green)}
+@keyframes parentPulse{0%{box-shadow:0 0 0 3px #dc945748;border-color:#cb8b5c}100%{box-shadow:0 0 0 0 transparent}}@keyframes replyPulse{0%{background:#d9eee4}100%{background:transparent}}@media(max-width:850px){main{padding:27px 16px 40px}.hero{display:block}.badge{display:inline-block;margin-top:16px}.comparison,.concepts{grid-template-columns:1fr}.toolbar{gap:7px}.segmented{width:100%;margin:0 0 5px}.segmented button{flex:1}.panel-heading{padding:18px 20px}.metrics{padding:15px 20px}.bottom-bar{align-items:start;flex-direction:column}.event-text{text-align:left}.viewport{height:270px}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <div class="hero"><div><div class="eyebrow">PI-WORK / PERFORMANCE MECHANICS</div><h1>100 条，<span>也可以轻一点。</span></h1><p class="intro">保留一样多的会话数据，改变的是「有多少行同时挂载」，以及「一个增量会通知谁」。<br>先点一次“单步增量”，再切到“阅读历史”继续输出，看两侧哪些区域需要工作。</p></div><span class="badge">INTERACTIVE EXPLAINER · 非性能跑分</span></div>
+  <div class="notice"><strong>演示边界：</strong>左侧模拟现有的“窗口扩展＋父层重新投影”路径，未变化的消息节点仍然复用，<strong>不是每次重解析全部 Markdown</strong>。计数来自本页执行的 JS 投影与局部更新，不是 SwiftUI 布局次数、FPS 或预计提速；内容是预制 Markdown 风格 DOM，不使用真正的 Markdown 解析器。</div>
+  <div class="toolbar" aria-label="对比控制">
+    <div class="segmented" aria-label="阅读状态"><button id="mode-live" aria-pressed="true">实时跟随</button><button id="mode-history" aria-pressed="false">阅读历史</button></div>
+    <button id="play" class="btn primary">▶ 开始增量输出</button><button id="step" class="btn">单步增量 +1</button><button id="earlier" class="btn">↑ 更早一页</button><button id="newer" class="btn">↓ 后一页</button><button id="latest" class="btn">回到最新</button><button id="reset" class="btn quiet">重置</button>
+  </div>
+  <div class="comparison">
+    <section class="panel baseline" id="baseline" aria-labelledby="baseline-title">
+      <div class="panel-heading"><div><div class="version">A / 现有路径示意</div><h2 id="baseline-title">窗口扩展 · 父层订阅</h2><p>100 → 200 → 300 条，文本更新触发窗口投影</p></div><div class="number"><span id="baseline-count">100</span><small>当前挂载消息</small></div></div>
+      <div class="map-area"><div class="map-meta"><span>完整会话 · 1,000 条</span><span class="range-label" id="baseline-range"></span></div><div class="track" aria-hidden="true"><div class="window-range" id="baseline-track"></div><div class="tail-dot"></div></div><div class="map-axis"><span>1 · 最早</span><span>500</span><span>1,000 · 当前回复 ●</span></div><div class="window-note" id="baseline-note"></div></div>
+      <div class="chat-shell"><div class="chat-header"><span><span class="status-dot"></span>CHAT VIEW / 真实挂载对应数量的 DOM 行</span><span id="baseline-anchor">锚点 —</span></div><div class="history-safe" id="baseline-state"></div><div class="viewport" id="baseline-viewport" tabindex="0" aria-label="左侧聊天消息"></div></div>
+      <div class="metrics"><div class="metric"><span class="label">容器投影</span><strong id="baseline-projects">0</strong><small>重置以来 · 次</small></div><div class="metric"><span class="label">消息扫描</span><strong id="baseline-scans">0</strong><small>累计读取消息 · 条</small></div><div class="metric"><span class="label">回复局部更新</span><strong id="baseline-replies">0</strong><small>仅当前回复 · 次</small></div></div>
+      <div class="path">文本增量 → Store → <b class="node" id="baseline-flow">ChatView 投影 / 列表比较</b><br>　　　　　　　　　　　　└→ 当前回复（若在窗口内）</div>
+    </section>
+    <section class="panel optimized" id="optimized" aria-labelledby="optimized-title">
+      <div class="panel-heading"><div><div class="version">B / 建议优化机制</div><h2 id="optimized-title">固定 100 条 · 局部订阅</h2><p>窗口只平移；文本增量不重新计算消息列表</p></div><div class="number"><span id="optimized-count">100</span><small>当前挂载消息</small></div></div>
+      <div class="map-area"><div class="map-meta"><span>完整会话 · 1,000 条，不删除历史</span><span class="range-label" id="optimized-range"></span></div><div class="track" aria-hidden="true"><div class="window-range" id="optimized-track"></div><div class="tail-dot"></div></div><div class="map-axis"><span>1 · 最早</span><span>500</span><span>1,000 · 当前回复 ●</span></div><div class="window-note" id="optimized-note"></div></div>
+      <div class="chat-shell"><div class="chat-header"><span><span class="status-dot"></span>WINDOW MODEL / 文本与结构分开通知</span><span id="optimized-anchor">锚点 —</span></div><div class="history-safe" id="optimized-state"></div><div class="viewport" id="optimized-viewport" tabindex="0" aria-label="右侧聊天消息"></div></div>
+      <div class="metrics"><div class="metric"><span class="label">容器投影</span><strong id="optimized-projects">0</strong><small>只响应窗口/结构变化 · 次</small></div><div class="metric"><span class="label">消息扫描</span><strong id="optimized-scans">0</strong><small>复用已缓存的消息索引</small></div><div class="metric"><span class="label">回复局部更新</span><strong id="optimized-replies">0</strong><small>当前回复挂载时才更新</small></div></div>
+      <div class="path">文本增量 → Store → <b class="node" id="optimized-flow">LiveReplyModel → 当前回复</b><br>结构变化 → WindowModel → 更新 100 条窗口</div>
+    </section>
+  </div>
+  <div class="bottom-bar"><div class="store"><span class="store-icon">≋</span><span>共享数据源 · <strong>1,000 条完整消息</strong> · 已接收 <span id="store-count">0</span> 组增量 <span id="run-status">/ 待开始</span></span></div><div class="event-text" id="event-text" role="status" aria-live="polite">就绪。蓝点是第 1,000 条当前回复；色块表示挂载到聊天视图的范围。</div></div>
+  <div class="concepts">
+    <section class="explain"><span class="section-index">01 / 固定的是窗口，不是总历史</span><h3>向前移动 60 条，保留 40 条重叠</h3><div class="formula">原来：901 ━━━━━━━━━ 1000　（100 条）<br>向前：<strong>841 ━━━━━━━━━ 940</strong>　（仍为 100 条）<br>重叠：901 ━ 940　→ 用原消息 ID 恢复阅读位置</div><p>每页仍然可以获取 100 条。新取出的数据先进入缓存，只选择当前窗口需要的部分挂载。被移出窗口的消息没有删除，点“后一页”或“回到最新”即可重新展示。</p><p>本页“更早一页”会先模拟用户到达窗口顶部，再加载。高亮行是加载前的锚点；布局后把同一行恢复到相同位置，避免突然跳回最新回复。</p></section>
+    <section class="explain"><span class="section-index">02 / 不再把内容变化当成结构变化</span><h3>一个回复变长，不等于列表变了</h3><div class="formula">文本变化　→ <strong>当前回复自己的观察对象</strong><br>新增消息 / 切换会话 / 导航　→ WindowModel<br>提问导航 / 输入历史　　　　→ 独立缓存，按需失效</div><p>跟随最新回复时，仍然必须解析增量、更新该回复并处理高度变化；不会“零布局”。隔离的是不必要的父层投影和旁支计算，不是屏蔽正常的自动跟随。</p><p>阅读旧历史，且当前回复已在窗口外时：增量照常进入 Store，但这片历史阅读区没有内容变化，也就不需要因每个文本增量重新投影。完成、报错、新消息插入等结构或状态变化仍需正常通知。</p></section>
+  </div>
+  <details><summary>交互说明与实现中需要守住的边界</summary><ul class="conditions"><li>演示每 200 ms 展示一组增量，共 30 组，不把模拟输入频率当原生吞吐量。“单步”适合观察一次事件的通知范围。</li><li>橙色边框表示父层投影被触发；绿色回复闪烁表示局部内容更新。动画仅用于解释通知边界，不代表所有行真的重新绘制。</li><li>新消息插入、过滤条件变化、工具分组变化、切换会话，都可能改变窗口结构；生产实现需要明确修订号与缓存失效规则，不能只在首次打开时缓存。</li><li>取消生成、离开会话和完成输出需要立即刷新或正确取消订阅。缓存历史耗尽、跨窗口选中文本、图片延迟改变高度也需要额外测试。</li><li>两边共享同一条增量内容，但窗口覆盖范围可以不同；因此“阅读历史”后右侧可能已卸载当前回复，而左侧还保留它。这正是窗口策略的区别。</li></ul></details>
+  <p class="footnote">这是离线、无依赖的机制演示，不修改 pi-work 配置，不读取真实会话。<a href="../performance/markdown-window-40-vs-100-2026-11-04.md">查看此前原生 40 / 100 基准报告 →</a><br>适合先验证交互与更新边界，再在真实 SwiftUI 渲染链路上复测收益。</p>
+</main>
+<script>
+'use strict';
+(() => {
+  const TOTAL = 1000, WINDOW = 100, SHIFT = 60, CAP = 300;
+  const $ = id => document.getElementById(id);
+  const escapeHTML = value => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  // A persistent archive plus cached identity index. Content events do not change IDs.
+  const archive = Array.from({length: TOTAL}, (_, index) => Object.freeze({id:index + 1, visible:true}));
+  const cachedIDs = archive.map(message => message.id);
+  const panes = {
+    baseline: {key:'baseline', lo:901, hi:1000, projects:0, scans:0, replies:0, anchor:null, error:0},
+    optimized: {key:'optimized', lo:901, hi:1000, projects:0, scans:0, replies:0, anchor:null, error:0}
+  };
+  let following = true, groups = 0, liveText = '', timer = null, cycle = 0, flashTimers = [];
+  const chunks = [
+    '第一步，先把消息身份和正文内容拆开。',
+    '消息列表仍然包含 100 个稳定 ID，而不是只保留屏幕里的几行。',
+    '增量到达后只追加到当前回复模型。',
+    '历史窗口没有变化，就不重新过滤整段会话。',
+    '如果回复不在当前窗口里，阅读区可以保持不动。',
+    '回到最新时，再从 Store 读取完整内容，不会丢失这些增量。'
+  ];
+
+  function project(pane) {
+    pane.projects++;
+    let ids;
+    if (pane.key === 'baseline') {
+      ids = [];
+      for (const message of archive) { pane.scans++; if (message.visible) ids.push(message.id); }
+    } else ids = cachedIDs;
+    return ids.slice(pane.lo - 1, pane.hi);
+  }
+  function rowHTML(id) {
+    const user = id % 5 === 0 && id !== TOTAL;
+    let content;
+    if (id === TOTAL) content = '<h4>固定窗口与更新隔离</h4><div class="reply" data-live-reply>' + replyHTML() + '</div>';
+    else if (user) content = '<p>请检查第 ' + id + ' 轮的渲染结果，并保留历史阅读位置。</p>';
+    else {
+      const variant = id % 3;
+      content = '<h4>' + (variant === 0 ? '实现一个稳定的历史窗口' : variant === 1 ? '这段 Markdown 不需要跟着每个增量重解析' : '同一份数据，更小的更新范围') + '</h4><p>消息 <strong>#' + id + '</strong> 的正文保持不变。代码、表格和列表只在需要时进入展示窗口。</p>';
+      if (variant === 0) content += '<pre><code>window = cachedIDs.slice(start, start + 100)\nrestoreAnchor(messageID, offset)</code></pre>';
+      if (variant === 1) content += '<ul><li>复用消息身份与未变化的节点</li><li>保留缓存，避免重复扫描历史</li></ul>';
+      if (variant === 2) content += '<table><thead><tr><th>事件</th><th>通知目标</th></tr></thead><tbody><tr><td>文本增量</td><td>当前回复</td></tr><tr><td>窗口移动</td><td>消息容器</td></tr></tbody></table>';
+    }
+    return '<article class="message ' + (user ? 'user' : 'assistant') + '" data-id="' + id + '"><div class="who"><span class="avatar">' + (user ? 'U' : 'π') + '</span>' + (user ? '你' : 'pi-work') + '<span class="anchor-tag">阅读锚点 · 保留此行</span>' + (id === TOTAL ? '<span class="live-label">当前回复</span>' : '') + '<span class="id">#' + String(id).padStart(4,'0') + '</span></div>' + content + '</article>';
+  }
+  function replyHTML() {
+    if (!liveText) return '<span class="idle-reply">等待增量输入……两边将收到完全相同的内容。</span>';
+    return '<p>' + escapeHTML(liveText) + (timer ? '<span class="caret" aria-hidden="true"></span>' : '') + '</p>';
+  }
+  function getRow(pane, id) { return $(pane.key + '-viewport').querySelector('[data-id="' + id + '"]'); }
+  function captureAnchor(pane, direction) {
+    const viewport = $(pane.key + '-viewport');
+    // Explicitly model reaching the edge before requesting a historical page.
+    viewport.scrollTop = direction < 0 ? 0 : viewport.scrollHeight;
+    const id = direction < 0 ? pane.lo : pane.hi;
+    const row = getRow(pane, id);
+    return row ? {id, offset:row.getBoundingClientRect().top - viewport.getBoundingClientRect().top} : null;
+  }
+  function renderWindow(pane, ids, anchor = null) {
+    const viewport = $(pane.key + '-viewport');
+    const existing = new Map(Array.from(viewport.children, row => [Number(row.dataset.id), row]));
+    const fragment = document.createDocumentFragment();
+    for (const id of ids) {
+      let row = existing.get(id);
+      if (!row) { const template = document.createElement('template'); template.innerHTML = rowHTML(id); row = template.content.firstElementChild; }
+      row.classList.toggle('anchor', !!anchor && anchor.id === id);
+      fragment.appendChild(row);
+    }
+    // Retained IDs retain their DOM node identity; only entering rows are created.
+    viewport.replaceChildren(fragment);
+    pane.anchor = anchor && ids.includes(anchor.id) ? anchor.id : null;
+    pane.error = 0;
+    if (pane.anchor !== null) {
+      const row = getRow(pane, pane.anchor);
+      viewport.scrollTop += row.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset;
+      pane.error = Math.abs(row.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset);
+    } else if (following) viewport.scrollTop = viewport.scrollHeight;
+    updatePane(pane);
+  }
+  function updatePane(pane) {
+    $(pane.key + '-count').textContent = pane.hi - pane.lo + 1;
+    $(pane.key + '-range').textContent = '#' + pane.lo + ' — #' + pane.hi;
+    $(pane.key + '-track').style.left = (pane.lo - 1) / TOTAL * 100 + '%';
+    $(pane.key + '-track').style.width = (pane.hi - pane.lo + 1) / TOTAL * 100 + '%';
+    $(pane.key + '-projects').textContent = pane.projects.toLocaleString('en-US');
+    $(pane.key + '-scans').textContent = pane.scans.toLocaleString('en-US');
+    $(pane.key + '-replies').textContent = pane.replies.toLocaleString('en-US');
+    $(pane.key + '-anchor').textContent = pane.anchor ? '#' + pane.anchor + ' · 偏差 ' + pane.error.toFixed(1) + ' px' : '跟随最新 / 无历史锚点';
+    const mounted = pane.lo <= TOTAL && pane.hi >= TOTAL;
+    $(pane.key + '-note').textContent = pane.key === 'baseline' ? '历史扩展会增加挂载行数，上限 300；随后平移窗口。' : '始终 100 条；向前移动 60 条，40 条重叠用于衔接。';
+    $(pane.key + '-state').textContent = following ? (pane.key === 'baseline' ? '增量 → 父层投影 + 当前回复局部更新' : '增量 → 只更新当前回复；不重新计算窗口') : (pane.key === 'baseline' ? '阅读历史已暂停跟随，但增量仍触发父层投影' : mounted ? '阅读区已固定；当前回复仍在窗口内，只更新该回复' : '当前回复在窗口外：Store 继续接收，历史阅读区不更新');
+  }
+  function updateControls() {
+    $('mode-live').setAttribute('aria-pressed', String(following));
+    $('mode-history').setAttribute('aria-pressed', String(!following));
+    $('play').textContent = timer ? 'Ⅱ 暂停增量输出' : '▶ 开始增量输出';
+    $('newer').disabled = Object.values(panes).every(pane => pane.hi === TOTAL);
+    $('earlier').disabled = Object.values(panes).every(pane => pane.lo === 1);
+    $('store-count').textContent = groups;
+    $('run-status').textContent = timer ? '/ 输出中 · 200 ms 一组' : groups ? '/ 已暂停或完成，数据已保留' : '/ 待开始';
+    document.querySelectorAll('.status-dot').forEach(dot => dot.classList.toggle('on', !!timer));
+  }
+  function announce(text) { $('event-text').textContent = text; }
+  function pulse(element, className) {
+    element.classList.remove(className);
+    // Restart a purely explanatory animation. This is not part of the counters.
+    void element.offsetWidth;
+    element.classList.add(className);
+    flashTimers.push(setTimeout(() => element.classList.remove(className), 680));
+  }
+  function tick() {
+    groups++;
+    const chunk = chunks[(groups - 1) % chunks.length];
+    liveText += (liveText ? ' ' : '') + chunk;
+    // Existing-path model: parent projection executes, but unchanged rows are NOT replaced.
+    project(panes.baseline);
+    pulse($('baseline'), 'parent-pulse');
+    for (const pane of Object.values(panes)) {
+      const reply = $(pane.key + '-viewport').querySelector('[data-live-reply]');
+      if (reply) {
+        reply.innerHTML = replyHTML();
+        pane.replies++;
+        if (pane.key === 'optimized') pulse(reply, 'live-pulse');
+        if (following) { const viewport = $(pane.key + '-viewport'); viewport.scrollTop = viewport.scrollHeight; }
+      }
+      // Only the instrumentation HUD changes here when a reply is outside the window.
+      updatePane(pane);
+    }
+    updateControls();
+  }
+  function stop() {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+    document.querySelectorAll('.caret').forEach(node => node.remove());
+    updateControls();
+  }
+  function play() {
+    if (timer !== null) { stop(); announce('已暂停。可以单步观察，或继续输出。'); return; }
+    cycle = 0;
+    timer = setInterval(() => {
+      tick(); cycle++;
+      if (cycle >= 30) { stop(); announce('30 组增量已完成。比较两侧投影与扫描计数；可切换阅读状态后继续。'); }
+    }, 200);
+    updateControls();
+    announce('正在以相同内容向两侧发送增量。橙色 = 父层投影；绿色 = 回复局部更新。');
+  }
+  function move(direction) {
+    following = false;
+    for (const pane of Object.values(panes)) {
+      if ((direction < 0 && pane.lo === 1) || (direction > 0 && pane.hi === TOTAL)) { updatePane(pane); continue; }
+      const anchor = captureAnchor(pane, direction);
+      if (pane.key === 'baseline') {
+        const amount = Math.min(100, direction < 0 ? pane.lo - 1 : TOTAL - pane.hi);
+        if (direction < 0 && pane.hi - pane.lo + 1 < CAP) pane.lo -= amount;
+        else { pane.lo += direction * amount; pane.hi += direction * amount; }
+      } else {
+        const amount = Math.min(SHIFT, direction < 0 ? pane.lo - 1 : TOTAL - pane.hi);
+        pane.lo += direction * amount; pane.hi += direction * amount;
+      }
+      renderWindow(pane, project(pane), anchor);
+    }
+    updateControls();
+    announce(direction < 0 ? '模拟到达顶部后加载：左侧扩展/平移；右侧前移 60 条、保留 40 条。高亮锚点的位置已恢复。' : '向较新的窗口移动。移出的消息仍在数据源中，随时可以再次展示。');
+  }
+  function latest() {
+    following = true;
+    for (const pane of Object.values(panes)) {
+      pane.lo = TOTAL - WINDOW + 1; pane.hi = TOTAL;
+      renderWindow(pane, project(pane));
+      // A reply that was unmounted must catch up from the complete Store value.
+      const reply = $(pane.key + '-viewport').querySelector('[data-live-reply]');
+      if (reply) reply.innerHTML = replyHTML();
+      const viewport = $(pane.key + '-viewport'); viewport.scrollTop = viewport.scrollHeight;
+    }
+    updateControls();
+    announce('回到最新 100 条。窗口外累积的完整回复从 Store 恢复，没有丢失增量。');
+  }
+  function history() {
+    if (panes.optimized.hi === TOTAL) move(-1);
+    else { following = false; Object.values(panes).forEach(updatePane); updateControls(); }
+  }
+  function reset() {
+    stop();
+    flashTimers.forEach(clearTimeout); flashTimers = [];
+    following = true; groups = 0; liveText = '';
+    for (const pane of Object.values(panes)) {
+      Object.assign(pane, {lo:901, hi:1000, projects:0, scans:0, replies:0, anchor:null, error:0});
+      // Reset creates a clean transcript rather than reusing a stale live-reply DOM.
+      $(pane.key + '-viewport').replaceChildren();
+      renderWindow(pane, cachedIDs.slice(900));
+      $(pane.key).classList.remove('parent-pulse');
+    }
+    updateControls();
+    announce('已重置。两侧均挂载 100 条；统计不包含首次初始化，记录后续操作。');
+  }
+  $('play').addEventListener('click', play);
+  $('step').addEventListener('click', () => { stop(); tick(); announce('已接收 1 组相同增量。比较父层投影与回复局部更新。'); });
+  $('earlier').addEventListener('click', () => move(-1));
+  $('newer').addEventListener('click', () => move(1));
+  $('latest').addEventListener('click', latest);
+  $('mode-live').addEventListener('click', latest);
+  $('mode-history').addEventListener('click', history);
+  $('reset').addEventListener('click', reset);
+  // Manual wheel/touch interaction stops tail-follow without changing window membership.
+  for (const pane of Object.values(panes)) {
+    const pause = () => { if (!following) return; following = false; Object.values(panes).forEach(updatePane); updateControls(); announce('手动阅读已暂停跟随。只有移出当前回复后，右侧历史区才会完全不响应正文增量。'); };
+    $(pane.key + '-viewport').addEventListener('wheel', pause, {passive:true});
+    $(pane.key + '-viewport').addEventListener('touchstart', pause, {passive:true});
+  }
+  // A small deterministic API for browser smoke tests; no network or private session data.
+  window.demo = Object.freeze({
+    step:tick, earlier:() => move(-1), newer:() => move(1), latest, history, reset, play, stop,
+    snapshot:() => ({total:archive.length, groups, following, playing:timer !== null, liveText,
+      panes:Object.fromEntries(Object.entries(panes).map(([key,pane]) => [key,{...pane,
+        mounted:$(key + '-viewport').children.length,
+        hasReply:!!$(key + '-viewport').querySelector('[data-live-reply]')}]))})
+  });
+  reset();
+})();
+</script>
+</body>
+</html>

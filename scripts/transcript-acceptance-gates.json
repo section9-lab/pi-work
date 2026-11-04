@@ -1,0 +1,15 @@
+{
+  "minimum_samples_per_variant_and_density": 2,
+  "required_scenarios": {
+    "mixed": ["open_cold_1000", "history_coverage_300", "open_cached_1000", "stream_live", "stream_history", "resume_latest", "remote_coverage_200"],
+    "dense": ["open_cold_1000"]
+  },
+  "maximum_median_regression_ratio": 1.15,
+  "gated_wall_scenarios": ["open_cold_1000", "open_cached_1000", "resume_latest", "remote_coverage_200", "stream_live"],
+  "gated_cpu_scenarios": ["open_cold_1000", "open_cached_1000", "resume_latest", "remote_coverage_200", "stream_history", "stream_live"],
+  "gated_rss_scenarios": ["open_cold_1000", "history_coverage_300", "remote_coverage_200"],
+  "history_coverage": "Compare milliseconds per newly covered source; report raw counts (before 300, after 320) and action counts too.",
+  "live_stream": "Require complete corrected-reference and after renderers and multiple intermediate renders. Invalid renderers fail acceptance; never report their speed ratio. The unmodified original is checked separately and excluded from live ratios.",
+  "rss": "Cumulative process peak only; no claim about scenario-local allocation.",
+  "note": "Exploratory single-machine acceptance, not a statistical guarantee. Inspect background-load records. Any changed gate must be documented."
+}
