@@ -40,5 +40,12 @@
     "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "1000", "PERF_DIAG_HISTORY_PLAIN": "1" },
     "expect_complete": true,
     "expect_render": true
+  },
+  {
+    "name": "forced-plain-live-complex-3",
+    "description": "Plain live body over three complex history rows; isolates history relayout share.",
+    "env": { "PERF_DIAG_MODE": "forced", "PERF_DIAG_ROWS": "3", "PERF_DIAG_BODY_PLAIN": "1" },
+    "expect_complete": true,
+    "expect_render": true
   }
 ]
