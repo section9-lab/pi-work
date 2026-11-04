@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>直播行隔离 · pi-work 性能机制演示</title>
+<style>
+:root{color-scheme:light;--ink:#162b3a;--muted:#647987;--line:#dfe7eb;--paper:#fff;--bg:#f3f7fa;--blue:#315de7;--warm:#bd6b32;--warm-bg:#fcf2e9;--green:#167969;--green-bg:#eaf5f0;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:radial-gradient(ellipse at 12% 0,#e5efff 0,transparent 48%),var(--bg);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}button{font:inherit;cursor:pointer}button:focus-visible,[tabindex]:focus-visible{outline:3px solid #789aff;outline-offset:3px}main{max-width:1280px;margin:auto;padding:46px 36px 64px}.eyebrow{font:11px var(--mono);letter-spacing:2px;color:var(--blue);display:flex;align-items:center;gap:9px}.eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}.hero{margin-bottom:24px}h1{font-size:clamp(27px,3vw,42px);letter-spacing:-1.6px;line-height:1.25;margin:15px 0 12px}h1 span{color:var(--blue)}.intro{color:var(--muted);max-width:780px;margin:0;font-size:14px}.badge{white-space:nowrap;border:1px solid #ccd8e4;border-radius:20px;padding:6px 12px;font:11px var(--mono);color:var(--muted)}.notice{font-size:12px;color:#596d7c;border:1px solid #dae4ed;background:#ffffffad;border-radius:12px;padding:12px 16px;margin:0 0 20px}.notice strong{color:#314e67}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0 0 20px}.btn{padding:9px 13px;border:1px solid #d4dfe6;background:white;color:var(--ink);border-radius:9px;font-size:12px}.btn.primary{background:var(--blue);color:white;border-color:var(--blue);min-width:118px}.btn.primary.playing{background:var(--warm);border-color:var(--warm)}.btn:hover:not(:disabled){filter:brightness(.97)}button:disabled{opacity:.38;cursor:not-allowed}.comparison{display:grid;grid-template-columns:1fr 1fr;gap:20px}.panel{--accent:var(--warm);--tint:var(--warm-bg);min-width:0;border:1px solid #dbe4e9;background:var(--paper);border-radius:19px;box-shadow:0 10px 32px #203b5010;overflow:hidden}.panel.optimized{--accent:var(--green);--tint:var(--green-bg)}.panel-heading{padding:21px 24px 16px;border-bottom:1px solid var(--line);display:flex;align-items:start;justify-content:space-between;gap:8px}.version{font:10px var(--mono);letter-spacing:1.4px;color:var(--accent);margin-bottom:6px}.panel h2{margin:0;font-size:18px;letter-spacing:-.4px}.panel-heading p{font-size:12px;color:var(--muted);margin:5px 0 0}.number{font:30px/1.1 var(--mono);color:var(--accent);text-align:right}.number small{display:block;color:var(--muted);font:10px/2 -apple-system,sans-serif}.chat-shell{margin:0 16px;border:1px solid #e2e9ee;border-radius:12px;overflow:hidden}.chat-header{background:#f8fafc;padding:8px 13px;font-size:10px;color:var(--muted);border-bottom:1px solid #e8eef2;display:flex;justify-content:space-between}.status-dot{width:5px;height:5px;border-radius:50%;background:#a0b0ba;display:inline-block;margin-right:5px}.status-dot.on{background:var(--green)}.viewport{height:292px;overflow:auto;background:linear-gradient(#fcfdff,white);padding:0 14px;scroll-behavior:auto;overflow-anchor:none;scrollbar-width:thin;scrollbar-color:#cdd9e2 transparent}.message{padding:13px 2px 12px;border-bottom:1px solid #eef2f5;position:relative}.message .who{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--muted);margin-bottom:5px}.avatar{width:17px;height:17px;display:inline-grid;place-items:center;border-radius:5px;background:#ecf0f8;color:#59749c;font-size:10px}.message.user .avatar{background:#eaf3ef;color:#478573}.message .id{margin-left:auto;font:9px var(--mono);color:#98a8b3}.skel{border-radius:4px;background:#e4ebf1;height:8px;margin:6px 0}.skel.w60{width:60%}.skel.w85{width:85%}.skel.w72{width:72%}.skel.w42{width:42%}.skel.dark{background:#d5e0e8}.block-row{display:flex;gap:7px}.block-row .skel{flex:1}.reply{padding:14px 2px 15px}.reply h4{font-size:13px;margin:4px 0;color:#253f53}.reply p.live{font-size:12px;margin:6px 0;color:#536a7d;min-height:18px}.caret{display:inline-block;width:5px;height:12px;vertical-align:-2px;background:var(--green);margin-left:2px}.live-label{color:var(--blue);font-size:9px}.isolated{margin:9px 4px 12px;border:1.5px dashed #9cc5b4;border-radius:10px;padding:2px 8px 4px;background:#f4faf7}.isolated-tag{font:9px var(--mono);color:var(--green);letter-spacing:.6px;display:block;margin:3px 0 1px}.metrics{padding:15px 24px 16px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.metric+.metric{border-left:1px solid var(--line);padding-left:16px}.metric .label{font-size:10px;color:var(--muted);display:block}.metric strong{font:22px/1.6 var(--mono);font-weight:500}.metric small{display:block;font-size:9px;color:#8a9ca9}.cost-label{display:block;font-size:9px;color:#8a9ca9}.cost-bar{height:7px;border-radius:4px;background:#e8eef2;overflow:hidden;margin-top:5px}.cost-bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .25s}.fine{font-size:9px;color:#93a6b2;margin-top:3px}.path{margin:0 16px 16px;padding:12px;border-radius:9px;background:#f5f8fa;font:10px/1.9 var(--mono);color:#788c99}.path b{font-weight:600;color:var(--accent)}.path .node{padding:2px 4px;border-radius:3px}.path .active{background:var(--tint);color:var(--accent)}.event-row{display:flex;gap:14px;align-items:center;justify-content:space-between;margin:18px 0 30px;color:var(--muted);font-size:11px}#event-text{max-width:640px;text-align:right}.concepts{display:grid;grid-template-columns:1fr 1fr;gap:20px}.explain{border:1px solid #dce5ec;border-radius:14px;padding:22px 24px;background:#ffffffb5}section.explain{margin-bottom:20px}.section-index{color:var(--blue);font:10px var(--mono);letter-spacing:1px;white-space:nowrap;display:block}.explain h3{font-size:16px;margin:6px 0 10px}.explain p{font-size:12px;color:var(--muted);margin:8px 0}.formula{background:#edf2f8;border-radius:8px;padding:11px 13px;margin:12px 0;font:11px/1.9 var(--mono);color:#4d6581;overflow:auto}.formula strong{color:var(--green)}.formula .bad{color:var(--warm);font-weight:600}.data-note{font:10px/1.8 var(--mono);background:#fdf6f0;border-radius:8px;padding:10px 12px;margin:12px 0;color:#7d5b3a}.footnote{font-size:11px;line-height:1.8;color:#8496a3;margin:20px 0 0}.flash{animation:rowFlash .5s ease-out}.flash-all{animation:rowFlashAll .55s ease-out}@keyframes rowFlash{0%{background:#d9eee4}100%{background:transparent}}@keyframes rowFlashAll{0%{background:#f6ddc8}100%{background:transparent}}@media(max-width:900px){main{padding:28px 16px 42px}.comparison,.concepts{grid-template-columns:1fr}.event-row{align-items:start;flex-direction:column}#event-text{text-align:left}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div class="eyebrow">PI-WORK / PERFORMANCE MECHANICS</div>
+    <h1>直播回复变长时，<span>别只动它自己。</span></h1>
+    <p class="intro">左：现在直播行与 100 条历史行在同一个布局容器里，回复每长高一点，<em>全部兄弟行</em>都要重新测量一遍。<br>右：直播行放进独立容器，历史行不参与它的几何变化。<strong>改动的数据没有任何不同</strong>，变的是布局所有权。</p>
+  </div>
+  <div class="notice"><strong>演示边界：</strong>动画与计数是本页 JS 的概念示意，不是 SwiftUI 布局次数或实测耗时；只是用量级展示“每次增量会让哪些行参与布局计算”。实测数据见文末数据卡。历史行展示 6 条示意，代表窗口里的 100 条。</div>
+  <div class="toolbar">
+    <button id="play" class="btn primary">▶ 自动播放</button>
+    <button id="step" class="btn">单步 +1 段</button>
+    <button id="reset" class="btn" style="color:var(--muted);background:transparent;border-color:transparent">重置</button>
+  </div>
+  <div class="comparison">
+    <section class="panel" aria-labelledby="a-title">
+      <div class="panel-heading">
+        <div><div class="version">A / 现有结构示意</div><h2 id="a-title">所有行在同一个 VStack 里</h2><p>直播行的高度变化，通知到整个父级几何链</p></div>
+        <div class="number"><span id="a-touched">0</span><small>历史行 × 累计重排次数</small></div>
+      </div>
+      <div class="chat-shell">
+        <div class="chat-header"><span><span class="status-dot on" id="a-dot"></span>VStack(100 rows) → ForEach</span><span>布局所有权：共享</span></div>
+        <div class="viewport" id="a-viewport" tabindex="0">
+          <div class="isolated" hidden>
+            <span class="isolated-tag" style="display:none"></span>
+            <div class="reply"><span class="who"><span class="avatar">A</span>助手 · <span class="live-label">直播回复中</span><span class="id">row-1001</span></span><p class="live" id="a-live-text"></p></div>
+          </div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span class="label">本轮参与的行</span><strong id="a-per">0</strong><small>行 / 每次增量</small></div>
+        <div class="metric" style="grid-column:span 2"><span class="label" style="display:block">本轮布局负载（示意）</span>
+          <div class="cost-bar"><i id="a-cost"></i></div>
+          <span class="fine" id="a-shop"></span></div>
+      </div>
+      <div class="path">文本增量 → <b class="node" id="a-flow">直播行变高</b> → 父级 VStack 重新放置 → <b class="node" id="a-sweep">未变化的兄弟行 × 全部</b></div>
+    </section>
+    <section class="panel optimized" aria-labelledby="b-title">
+      <div class="panel-heading">
+        <div><div class="version">B / 建议：直播行隔离</div><h2 id="b-title">历史容器 + 直流行独立容器</h2><p>几何变化止步于隔离容器内部</p></div>
+        <div class="number"><span id="b-touched">0</span><small>历史行 × 累计重排次数</small></div>
+      </div>
+      <div class="chat-shell">
+        <div class="chat-header"><span><span class="status-dot on" id="b-dot"></span>VStack(99 rows) + 隔离容器(1)</span><span>布局所有权：分开</span></div>
+        <div class="viewport" id="b-viewport" tabindex="0">
+          <div class="isolated">
+            <span class="isolated-tag">ISOLATED · 几何变化不外泄</span>
+            <div class="reply"><span class="who"><span class="avatar">A</span>助手 · <span class="live-label">直播回复中</span><span class="id">row-1001</span></span><p class="live" id="b-live-text"></p></div>
+          </div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span class="label">本轮参与的行</span><strong id="b-per">0</strong><small>行 / 每次增量</small></div>
+        <div class="metric" style="grid-column:span 2"><span class="label" style="display:block">本轮布局负载（示意）</span>
+          <div class="cost-bar"><i id="b-cost"></i></div>
+          <span class="fine" id="b-shop"></span></div>
+      </div>
+      <div class="path">文本增量 → <b class="node" id="b-flow">隔离容器内部重新布局</b> → 外层高度对齐 → 兄弟行 <b class="node" id="b-sweep" style="background:var(--green-bg);color:var(--green)">不参与</b></div>
+    </section>
+  </div>
+  <div class="event-row">
+    <div>同一条流式回复：LoremIpsum 逐步增长 · 两个面板收到完全相同的字节</div>
+    <div id="event-text" role="status" aria-live="polite">点“单步 +1 段”或“自动播放”。左侧每收到一段，全部历史行闪一次橙色 = 参与重排；绿色面板只有直播行自己闪。</div>
+  </div>
+  <div class="concepts">
+    <section class="explain"><span class="section-index">01 / 变长的不是一条数据，是一门父级几何</span>
+      <h3>为什么兄弟行会跟着倒霉</h3>
+      <div class="formula">文本增量 → 直流行 subtree 高度变化<span class="bad"> ①</span><br>　　　　　 → 父级 VStack 高度变化<span class="bad"> ②</span><br>　　　　　 → 所有子行 placeSubviews / sizeThatFits<span class="bad"> ③</span><br>　　　　　 → 未变的 99 条历史 × 每一次增量</div>
+      <p>③里没有任何“内容变了”，但它们的几何依赖了②，于是每次增量都被动重算。实测里这正是热点的形状：增量到达时，热点是栈布局机器（placeSubviews、sizeThatFits、AG 遍历），而不是 Markdown 解析或文字排版。</p>
+      <div class="data-note">实测参考（单次·非性能跑分）：同输入强制布局下，复杂历史 100 行 +3.1s；把历史换成短文本后 +0.20s；复杂直播体自身 +1.3s。隔离的最大的那块，正是①→③的链路。</div></section>
+    <section class="explain"><span class="section-index">02 / 隔离的不是内容，是布局所有权</span>
+      <h3>直播行搬家后少了什么</h3>
+      <div class="formula">外层 VStack<br>├─ 历史容器（172 缓冲 + 视口 + 99 条）✋ 不再知道<br>└─ 隔离容器（只装直播行）<br>　　└─ 直流行 subtree <strong>①②③ 都留在这里</strong></div>
+      <p>隔离容器内部仍然要随增量重排——这必须发生，不是免费。省掉的是外泄：外层高度对齐只发生一次/次，兄弟行的几何不再被牵连。窗口滚动、锚点恢复、工具分组等机制理论上复用现状，但需要把这些 CSR 路径全部重测。</p>
+      <p>同样保留现状的还有 Store 侧：排队、按序处理、失败快照修复都不动。这一步只动布局，不碰事件语义。</p></section>
+  </div>
+  <div class="footnote">数据与限制：<a href="../performance/stream-bottleneck-2026-11-04.md">stream-bottleneck-2026-11-04.md</a> · 复测方式：<a href="../performance/diagnostic-harness.md">diagnostic-harness.md</a>。此页只是机制演示；原型收益必须用同一诊断矩阵复测后宣布。</div>
+</main>
+<script>
+(function(){
+"use strict";
+var SEGMENTS=[
+"这篇文章针对 100 条长会话的渲染延迟。",
+"当初选择在同一容器里放置全部行，",
+"是为了保持历史锚点测量的确定性。",
+"代价是增量发布时的全窗口重排。",
+"实测开销集中在栈布局机器：",
+"placeSubviews、sizeThatFits、AG 遍历。",
+"隔离方案把增量几何锁在直播行自己内部，",
+"兄弟行不再被迫重放布局计算。"];
+var i=0, timers=[], MAX=SEGMENTS.length;
+function $(id){return document.getElementById(id);}
+function skeleton(k){var out="";for(var n=0;n<6;n++){out+='<div class="message '+((n%5===0)?"user":"assistant")+'">'
++'<span class="who"><span class="avatar">'+((n%5===0)?"U":"A")+"</span>"+((n%5===0)?"用户 提问 ":"助手 回复 ")
++'<span class="id">row-'+(994+n)+"</span></span>"
++'<div class="skel '+(n%2?"w72":"w85")+'"></div><div class="skel '+(n%3?"w60":"w42")+'"></div></div>';}
+out+='<div class="message assistant"><span class="who"><span class="avatar">A</span>助手 回复 <span class="id">row-1000</span></span><div class="skel w60 dark"></div></div>';
+return out;}
+function liveRow(id,wrapClass,tag){
+var inner='<div class="reply"><span class="who"><span class="avatar">A</span>助手 · <span class="live-label">直播回复中</span><span class="id">row-1001</span></span><p class="live" id="'+id+'"><span style="color:#91a1ae;font-size:11px">等待增量…</span></p></div>';
+return tag?('<div class="isolated"><span class="isolated-tag">ISOLATED · 几何变化不外泄</span>'+inner+"</div>"):('<div class="message assistant">'+inner+"</div>");}
+function textSoFar(n){var t="";for(var k=0;k<n;k++){t+=SEGMENTS[k];}return t;}
+function paint(which){var el=$(which+"-live");el.innerHTML=textSoFar(i)+'<span class="caret"></span>';}
+function placeMessage(a,b){var cp=a.parentElement;a.classList.remove("flash-all");void a.offsetWidth;a.classList.add("flash-all");}
+function stepOne(){
+ var now=new Date().toLocaleTimeString("zh-CN",{hour12:false});
+ if(i>=MAX){$("event-text").textContent=now+" · 回复完成（共 "+MAX+" 段）。累计：A 侧历史行重排 "+$("a-touched").textContent+" 行次；B 侧 0 行次。点“重置”再来。";
+ stopPlay();return;}
+ i+=1;
+ paint("a");paint("b");
+ // A：直播行所在窗口的全部行参与重排（本页示意 7 行，实际窗口 100 行）
+ var aViewport=$("a-viewport");
+ var aRows=aViewport.querySelectorAll(".message");
+ aViewport.querySelector(".message:last-child").classList.add("flash-all");
+ aRows.forEach(function(row){row.classList.remove("flash-all");void row.offsetWidth;row.classList.add("flash-all");});
+ $("a-touched").textContent=parseInt($("a-touched").textContent,10)+6;
+ $("a-per").textContent="7";
+ $("a-cost").style.width=Math.min(100,14+i*11)+"%";
+ $("a-shop").textContent="≈ 100 行参与几何重算（示意 ×6 显示）· 单次重排负载随增量上升";
+ $("a-flow").classList.add("active");$("a-sweep").classList.add("active");
+ aViewport.scrollTop=aViewport.scrollHeight;
+ // B：只有隔离容器内的直播行重排
+ var bLive=$("b-isolated");
+ bLive.classList.remove("flash");void bLive.offsetWidth;bLive.classList.add("flash");
+ $("b-per").textContent="1";
+ $("b-cost").style.width=Math.min(100,5+i*3)+"%";
+ $("b-shop").textContent="≈ 1 行（隔离容器内部）+ 外层一次性高度对齐";
+ $("b-flow").classList.add("active");
+ $("b-viewport").scrollTop=$("b-viewport").scrollHeight;
+ $("event-text").textContent=now+" · 增量 #"+i+" 抵达两侧。A：橙色全列闪烁 = 全窗口重排；B：绿色只闪直播行 = 变化锁在容器内。";
+}
+var playing=false;
+function stopPlay(){playing=false;var b=$("play");b.textContent="▶ 自动播放";b.classList.remove("playing");}
+function loop(){if(!playing)return;stepOne();if(i>=MAX){stopPlay();return;}timers.push(setTimeout(loop,700));}
+function reset(){
+ timers.forEach(clearTimeout);timers=[];i=0;stopPlay();
+ $("a-touched").textContent="0";$("b-touched").textContent="0";
+ $("a-per").textContent="0";$("b-per").textContent="0";
+ $("a-cost").style.width="0";$("b-cost").style.width="0";
+ $("a-shop").textContent="";$("b-shop").textContent="";
+ ["a-flow","a-sweep","b-flow","b-sweep"].forEach(function(id){$(id).classList.remove("active");});
+ $("a-viewport").innerHTML=skeleton(null)+('<div class="message assistant flash-all" id="a-live-row">'
+ +'<span class="who"><span class="avatar">A</span>助手 · <span class="live-label">直播回复中</span><span class="id">row-1001</span></span>'
+ +'<p class="live" id="a-live"><span style="color:#91a1ae;font-size:11px">等待增量…</span></p></div>');
+ $("b-viewport").innerHTML=skeleton(null)+('<div class="isolated" id="b-isolated"><span class="isolated-tag">ISOLATED · 几何变化不外泄</span>'
+ +'<div class="message assistant" style="border-bottom:0"><span class="who"><span class="avatar">A</span>助手 · <span class="live-label">直播回复中</span><span class="id">row-1001</span></span>'
+ +'<p class="live" id="b-live"><span style="color:#91a1ae;font-size:11px">等待增量…</span></p></div></div>');
+ $("a-viewport").scrollTop=0;$("b-viewport").scrollTop=0;
+ $("event-text").textContent="就绪。“单步 +1 段”看一次增量需要谁动；“自动播放”看累计差异。";
+}
+$("play").addEventListener("click",function(){playing=!playing;
+ $("play").classList.toggle("playing",playing);
+ $("play").textContent=playing?"⏸ 暂停":"▶ 自动播放";
+ if(playing){loop();}});
+$("step").addEventListener("click",function(){stopPlay();stepOne();});
+$("reset").addEventListener("click",reset);
+reset();
+window.__demoProbe={step:stepOne,reset:reset};
+})();
+</script>
+</body>
+</html>
