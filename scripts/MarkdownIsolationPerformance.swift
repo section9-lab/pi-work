@@ -133,6 +133,22 @@ extension SessionStoreTests {
         print("ISOLATION_PERF " + String(decoding: try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), as: UTF8.self))
     }
 
+    private func diagCountersText(_ counters: SessionStoreDiagnostics.Counters?) -> String {
+        guard let counters else { return "  counters unavailable" }
+        var text = "  received=\(counters.receivedEvents)"
+        text += " received_seq=\(counters.lastReceivedSequence ?? -1)"
+        text += " processed=\(counters.processedEvents)"
+        text += " processed_seq=\(counters.lastProcessedSequence ?? -1)"
+        text += " published=\(counters.publishedRounds)"
+        text += " published_seq=\(counters.lastPublishedSequence ?? -1)"
+        return text
+    }
+
+    private func diagTimingText(_ milliseconds: Double?) -> String {
+        guard let milliseconds else { return "-" }
+        return String(Int64(milliseconds))
+    }
+
     func testMarkdownIsolationEventBoundaries() async throws {
         let host = FakeAgentHost()
         let controlled = SessionStore(service: host)
@@ -251,19 +267,31 @@ extension SessionStoreTests {
         await host.emit(.sessionStateChanged(.init(sessionId: "session-one", sequence: 1, turnId: "live", state: .running)))
         try await Task.sleep(nanoseconds: 50_000_000)
         let start = isoNow(), cpu = isoCPU()
+        SessionStoreDiagnostics.shared.reset()
+        // The producer runs detached, so its emission count needs its own lock.
+        final class EmissionBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var value = 0
+            func add() { lock.lock(); value += 1; lock.unlock() }
+        }
+        let emissions = EmissionBox()
         print("LIVE_DIAG_START mode=\(mode) rows=\(count)")
         let producer = Task.detached {
             for (index, chunk) in chunks.enumerated() {
                 await host.emit(.sessionAssistantContent(.init(sessionId: "session-one", sequence: index + 2,
                     turnId: "live", generationIndex: 0, phase: .delta, contentType: .text,
                     contentIndex: 0, delta: chunk, content: nil, toolCall: nil)))
+                emissions.add()
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             await host.emit(.sessionStateChanged(.init(sessionId: "session-one", sequence: chunks.count + 2, turnId: "live", state: .idle)))
+            emissions.add()
             return Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000
         }
         let deadline = start + (Double(env["PERF_DIAG_TIMEOUT_MS"] ?? "60000") ?? 60_000)
         var storeMS: Double?, renderMS: Double?, gaps: [Double] = [], previous = start
+        let sampleIntervalMS = Double(env["PERF_DIAG_SAMPLE_MS"] ?? "500") ?? 500
+        var nextSampleAt = start + sampleIntervalMS
         while true {
             let now = isoNow()
             gaps.append(now - previous); previous = now
@@ -271,6 +299,15 @@ extension SessionStoreTests {
                 store.records["session-one"]?.runState == .idle { storeMS = now - start }
             if renderMS == nil && MarkdownIsolationProbe.hasRendered(body) { renderMS = now - start }
             if storeMS != nil && (surface == nil || renderMS != nil) || now >= deadline { break }
+            if now >= nextSampleAt {
+                nextSampleAt = now + sampleIntervalMS
+                let counters = SessionStoreDiagnostics.shared.counters(sessionID: "session-one")
+                let observedSequence = store.records["session-one"]?.lastSequence ?? -1
+                print("LIVE_DIAG_SAMPLE elapsed_ms=\(Int64(now - start))")
+                print(diagCountersText(counters))
+                print("  emitted=\(emissions.value) seq=\(observedSequence)")
+                print("  store_ms=\(diagTimingText(storeMS)) render_ms=\(diagTimingText(renderMS))")
+            }
             if let surface {
                 if mode == "forced" || mode == "layout" { surface.controller.view.layoutSubtreeIfNeeded() }
                 if mode == "forced" || mode == "scroll" { isoKeepTailVisible(surface) }
@@ -280,7 +317,12 @@ extension SessionStoreTests {
         let inputMS = try await producer.value - start
         gaps.sort()
         let record = try XCTUnwrap(store.records["session-one"])
-        print("LIVE_DIAG_RESULT mode=\(mode) rows=\(count) input_ms=\(inputMS) store_ms=\(storeMS ?? -1) render_ms=\(renderMS ?? -1) wall_ms=\(isoNow() - start) cpu_ms=\(isoCPU() - cpu) seq=\(record.lastSequence)/\(chunks.count + 2) gap_p95_ms=\(gaps[Int(Double(gaps.count - 1) * 0.95)]) gap_max_ms=\(gaps.last ?? 0)")
+        let finalCounters = SessionStoreDiagnostics.shared.counters(sessionID: "session-one")
+        let stagesText = diagCountersText(finalCounters)
+        let gapP95 = gaps[Int(Double(gaps.count - 1) * 0.95)]
+        let gapMax = gaps.last ?? 0
+        print("LIVE_DIAG_RESULT mode=\(mode) rows=\(count) input_ms=\(inputMS) store_ms=\(storeMS ?? -1) render_ms=\(renderMS ?? -1) wall_ms=\(isoNow() - start) cpu_ms=\(isoCPU() - cpu) seq=\(record.lastSequence)/\(chunks.count + 2) gap_p95_ms=\(gapP95) gap_max_ms=\(gapMax)")
+        print("LIVE_DIAG_STAGES emitted=\(emissions.value)\(stagesText)")
         XCTAssertEqual(record.lastSequence, chunks.count + 2)
         XCTAssertEqual(PiChatMessage(message: try XCTUnwrap(record.transcript.last)).text, body)
         if surface != nil { XCTAssertNotNil(renderMS) }

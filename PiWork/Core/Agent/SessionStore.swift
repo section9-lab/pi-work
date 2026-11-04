@@ -327,15 +327,23 @@ struct SessionStoreReducer {
         let existingIDs = Set(record.messages.map(\.id))
         let earlierMessages = page.messages.filter { !existingIDs.contains($0.id) }
         record.messages = earlierMessages + record.messages
-        record.transcript = Self.makeTranscript(
+        // Live tool and thinking events can exist only in the transcript, not in
+        // messages. Rebuilding the whole transcript here would discard them.
+        // Project against all messages so tool results across the page boundary
+        // are still available, but prepend only rows from the new page.
+        let earlierIDs = Set(earlierMessages.map(\.id))
+        let earlierTranscript = Self.makeTranscript(
             from: record.messages,
-            pendingApprovals: record.pendingApprovals,
+            pendingApprovals: [],
             sessionState: record.runState == .running ? .running : .idle
-        )
-        record.tools = record.transcript.flatMap(\.parts).compactMap { part in
+        ).filter { earlierIDs.contains($0.id) }
+        record.transcript = earlierTranscript + record.transcript
+        let earlierTools: [SessionToolRecord] = earlierTranscript.flatMap(\.parts).compactMap { part in
             guard case .tool(let tool) = part else { return nil }
             return tool
         }
+        let existingToolIDs = Set(record.tools.map(\.id))
+        record.tools = earlierTools.filter { !existingToolIDs.contains($0.id) } + record.tools
         record.historyCursor = page.nextCursor
         record.historyRevision = page.revision
         record.hasEarlierMessages = page.hasMore
@@ -2432,10 +2440,23 @@ final class SessionStore: ObservableObject {
             return
         }
         let identity = reducer.eventIdentity(event)
+        #if DEBUG || TRANSCRIPT_ACCEPTANCE
+        if let identity {
+            SessionStoreDiagnostics.shared.recordReceived(
+                sessionID: identity.sessionId, sequence: identity.sequence)
+        }
+        #endif
         let textUpdate = SessionTextUpdateIdentity(event)
         let wasExistingText = textUpdate.map { $0.sequence > 0 && $0.matches(reducer.records[$0.sessionID], sequence: $0.sequence - 1) } ?? false
         let previousCount = identity.flatMap { reducer.records[$0.sessionId]?.transcript.count }
         let effects = reducer.receive(event, timestamp: Self.timestamp(from: now()))
+        #if DEBUG || TRANSCRIPT_ACCEPTANCE
+        if let identity {
+            SessionStoreDiagnostics.shared.recordProcessed(
+                sessionID: identity.sessionId,
+                sequence: reducer.records[identity.sessionId]?.lastSequence)
+        }
+        #endif
         if let identity {
             if let textUpdate, wasExistingText,
                textUpdate.matches(reducer.records[identity.sessionId], sequence: identity.sequence),
@@ -2663,6 +2684,12 @@ final class SessionStore: ObservableObject {
         }
         if workspaceChanged { objectWillChange.send() }
         records = next
+        #if DEBUG || TRANSCRIPT_ACCEPTANCE
+        for id in changedIDs {
+            SessionStoreDiagnostics.shared.recordPublished(
+                sessionID: id, sequence: next[id]?.lastSequence)
+        }
+        #endif
         recordsSubject.send(next)
         recordUpdatesSubject.send(Set(changedIDs))
         transcriptUpdatesSubject.send(transcriptUpdate)
@@ -2785,6 +2812,64 @@ final class SessionStore: ObservableObject {
         return formatter.string(from: date)
     }
 }
+
+#if DEBUG || TRANSCRIPT_ACCEPTANCE
+/// Read-only acceptance instrumentation. Counts three streaming stages per
+/// session: events received from the service stream, events consumed by the
+/// reducer, and records published to UI subscriptions. Comparing the three
+/// separates a queue backlog from processing and publish delay. Cheap
+/// dictionary updates; not compiled into a normal Release build.
+@MainActor
+final class SessionStoreDiagnostics {
+    struct Counters {
+        var receivedEvents = 0
+        var firstReceivedAt: Double?
+        var lastReceivedAt: Double?
+        var lastReceivedSequence: Int?
+        var processedEvents = 0
+        var lastProcessedSequence: Int?
+        var lastProcessedAt: Double?
+        var publishedRounds = 0
+        var lastPublishedSequence: Int?
+        var lastPublishedAt: Double?
+    }
+
+    static let shared = SessionStoreDiagnostics()
+
+    private var countersByID: [String: Counters] = [:]
+
+    func reset() { countersByID.removeAll() }
+
+    func counters(sessionID: String) -> Counters? { countersByID[sessionID] }
+
+    func recordReceived(sessionID: String, sequence: Int) {
+        var counters = countersByID[sessionID] ?? Counters()
+        if counters.receivedEvents == 0 { counters.firstReceivedAt = now }
+        counters.receivedEvents += 1
+        counters.lastReceivedAt = now
+        if sequence != 0 { counters.lastReceivedSequence = sequence }
+        countersByID[sessionID] = counters
+    }
+
+    func recordProcessed(sessionID: String, sequence: Int?) {
+        var counters = countersByID[sessionID] ?? Counters()
+        counters.processedEvents += 1
+        counters.lastProcessedSequence = sequence
+        counters.lastProcessedAt = now
+        countersByID[sessionID] = counters
+    }
+
+    func recordPublished(sessionID: String, sequence: Int?) {
+        var counters = countersByID[sessionID] ?? Counters()
+        counters.publishedRounds += 1
+        counters.lastPublishedSequence = sequence
+        counters.lastPublishedAt = now
+        countersByID[sessionID] = counters
+    }
+
+    private var now: Double { Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000 }
+}
+#endif
 
 private extension AgentHostServerEvent {
     var coalescesTranscriptPresentation: Bool {
