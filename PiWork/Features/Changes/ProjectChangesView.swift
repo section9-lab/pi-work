@@ -7,8 +7,9 @@ struct ProjectChangesWorkspace<Content: View>: View {
     let project: PiProject?
     @Binding var isPresented: Bool
     @ViewBuilder var content: () -> Content
-    @State private var preferredReviewWidth: CGFloat = 420
+    @State private var preferredReviewWidth: CGFloat = 480
     @State private var dragStartWidth: CGFloat?
+    @State private var previousWorkspaceWidth: CGFloat?
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,7 +24,7 @@ struct ProjectChangesWorkspace<Content: View>: View {
                     .frame(width: layout.contentWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 if isPresented, let project {
-                    ProjectChangesView(project: project) { isPresented = false }
+                    ProjectChangesView(project: project)
                         .id(project.path)
                         .frame(width: layout.reviewWidth)
                         .overlay(alignment: .leading) { resizeHandle(layout) }
@@ -33,6 +34,15 @@ struct ProjectChangesWorkspace<Content: View>: View {
             .clipped()
             .preference(key: ProjectReviewControlInsetKey.self,
                 value: layout.overlaysContent || layout.reviewWidth == 0 ? 0 : layout.reviewWidth + 1)
+            .onAppear { previousWorkspaceWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { width in
+                defer { previousWorkspaceWidth = width }
+                guard isPresented, project != nil, let previousWorkspaceWidth else { return }
+                let previousLayout = ProjectReviewLayout(availableWidth: previousWorkspaceWidth,
+                    preferredWidth: preferredReviewWidth, isPresented: true)
+                preferredReviewWidth = min(ProjectReviewLayout.maximumReviewWidth,
+                    max(ProjectReviewLayout.minimumReviewWidth, previousLayout.reviewWidth + width - previousWorkspaceWidth))
+            }
         }
     }
 
@@ -92,6 +102,22 @@ struct ProjectSessionMenuOverlay: View {
                 .background(WindowTitlebarControlRegion())
                 .padding(.top, 10)
                 .padding(.trailing, 16 + reviewTrailingInset)
+            if isReviewPresented {
+                Button { isReviewPresented = false } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.borderless)
+                .background(.regularMaterial, in: Circle())
+                .background(WindowTitlebarControlRegion())
+                .help(L10n.string("changes.done"))
+                .accessibilityLabel(L10n.string("changes.done"))
+                .accessibilityIdentifier("project-changes-close")
+                .padding(.top, 10)
+                .padding(.trailing, 16)
+            }
         }
         .overlayPreferenceValue(ProjectSessionMenuAnchorKey.self) { anchor in
             GeometryReader { geometry in
@@ -240,19 +266,15 @@ struct ProjectSessionReviewMenu: View {
 /// Its presentation belongs to the workspace, never to an individual session.
 struct ProjectChangesView: View {
     let project: PiProject
-    let onClose: () -> Void
     @State private var snapshot: ProjectChangesSnapshot?
-    @State private var selectedPath: String?
-    @State private var diff: FileDiff?
     @State private var error: String?
-    @State private var diffError: String?
     @State private var loading = true
-    @State private var loadingDiff = false
     @State private var revision = UUID()
     @State private var refresh = UUID()
     @State private var query = ""
+    @State private var diffs: [String: FileDiff] = [:]
+    @State private var diffErrors: [String: String] = [:]
 
-    private var selectedFile: ChangedFile? { snapshot?.files.first { $0.path == selectedPath } }
     private var visibleFiles: [ChangedFile] {
         (snapshot?.files ?? []).filter { query.isEmpty || $0.path.localizedCaseInsensitiveContains(query) }
     }
@@ -268,10 +290,7 @@ struct ProjectChangesView: View {
             } else if let snapshot, snapshot.files.isEmpty {
                 placeholder(title: L10n.string("changes.clean"), detail: L10n.string("changes.clean_detail"))
             } else {
-                VSplitView {
-                    fileList.frame(minHeight: 100, idealHeight: 180, maxHeight: 280)
-                    diffPane.frame(maxWidth: .infinity, minHeight: 220, maxHeight: .infinity)
-                }
+                changesFeed
             }
             Divider()
             HStack {
@@ -282,10 +301,8 @@ struct ProjectChangesView: View {
             .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.vertical, 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppPalette.raisedSurface)
         .accessibilityIdentifier("project-changes-panel")
         .task(id: refresh) { await loadSnapshot() }
-        .task(id: "\(revision)-\(selectedPath ?? "")") { await loadDiff() }
     }
 
     private var header: some View {
@@ -304,79 +321,71 @@ struct ProjectChangesView: View {
             }
                 .help(L10n.string("changes.refresh")).disabled(loading)
                 .accessibilityLabel(L10n.string("changes.refresh"))
-            Button(action: onClose) {
-                Image(systemName: "xmark").font(.system(size: 12, weight: .medium))
-            }
-            .help(L10n.string("changes.done"))
-            .accessibilityLabel(L10n.string("changes.done"))
-            .accessibilityIdentifier("project-changes-close")
         }.buttonStyle(.borderless).padding(14)
     }
 
-    private var fileList: some View {
+    private var changesFeed: some View {
         VStack(spacing: 0) {
             TextField(L10n.string("changes.filter"), text: $query)
                 .textFieldStyle(.roundedBorder).padding(12)
-            if visibleFiles.isEmpty && !query.isEmpty {
-                Text(L10n.string("changes.no_matches"))
-                    .font(.callout).foregroundStyle(.secondary).padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            if visibleFiles.isEmpty {
+                placeholder(title: L10n.string("changes.no_matches"), detail: "")
             } else {
-                List(selection: $selectedPath) {
-                    ForEach(visibleFiles) { file in
-                        HStack(alignment: .top, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(URL(fileURLWithPath: file.path).lastPathComponent).font(.system(size: 12, weight: .medium))
-                                Text(file.path).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                            Spacer(minLength: 0)
-                            Text(file.badge).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(file.badge == "D" ? Color.red : file.badge == "M" ? Color.orange : Color.green)
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(visibleFiles) { file in
+                            fileSection(file)
+                                .task(id: revision) { await loadDiff(for: file) }
                         }
-                        .padding(.vertical, 5).tag(file.path)
-                        .help(file.status + "  " + file.path)
                     }
-                }.listStyle(.sidebar)
+                }
             }
         }
     }
 
-    private var diffPane: some View {
-        VStack(spacing: 0) {
-            if let file = selectedFile {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(file.path).font(.system(size: 12, weight: .medium)).textSelection(.enabled)
-                        if let previous = file.previousPath {
-                            Text(previous + " → " + file.path).font(.caption).foregroundStyle(.secondary)
-                        }
+    private func fileSection(_ file: ChangedFile) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(file.path).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    if let previous = file.previousPath {
+                        Text(previous + " → " + file.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    Spacer()
-                    if let diff {
-                        Text("+\(diff.additions)").foregroundStyle(.green)
-                        Text("−\(diff.deletions)").foregroundStyle(.red)
-                    }
-                }.font(.system(size: 11, design: .monospaced)).padding(14)
-                Divider()
-                if loadingDiff {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let diffError {
-                    placeholder(title: L10n.string("changes.unavailable"), detail: diffError)
-                } else if let diff, !diff.lines.isEmpty {
-                    if diff.truncated {
-                        Text(L10n.string("changes.truncated")).font(.caption).foregroundStyle(.secondary).padding(8)
-                    }
-                    ScrollView([.horizontal, .vertical]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(diff.lines) { line in diffRow(line) }
-                        }.frame(minWidth: 600, alignment: .leading).textSelection(.enabled).padding(.vertical, 8)
-                    }
-                } else {
-                    placeholder(title: L10n.string("changes.no_text"), detail: L10n.string("changes.no_text_detail"))
                 }
-            } else {
-                placeholder(title: L10n.string("changes.select_file"), detail: "")
+                Spacer(minLength: 4)
+                Text(file.badge).foregroundStyle(.secondary)
+                if let diff = diffs[file.path], !diff.truncated {
+                    Text("+\(diff.additions)").foregroundStyle(.green)
+                    Text("−\(diff.deletions)").foregroundStyle(.red)
+                }
             }
+            .font(.system(size: 11, weight: .medium))
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .help(file.status + "  " + file.path)
+            Divider()
+            if let diff = diffs[file.path] {
+                if diff.truncated {
+                    Text(L10n.string("changes.truncated")).font(.caption).foregroundStyle(.secondary).padding(8)
+                }
+                let lines = diff.lines.filter { $0.kind != .metadata }
+                if lines.isEmpty {
+                    Text(L10n.string("changes.no_text_detail"))
+                        .font(.caption).foregroundStyle(.secondary).padding(12)
+                } else {
+                    ScrollView(.horizontal) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(lines) { line in diffRow(line) }
+                        }.textSelection(.enabled).padding(.vertical, 4)
+                    }
+                }
+            } else if let error = diffErrors[file.path] {
+                Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).padding(12)
+            } else {
+                ProgressView().controlSize(.small).padding(12)
+            }
+            Divider()
         }
     }
 
@@ -404,12 +413,13 @@ struct ProjectChangesView: View {
     @MainActor private func loadSnapshot() async {
         loading = true
         error = nil
+        diffs = [:]
+        diffErrors = [:]
         let path = project.path
         do {
             let result = try await Task.detached(priority: .userInitiated) { try ProjectChangesService.snapshot(at: path) }.value
             guard !Task.isCancelled else { return }
             snapshot = result
-            if !result.files.contains(where: { $0.path == selectedPath }) { selectedPath = result.files.first?.path }
             revision = UUID()
         } catch {
             guard !Task.isCancelled else { return }
@@ -419,20 +429,15 @@ struct ProjectChangesView: View {
         loading = false
     }
 
-    @MainActor private func loadDiff() async {
-        diff = nil
-        diffError = nil
-        loadingDiff = false
-        guard let snapshot, let file = selectedFile else { return }
-        loadingDiff = true
+    @MainActor private func loadDiff(for file: ChangedFile) async {
+        guard diffs[file.path] == nil, diffErrors[file.path] == nil, let snapshot else { return }
         do {
             let result = try await Task.detached(priority: .userInitiated) { try ProjectChangesService.diff(for: file, in: snapshot) }.value
             guard !Task.isCancelled else { return }
-            diff = result
+            diffs[file.path] = result
         } catch {
             guard !Task.isCancelled else { return }
-            diffError = error.localizedDescription
+            diffErrors[file.path] = error.localizedDescription
         }
-        loadingDiff = false
     }
 }

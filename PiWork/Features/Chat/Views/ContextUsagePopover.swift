@@ -83,7 +83,9 @@ struct ContextUsagePopover: View {
                     Label(L10n.string("chat.compaction.action"), systemImage: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: 11))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .disabled(!canCompact)
                 .accessibilityIdentifier("context-compact-action")
                 if showsCompactionForm {

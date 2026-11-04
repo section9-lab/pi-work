@@ -9,8 +9,9 @@ struct ProjectChangesChecks {
                 precondition(closed.contentWidth == width && closed.reviewWidth == 0)
                 let open = ProjectReviewLayout(availableWidth: width, preferredWidth: preferred, isPresented: true)
                 precondition(open.contentWidth >= 0 && open.contentWidth <= width && open.reviewWidth <= width)
-                if open.overlaysContent { precondition(open.contentWidth == width) }
-                else { precondition(open.contentWidth + open.reviewWidth + 1 == width && open.contentWidth >= 400) }
+                precondition(!open.overlaysContent)
+                precondition(open.contentWidth + open.reviewWidth == max(0, width - 1))
+                precondition(open.contentWidth >= min(400, max(0, width - 1) / 2))
             }
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

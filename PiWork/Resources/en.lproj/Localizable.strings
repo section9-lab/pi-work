@@ -21,7 +21,7 @@
 "chat.compaction.tokens_before" = "From %@ tokens";
 "chat.compaction.tokens_after" = "%@ → ≈ %@ tokens";
 "chat.compaction.tokens_reduction" = "≈ %@%% reduced";
-"chat.compaction.action" = "Compact context now…";
+"chat.compaction.action" = "Compact";
 "chat.compaction.instructions" = "Summary focus (optional)";
 "chat.compaction.start" = "Start compaction";
 "chat.compaction.command" = "Summarize older context; optionally specify what to preserve";

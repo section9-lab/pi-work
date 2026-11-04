@@ -5,7 +5,7 @@ import Foundation
 struct ProjectReviewLayout {
     static let minimumContentWidth: CGFloat = 400
     static let minimumReviewWidth: CGFloat = 300
-    static let maximumReviewWidth: CGFloat = 640
+    static let maximumReviewWidth: CGFloat = 2400
     static let dividerWidth: CGFloat = 1
 
     let contentWidth: CGFloat
@@ -21,13 +21,11 @@ struct ProjectReviewLayout {
             return
         }
         let preferred = min(Self.maximumReviewWidth, max(Self.minimumReviewWidth, preferredWidth))
-        overlaysContent = available < Self.minimumContentWidth + Self.minimumReviewWidth + Self.dividerWidth
-        if overlaysContent {
-            contentWidth = available
-            reviewWidth = min(available, preferred)
-        } else {
-            reviewWidth = min(preferred, available - Self.minimumContentWidth - Self.dividerWidth)
-            contentWidth = available - reviewWidth - Self.dividerWidth
-        }
+        overlaysContent = false
+        let usableWidth = max(0, available - Self.dividerWidth)
+        // On narrow windows keep both panes visible instead of covering the composer.
+        let contentMinimum = min(Self.minimumContentWidth, usableWidth / 2)
+        reviewWidth = min(preferred, usableWidth - contentMinimum)
+        contentWidth = usableWidth - reviewWidth
     }
 }

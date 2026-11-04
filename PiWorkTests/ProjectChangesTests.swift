@@ -26,6 +26,8 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertFalse(panel.contains(".toolbar"))
         XCTAssertFalse(panel.contains("ToolbarItem"))
         XCTAssertFalse(panel.contains("HSplitView"))
+        XCTAssertTrue(panel.contains("changesFeed"))
+        XCTAssertTrue(panel.contains("fileSection(file)"))
         XCTAssertFalse(content.contains("? 1100 : 900"))
         XCTAssertTrue(content.contains(".frame(minWidth: 900, minHeight: 600)"))
         XCTAssertTrue(panel.contains("ProjectChangesView(project: project)"))
@@ -33,8 +35,9 @@ final class ProjectChangesTests: XCTestCase {
         XCTAssertFalse(sidebar.contains("changesProject"))
         XCTAssertFalse(sidebar.contains("changes.title"))
         XCTAssertFalse(chat.contains("ProjectChangesView"))
-        XCTAssertTrue(panel.contains("VSplitView"))
-        XCTAssertTrue(panel.contains("Button(action: onClose)"))
+        XCTAssertFalse(panel.contains("VSplitView"))
+        XCTAssertTrue(panel.contains("Button { isReviewPresented = false }"))
+        XCTAssertTrue(panel.contains("previousLayout.reviewWidth + width - previousWorkspaceWidth"))
         XCTAssertFalse(panel.contains("dismiss()"))
     }
 
@@ -69,12 +72,9 @@ final class ProjectChangesTests: XCTestCase {
                 XCTAssertLessThanOrEqual(open.contentWidth, width)
                 XCTAssertLessThanOrEqual(open.reviewWidth, width)
                 XCTAssertGreaterThanOrEqual(open.contentWidth, 0)
-                if open.overlaysContent {
-                    XCTAssertEqual(open.contentWidth, width)
-                } else {
-                    XCTAssertEqual(open.contentWidth + open.reviewWidth + 1, width)
-                    XCTAssertGreaterThanOrEqual(open.contentWidth, 400)
-                }
+                XCTAssertFalse(open.overlaysContent)
+                XCTAssertEqual(open.contentWidth + open.reviewWidth, max(0, width - 1))
+                XCTAssertGreaterThanOrEqual(open.contentWidth, min(400, max(0, width - 1) / 2))
             }
         }
     }
