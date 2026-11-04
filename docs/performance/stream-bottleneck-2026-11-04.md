@@ -54,6 +54,18 @@ Baseline was re-measured right before/after the experiment on the same machine (
 
 The production change was reverted after this experiment; the harness, the records in `perf-isolation-{a,prof}` and the demo remain as documentation. Next levers must remove the per-publish full-stack placement itself (true window virtualization, or moving the streaming reply out of the shared layout graph entirely, e.g. a separately-hosted view at the tail), measured against the same matrix.
 
+## Separate-hosted streaming row experiment: unresolved, and a stronger lead
+
+The second isolation attempt moved the streaming row into its own `NSHostingView` (own view graph) inside the shared flow via `NSViewRepresentable`, with an outer frame preference replicating the row's anchor key so anchors still resolve. Debug transcript tests passed. The 00:04–00:06 measurements on the same idle machine were mixed and noisy:
+
+- forced-mixed-1000: 1342 ms and 2786 ms (baseline-b: 2362 ms)
+- mounted-mixed-1000: 3500 ms and 3437 ms (baseline-b: 2194 ms)
+- forced-mixed-3: 1544 ms and 2156 ms (baseline-b: 919 ms)
+
+Sampling during mounted and forced runs shows the decisive fact: the `StackLayout.placeChildren` recursive sweep **persists** (28k samples with 1,000-row history; 37k with only 3 history rows) even though the growing reply now lives in a separate graph. A whole-stack placement re-run on every publish is therefore not caused by the streaming row's geometry at all. The remaining mechanism consistent with all three experiments: every coalesced publish re-evaluates the transcript body, and the re-created wrapper values (row backgrounds, preference GeometryReaders, equatable boundaries) invalidate the cached layout attributes of every sibling subtree — one row of complex Markdown is re-built per publish even when verbatim identical.
+
+The hosting-isolation production change was reverted (integration risks remain: environment and preferences do not cross the hosting boundary), and this experiment is recorded for reproduction. The strongest next lever is to keep every sibling subtree byte-stable across content-only publishes — either by full session view-isolation (one host per window segment, updates driven by row-owned observers) or by completing the row-owned transport so content-only publishes never re-create sibling view values. Both must be measured with the same matrix and a re-measured same-session baseline.
+
 ## Limits
 
 - One observation per scenario; the harness reruns cheaply on the same machine when idle.
