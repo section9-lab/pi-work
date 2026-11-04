@@ -19,7 +19,6 @@ struct AppSettingsView: View {
     var body: some View {
         HSplitView {
             SettingsSidebar(selection: $navigation.selection, language: languageStore.language)
-                .frame(minWidth: 180, idealWidth: 200, maxWidth: 240)
 
             Group {
                 switch selection ?? .general {
@@ -58,37 +57,29 @@ struct AppSettingsView: View {
     }
 }
 
-private struct SettingsSidebar: View {
+struct SettingsSidebar: View {
     @Binding var selection: SettingsDestination?
     let language: AppLanguage
 
     var body: some View {
         List(selection: $selection) {
-            Label(SettingsDestination.general.title(language: language), systemImage: "gearshape")
-                .tag(SettingsDestination.general)
-
-            ForEach(SettingsDestination.allCases.filter { $0 != .general }) { destination in
-                Group {
+            ForEach(SettingsDestination.allCases) { destination in
+                Label {
+                    Text(destination.title(language: language))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
                     if destination == .mcp || destination == .computerUse || destination == .rtk {
-                        Label {
-                            Text(destination.title(language: language))
-                        } icon: {
-                            MCPGlyph(name: destination == .mcp ? "Plug" : destination == .rtk ? "Terminal" : "Monitor")
-                        }
+                        MCPGlyph(name: destination == .mcp ? "Plug" : destination == .rtk ? "Terminal" : "Monitor")
                     } else {
-                        Label(destination.title(language: language), systemImage: destination.icon)
+                        Image(systemName: destination.icon)
                     }
-                }.tag(destination)
+                }
+                .tag(destination)
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            Text(L10n.string("settings.sidebar.shared", language: language))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding()
-        }
+        .frame(minWidth: 150, idealWidth: 156, maxWidth: 156)
     }
 }
 
