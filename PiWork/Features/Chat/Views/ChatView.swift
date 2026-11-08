@@ -67,6 +67,7 @@ struct ChatView: View {
     @State private var historyPrefetchID: UUID?
     @State private var historyPrefetchCursor: String?
     @State private var historyLoadRevision = 0
+    @State private var virtualizationEpoch = 0
     @State private var historyAnchorRestoreTask: Task<Void, Never>?
     @State private var historyAnchorRestoreID: UUID?
     @State private var presentedSessionID: String?
@@ -323,6 +324,8 @@ struct ChatView: View {
             transcriptToolExpansion.reset()
             transcriptViewport.frames = [:]
             transcriptViewport.partFrames = [:]
+            transcriptViewport.clearVirtualizationHeights()
+            virtualizationEpoch &+= 1
             MessageImageThumbnailCache.clear()
             isTranscriptAutoFollowPaused = false
             isFollowingTranscriptTail = true
@@ -409,10 +412,22 @@ struct ChatView: View {
                             .padding(.vertical, 8)
                             .accessibilityIdentifier("transcript-history-loader")
                         }
-                        // The window is bounded, so every displayed row can be
-                        // measured without LazyVStack height estimates moving it.
+                        // The window is bounded and measured, so rows far from
+                        // the viewport can keep their exact height without
+                        // mounting their Markdown/tools. Streaming or mutating
+                        // rows, unmeasured rows, navigation and VoiceOver mount
+                        // normally.
+                        let mountedRowIDs = mountedRowIDs(
+                            for: rows,
+                            viewportHeight: viewport.size.height,
+                            epoch: virtualizationEpoch
+                        )
                         ForEach(rows) { row in
-                            transcriptRow(row.message, isGrouped: sourceSpans[row.message.id]?.isGrouped == true)
+                            if mountedRowIDs?.contains(row.id) ?? true {
+                                transcriptRow(row.message, isGrouped: sourceSpans[row.message.id]?.isGrouped == true)
+                            } else {
+                                virtualizedTranscriptRow(row)
+                            }
                         }
                         if hasNewerMessages {
                             Button(L10n.string("chat.history.load_newer")) {
@@ -470,12 +485,21 @@ struct ChatView: View {
                             },
                             onScrollPositionChange: { nearBottom in
                                 updateTranscriptAutoFollowFromScrollView(isNearBottom: nearBottom && !hasNewerMessages)
+                            },
+                            onVirtualizationWindowChange: {
+                                virtualizationEpoch &+= 1
                             }
                         )
                     }
                 }
                 .coordinateSpace(name: TranscriptLayout.coordinateSpace)
                 .environment(\.transcriptViewport, transcriptViewport)
+                .onChange(of: viewport.size.width) { _ in
+                    // Cached row heights are only valid at the width that
+                    // produced them; mount everything once and re-measure.
+                    transcriptViewport.clearVirtualizationHeights()
+                    virtualizationEpoch &+= 1
+                }
                 .overlay(alignment: .bottom) {
                     if !isFollowingTranscriptTail {
                         Button {
@@ -549,6 +573,7 @@ struct ChatView: View {
                 }
                 .onPreferenceChange(TranscriptRowFramesPreferenceKey.self) { frames in
                     transcriptViewport.frames = frames
+                    transcriptViewport.rememberMeasuredHeights(frames)
                 }
                 .onPreferenceChange(TranscriptPartFramesPreferenceKey.self) { frames in
                     transcriptViewport.partFrames = frames
@@ -577,6 +602,99 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    /// Rows inside the viewport plus 1.5 screens of buffer mount normally.
+    /// Everything else keeps its measured height as a placeholder, preserving
+    /// document geometry and anchor math without laying out Markdown or tools.
+    private func mountedRowIDs(
+        for rows: [TranscriptVisibleRow],
+        viewportHeight: CGFloat,
+        epoch: Int
+    ) -> Set<TranscriptVisibleRow.ID>? {
+        _ = epoch  // Body dependency: scroll band revision.
+        guard !mountsEveryTranscriptRow else { return nil }
+        return TranscriptVirtualization.mountedRowIDs(
+            rows: rows,
+            viewportHeight: viewportHeight,
+            buffer: viewportHeight * 1.5,
+            isMeasured: { transcriptViewport.measuredHeight(for: $0.message.id) != nil },
+            frame: { transcriptViewport.currentFrame(for: $0.message.id) },
+            mustMount: mustMountTranscriptRow
+        )
+    }
+
+    /// Exact measurement, history restoration and accessibility take priority
+    /// over saving work; those paths need every row in the window mounted.
+    private var mountsEveryTranscriptRow: Bool {
+        if isAdjustingTranscriptScroll || historyLoadID != nil || historyAnchorRestoreTask != nil {
+            return true
+        }
+        if isSessionTransitioning || isPreparingSessionPresentation {
+            return true
+        }
+        return NSWorkspace.shared.isVoiceOverEnabled
+    }
+
+    /// Streaming content and non-terminal tool/thinking rows can change height
+    /// without a scroll event, so they always stay mounted.
+    private func mustMountTranscriptRow(_ row: TranscriptVisibleRow) -> Bool {
+        if row.message.isStreaming { return true }
+        if row.message.compaction?.status == .running { return true }
+        for part in row.message.parts {
+            switch part {
+            case .tool(let tool):
+                if !tool.state.isTerminal || tool.approval != nil { return true }
+            case .thinking(let thinking):
+                if thinking.state == .running { return true }
+            case .text, .skill, .image:
+                break
+            }
+        }
+        return false
+    }
+
+    /// Keeps the row/prompt geometry contract identical to a mounted row so the
+    /// scroll anchor, history compensation and prompt rail keep working.
+    private func virtualizedTranscriptRow(_ row: TranscriptVisibleRow) -> some View {
+        let height = transcriptViewport.measuredHeight(for: row.message.id) ?? 1
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background {
+                GeometryReader { rowFrame in
+                    Color.clear.preference(
+                        key: TranscriptRowFramesPreferenceKey.self,
+                        value: [
+                            row.message.id: rowFrame.frame(
+                                in: .named(TranscriptLayout.documentCoordinateSpace)
+                            )
+                        ]
+                    )
+                }
+            }
+            .background {
+                if row.message.role == .user {
+                    GeometryReader { rowFrame in
+                        Color.clear.preference(
+                            key: PromptRowFramesPreferenceKey.self,
+                            value: [
+                                row.message.id: rowFrame.frame(
+                                    in: .named(TranscriptLayout.coordinateSpace)
+                                )
+                            ]
+                        )
+                    }
+                }
+            }
+            // Keep ScrollViewReader anchors available even while virtualized.
+            .background {
+                Color.clear
+                    .id(row.message.id)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityHidden(true)
     }
 
     private func transcriptRow(_ message: PiChatMessage, isGrouped: Bool) -> some View {
@@ -1737,6 +1855,26 @@ private struct SessionOpenFirstFrameReporter: View {
         absoluteFrames.count == ids.count && absoluteFrames.keys.allSatisfy(ids.contains)
     }
 
+    // MARK: Virtualization heights
+
+    private var virtualizationHeights: [String: CGFloat] = [:]
+
+    func rememberMeasuredHeights(_ frames: [String: CGRect]) {
+        for (id, frame) in frames where frame.height > 0 {
+            virtualizationHeights[id] = frame.height
+        }
+    }
+
+    func measuredHeight(for id: String) -> CGFloat? {
+        virtualizationHeights[id]
+    }
+
+    /// A width change invalidates every cached height; the next pass mounts all
+    /// rows and measures them at the new width before placeholders resume.
+    func clearVirtualizationHeights() {
+        virtualizationHeights.removeAll(keepingCapacity: true)
+    }
+
     func captureVisibleAnchor(in messages: [PiChatMessage]) -> (message: PiChatMessage, offset: CGFloat, partID: String?)? {
         guard let height = scrollView?.contentView.bounds.height else { return nil }
         for message in messages {
@@ -1849,6 +1987,7 @@ private struct TranscriptUserScrollObserver: NSViewRepresentable {
     let onReachTop: () -> Void
     let onReachBottom: () -> Void
     let onScrollPositionChange: (Bool) -> Void
+    let onVirtualizationWindowChange: () -> Void
 
     func makeNSView(context: Context) -> TranscriptUserScrollObserverView {
         let view = TranscriptUserScrollObserverView()
@@ -1863,6 +2002,7 @@ private struct TranscriptUserScrollObserver: NSViewRepresentable {
         view.onReachTop = onReachTop
         view.onReachBottom = onReachBottom
         view.onScrollPositionChange = onScrollPositionChange
+        view.onVirtualizationWindowChange = onVirtualizationWindowChange
         return view
     }
 
@@ -1878,6 +2018,7 @@ private struct TranscriptUserScrollObserver: NSViewRepresentable {
         nsView.onReachTop = onReachTop
         nsView.onReachBottom = onReachBottom
         nsView.onScrollPositionChange = onScrollPositionChange
+        nsView.onVirtualizationWindowChange = onVirtualizationWindowChange
     }
 }
 
@@ -1895,12 +2036,15 @@ final class TranscriptUserScrollObserverView: NSView {
             newerLoadTrigger.reset()
             isUserScrolling = false
             scrollDirection = 0
+            lastVirtualizationDistance = nil
+            virtualizationChangePending = false
         }
     }
     var onUserScroll: () -> Void = {}
     var onReachTop: () -> Void = {}
     var onReachBottom: () -> Void = {}
     var onScrollPositionChange: (Bool) -> Void = { _ in }
+    var onVirtualizationWindowChange: () -> Void = {}
 
     private weak var observedScrollView: NSScrollView?
     private var observers: [NSObjectProtocol] = []
@@ -1914,6 +2058,8 @@ final class TranscriptUserScrollObserverView: NSView {
     private var isUserScrolling = false
     private var scrollDirection = 0
     private var previousDistanceFromTop: CGFloat?
+    private var lastVirtualizationDistance: CGFloat?
+    private var virtualizationChangePending = false
     private var historyLoadTrigger = TranscriptHistoryLoadTrigger()
     private var newerLoadTrigger = TranscriptHistoryLoadTrigger()
 
@@ -2075,6 +2221,13 @@ final class TranscriptUserScrollObserverView: NSView {
         // heights; suppressing that `false` left the UI claiming it was at the
         // latest message and hid the recovery button.
         pendingIsNearBottom = distances.fromBottom <= bottomThreshold
+        // Half a viewport is a cheap, allocation-free trigger for swapping
+        // placeholders at a rate that cannot outrun the 1.5-screen buffer.
+        let threshold = max(120, scrollView.contentView.bounds.height * 0.5)
+        if lastVirtualizationDistance.map({ abs(distances.fromTop - $0) >= threshold }) ?? true {
+            lastVirtualizationDistance = distances.fromTop
+            virtualizationChangePending = true
+        }
         schedulePositionCallbacks()
     }
 
@@ -2095,6 +2248,10 @@ final class TranscriptUserScrollObserverView: NSView {
             if reachedTop { self.onReachTop() }
             if reachedBottom { self.onReachBottom() }
             if let isNearBottom { self.onScrollPositionChange(isNearBottom) }
+            if self.virtualizationChangePending {
+                self.virtualizationChangePending = false
+                self.onVirtualizationWindowChange()
+            }
         }
         positionCallbackWork = work
         DispatchQueue.main.async(execute: work)

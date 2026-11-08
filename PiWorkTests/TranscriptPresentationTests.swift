@@ -17,15 +17,15 @@ final class TranscriptPresentationTests: XCTestCase {
         return value
     }
 
-    func testCacheKeepsOneHundredSourcesAndMovesWithoutGrowing() {
+    func testCacheKeepsTheBoundedWindowAndMovesWithoutGrowing() {
         let cache = TranscriptPresentationCache()
         let value = record()
         var navigation = TranscriptWindowNavigation()
         var seen: Set<String> = []
         while true {
-            let window = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: 100)
-            XCTAssertEqual(window.messages.count, 100)
-            XCTAssertEqual(window.sourceRange.count, 100)
+            let window = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: TranscriptWindow.batchSize)
+            XCTAssertEqual(window.messages.count, TranscriptWindow.batchSize)
+            XCTAssertEqual(window.sourceRange.count, TranscriptWindow.batchSize)
             seen.formUnion(window.messages.map(\.id))
             if window.sourceRange.lowerBound == 0 { break }
             navigation.revealEarlier(in: window.sourceIDs)
@@ -37,14 +37,14 @@ final class TranscriptPresentationTests: XCTestCase {
         let cache = TranscriptPresentationCache()
         var value = record(4)
         let navigation = TranscriptWindowNavigation()
-        let before = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: 100)
+        let before = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: TranscriptWindow.batchSize)
         value.transcript[3].parts = [.text(id: "part-3", text: "Updated content")]
-        let contentOnly = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: 100)
+        let contentOnly = cache.project(record: value, structuralRevision: 1, navigation: navigation, limit: TranscriptWindow.batchSize)
         XCTAssertEqual(contentOnly.messages, before.messages, "Local row delivery owns a content-only revision")
-        let structural = cache.project(record: value, structuralRevision: 2, navigation: navigation, limit: 100)
+        let structural = cache.project(record: value, structuralRevision: 2, navigation: navigation, limit: TranscriptWindow.batchSize)
         XCTAssertEqual(structural.messages.last?.text, "Updated content")
         value.transcript.removeFirst()
-        let changedCount = cache.project(record: value, structuralRevision: 2, navigation: navigation, limit: 100)
+        let changedCount = cache.project(record: value, structuralRevision: 2, navigation: navigation, limit: TranscriptWindow.batchSize)
         XCTAssertEqual(changedCount.messages.count, 3)
     }
 

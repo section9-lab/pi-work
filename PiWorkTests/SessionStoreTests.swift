@@ -867,6 +867,59 @@ final class SessionStoreTests: XCTestCase {
         #endif
     }
 
+    func testFarTranscriptRowsUsePlaceholdersInsteadOfMountedMarkdown() async throws {
+        #if DEBUG || TRANSCRIPT_ACCEPTANCE
+        let host = FakeAgentHost()
+        let messages = (0..<180).map { index -> AgentHostSessionMessage in
+            AgentHostSessionMessage(
+                id: "assistant-\(index)",
+                role: .assistant,
+                content: [.text("## Row \(index)\n\n" + String(repeating: "Markdown content \(index). ", count: 3))],
+                timestamp: "2026-08-09T00:00:00.000Z",
+                provider: nil,
+                model: nil,
+                stopReason: nil,
+                errorMessage: nil,
+                toolCallId: nil,
+                toolName: nil,
+                isError: nil
+            )
+        }
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let checkpoint = AssistantMarkdownDiagnostics.checkpoint
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+
+        for _ in 0..<150 {
+            if viewport.frames.count >= TranscriptWindowNavigation.maximumCount,
+               AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint).count > 0 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThan(
+            AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint).count,
+            0,
+            "The initial window must mount Markdown rows"
+        )
+
+        scrollHistoryToTop(fixture)
+        for _ in 0..<150 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            if AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint).count < 40 { break }
+        }
+
+        let mounted = AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint).count
+        print("TRANSCRIPT_VIRTUALIZATION mounted=\(mounted) window=\(TranscriptWindowNavigation.maximumCount)")
+        XCTAssertGreaterThan(mounted, 0)
+        XCTAssertLessThan(
+            mounted, 40,
+            "Rows far from the viewport must keep placeholders instead of AssistantMarkdownView instances"
+        )
+        await fixture.store.stop()
+        #endif
+    }
+
     func testLongHistoryCanScrollBackToLatestWithoutSkippingRows() async throws {
         let host = FakeAgentHost()
         let messages = (0..<500).map { index -> AgentHostSessionMessage in

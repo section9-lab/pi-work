@@ -61,8 +61,9 @@ final class AssistantTimelinePresentationTests: XCTestCase {
         let window = TranscriptWindow(messages: messages)
 
         XCTAssertEqual(window.messages.count, TranscriptWindow.batchSize)
-        XCTAssertEqual(window.messages.first?.id, "message-35")
-        XCTAssertEqual(window.hiddenCount, 35)
+        let first = 135 - TranscriptWindow.batchSize
+        XCTAssertEqual(window.messages.first?.id, "message-\(first)")
+        XCTAssertEqual(window.hiddenCount, first)
     }
 
     func testTranscriptWindowCanRevealOneOlderBatch() {
@@ -75,9 +76,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             limit: TranscriptWindow.batchSize * 2
         )
 
-        XCTAssertEqual(window.messages.count, 200)
-        XCTAssertEqual(window.messages.first?.id, "message-15")
-        XCTAssertEqual(window.hiddenCount, 15)
+        XCTAssertEqual(window.messages.count, TranscriptWindow.batchSize * 2)
+        let first = 215 - TranscriptWindow.batchSize * 2
+        XCTAssertEqual(window.messages.first?.id, "message-\(first)")
+        XCTAssertEqual(window.hiddenCount, first)
     }
 
     func testTranscriptProjectionBoundsSourceBeforeBuildingChatMessages() {
@@ -95,9 +97,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             limit: TranscriptWindow.batchSize
         )
 
-        XCTAssertEqual(sourceWindow.messages.count, 100)
-        XCTAssertEqual(sourceWindow.messages.first?.id, "message-55")
-        XCTAssertEqual(sourceWindow.hiddenCount, 55)
+        XCTAssertEqual(sourceWindow.messages.count, TranscriptWindow.batchSize)
+        let firstIndex = 155 - TranscriptWindow.batchSize
+        XCTAssertEqual(sourceWindow.messages.first?.id, "message-\(firstIndex)")
+        XCTAssertEqual(sourceWindow.hiddenCount, firstIndex)
     }
 
     func testTranscriptProjectionReturnsNewestVisibleMessages() {
@@ -118,10 +121,11 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             return index.isMultiple(of: 2) ? message.id : nil
         }
 
-        XCTAssertEqual(window.messages.count, 100)
-        XCTAssertEqual(window.messages.first, "message-10")
+        XCTAssertEqual(window.messages.count, TranscriptWindow.batchSize)
+        let firstEven = 208 - 2 * (TranscriptWindow.batchSize - 1)
+        XCTAssertEqual(window.messages.first, "message-\(firstEven)")
         XCTAssertEqual(window.messages.last, "message-208")
-        XCTAssertEqual(window.hiddenCount, 10)
+        XCTAssertEqual(window.hiddenCount, firstEven)
     }
 
     func testAdjacentToolOnlyAssistantGenerationsShareOneMessageRow() throws {

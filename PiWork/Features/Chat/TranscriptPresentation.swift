@@ -193,6 +193,36 @@ struct TranscriptVisibleRow: Identifiable {
     let message: PiChatMessage
 }
 
+/// Pure row-window decision for placeholder virtualization. `nil` means the
+/// caller must mount every row (navigation, restoration, VoiceOver, no height).
+enum TranscriptVirtualization {
+    static func mountedRowIDs(
+        rows: [TranscriptVisibleRow],
+        viewportHeight: CGFloat,
+        buffer: CGFloat,
+        isMeasured: (TranscriptVisibleRow) -> Bool,
+        frame: (TranscriptVisibleRow) -> CGRect?,
+        mustMount: (TranscriptVisibleRow) -> Bool
+    ) -> Set<TranscriptVisibleRow.ID>? {
+        guard viewportHeight > 0 else { return nil }
+        var mounted: Set<TranscriptVisibleRow.ID> = []
+        for row in rows {
+            if mustMount(row) {
+                mounted.insert(row.id)
+                continue
+            }
+            guard isMeasured(row), let frame = frame(row) else {
+                mounted.insert(row.id)
+                continue
+            }
+            if frame.maxY > -buffer && frame.minY < viewportHeight + buffer {
+                mounted.insert(row.id)
+            }
+        }
+        return mounted
+    }
+}
+
 /// Manual tool expansion survives group merges/splits while navigating one
 /// session. Preferences are attached to tool identities, not a transient group
 /// header ID. Latest explicit user selection wins if two groups later merge.

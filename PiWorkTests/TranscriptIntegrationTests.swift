@@ -139,7 +139,7 @@ final class TranscriptIntegrationTests: XCTestCase {
                 view.controller.view.layoutSubtreeIfNeeded()
                 return first() == target && observer.historyLoadRevision > revision
             }
-            XCTAssertEqual(observer.viewport?.frames.count, 100)
+            XCTAssertEqual(observer.viewport?.frames.count, TranscriptWindowNavigation.maximumCount)
             if target == 820 {
                 // A prefetch is asynchronous even with a zero-I/O fake. Wait for
                 // its merge, not an arbitrary sleep or merely its request start.

@@ -2,14 +2,14 @@ import XCTest
 @testable import PiWork
 
 final class TranscriptWindowNavigationTests: XCTestCase {
-    func testHistoryNeverGrowsBeyondOneHundredSources() {
+    func testHistoryNeverGrowsBeyondTheBoundedWindow() {
         let ids = (0..<1000).map(String.init)
         var window = TranscriptWindowNavigation()
-        for _ in 0..<20 {
-            XCTAssertEqual(window.range(in: ids).count, 100)
+        for _ in 0..<40 {
+            XCTAssertEqual(window.range(in: ids).count, TranscriptWindowNavigation.maximumCount)
             window.revealEarlier(in: ids)
         }
-        XCTAssertEqual(window.range(in: ids), 0..<100)
+        XCTAssertEqual(window.range(in: ids), 0..<TranscriptWindowNavigation.maximumCount)
     }
 
     func testMovementRetainsTheWholeVisibleSourceIntervalWhenRequested() {
@@ -24,7 +24,7 @@ final class TranscriptWindowNavigationTests: XCTestCase {
         let visibleLast = later.upperBound - 10
         window.revealEarlier(in: ids, retainingThroughID: String(visibleLast))
         XCTAssertTrue(window.range(in: ids).contains(visibleLast))
-        XCTAssertEqual(window.range(in: ids).count, 100)
+        XCTAssertEqual(window.range(in: ids).count, TranscriptWindowNavigation.maximumCount)
     }
 
     func testEmptyAndShortSessionsAreSafe() {
@@ -44,7 +44,8 @@ final class TranscriptWindowNavigationTests: XCTestCase {
     func testMovingEarlierAndLaterKeepsOverlapAndHasABoundedWindow() {
         let ids = (0..<1500).map(String.init)
         var window = TranscriptWindowNavigation()
-        XCTAssertEqual(Array(ids[window.range(in: ids)]), Array(ids[1400..<1500]))
+        let expected = Array(ids[(1500 - TranscriptWindowNavigation.maximumCount)..<1500])
+        XCTAssertEqual(Array(ids[window.range(in: ids)]), expected)
         for _ in 0..<12 {
             let before = window.range(in: ids)
             window.revealEarlier(in: ids)
@@ -117,7 +118,9 @@ final class TranscriptWindowNavigationTests: XCTestCase {
         ids.insert(contentsOf: (160..<200).map(String.init), at: 0)
         let restored = Array(ids[window.range(in: ids)])
         XCTAssertTrue(before.allSatisfy(restored.contains))
-        window.revealEarlier(in: ids)
+        while window.range(in: ids).lowerBound > 0 {
+            window.revealEarlier(in: ids)
+        }
         XCTAssertEqual(ids[window.range(in: ids)].first, "160")
     }
 }

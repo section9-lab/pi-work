@@ -33,7 +33,10 @@ visible sources. This differs from the earlier illustrative 60/40 HTML demo.
 
 Row and tool-part geometry is measured in document coordinates. Current viewport
 coordinates are derived from the native scroll position, including before the
-next SwiftUI preference update. Navigation captures visible source/part offsets;
+next SwiftUI preference update. Rows outside the viewport plus a 1.5-screen
+buffer render as fixed-height placeholders that keep reporting the same row and
+prompt geometry; navigation, history restoration and VoiceOver mount every row
+in the bounded window. Navigation captures visible source/part offsets;
 restoration does not enqueue another deferred `scrollTo` after an exact native
 correction. History transitions disable implicit row movement animations.
 
