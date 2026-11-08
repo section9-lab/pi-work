@@ -58,6 +58,21 @@ structural updates; rows already refresh through their own
 
 Lag improved slightly but CPU regressed ~73%. Rejected.
 
+## Experiment C: remove the outer GeometryReader — negative
+
+The staged transcript returned `ScrollViewReader` directly and reported the
+viewport size through a background preference instead of wrapping the content in
+`GeometryReader`.
+
+| Scenario | Publish lag | CPU |
+|---|---:|---:|
+| forced-mixed-3 | 3777 ms | 7015 ms |
+| mounted-mixed-1000 | 6194 ms | 9381 ms |
+| forced-mixed-1000 | 13744 ms | 17057 ms |
+
+The outer `GeometryReader` is load-bearing: it supplies the ScrollView's size
+proposal. Removing it caused runaway layout, not a smaller tail. Rejected.
+
 ## Interpretation and next experiments
 
 - The completion tail is not parsing. It is the first full layout of the
@@ -67,8 +82,8 @@ Lag improved slightly but CPU regressed ~73%. Rejected.
   transaction remains.
 - The next experiments should target that layout boundary rather than Markdown
   parsing:
-  1. Move the completed row's Markdown out of the outer GeometryReader's
-     measurement path, or narrow that boundary.
+  1. Narrow the completed row's layout identity. Removing the outer
+     GeometryReader outright is not viable (Experiment C).
   2. Avoid replacing the completed row's whole block tree at the terminal
      update (the incremental content still produces a new `MarkdownContent`
      value; separate block identity/hosting may let SwiftUI reuse unchanged
