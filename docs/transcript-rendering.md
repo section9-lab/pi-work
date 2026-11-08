@@ -1,8 +1,8 @@
 # Bounded transcript rendering
 
-The chat keeps **100 visible source messages**, not 100 fully expanded tool steps.
+The chat keeps **48 visible source messages**, not 48 fully expanded tool steps.
 Earlier data stays in `SessionStore`; moving the window does not delete history.
-The default movement is 80 sources (20 overlap), reduced when necessary to keep
+The default movement is 28 sources (20 overlap), reduced when necessary to keep
 visible sources. This differs from the earlier illustrative 60/40 HTML demo.
 
 ## Delivery

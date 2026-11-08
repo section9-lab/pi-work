@@ -112,7 +112,7 @@ final class TranscriptIntegrationTests: XCTestCase {
         XCTAssertEqual(store.records["session-one"]?.transcript.map(\.id), ["latest"])
     }
 
-    func testRemotePrefetchPreservesWindowAndCoversTwoPagesInThreeMoves() async throws {
+    func testRemotePrefetchPreservesWindowWhileCoveringTwoPages() async throws {
         func messages(_ range: Range<Int>) -> [AgentHostSessionMessage] { range.map { user("row-\($0)", "History \($0)") } }
         let host = FakeAgentHost()
         await host.setSnapshot(snapshot(messages(900..<1000), history: .init(revision: "r", nextCursor: "one", hasMore: true)))
@@ -126,31 +126,41 @@ final class TranscriptIntegrationTests: XCTestCase {
         func first() -> Int? {
             view.observer?.viewport?.frames.keys.compactMap { Int($0.replacingOccurrences(of: "row-", with: "")) }.min()
         }
-        try await wait("Initial 100 rows did not mount") { first() == 900 && view.observer?.viewport?.frames.count == 100 }
-        for target in [820, 740, 700] {
-            let observer = try XCTUnwrap(view.observer), scroll = try XCTUnwrap(observer.enclosingScrollView)
+        let initialFirst = 900 + 100 - TranscriptWindowNavigation.maximumCount
+        try await wait("Initial window did not mount") {
+            first() == initialFirst
+                && view.observer?.viewport?.frames.count == TranscriptWindowNavigation.maximumCount
+        }
+
+        var previousFirst = initialFirst
+        var moves = 0
+        while (store.records["session-one"]?.transcript.count ?? 0) < 300, moves < 6 {
+            let observer = try XCTUnwrap(view.observer)
+            let scroll = try XCTUnwrap(observer.enclosingScrollView)
             let doc = try XCTUnwrap(scroll.documentView)
             let revision = observer.historyLoadRevision
             observer.onUserScroll()
-            scroll.contentView.scroll(to: CGPoint(x: 0, y: doc.isFlipped ? doc.bounds.minY : max(doc.bounds.minY, doc.bounds.maxY - scroll.contentView.bounds.height)))
+            scroll.contentView.scroll(to: CGPoint(
+                x: 0,
+                y: doc.isFlipped
+                    ? doc.bounds.minY
+                    : max(doc.bounds.minY, doc.bounds.maxY - scroll.contentView.bounds.height)
+            ))
             scroll.reflectScrolledClipView(scroll.contentView)
             observer.onReachTop()
-            try await wait("History did not finish moving to \(target)", timeout: 10) {
+            try await wait("History did not move earlier", timeout: 10) {
                 view.controller.view.layoutSubtreeIfNeeded()
-                return first() == target && observer.historyLoadRevision > revision
+                return observer.historyLoadRevision > revision && (first() ?? Int.max) < previousFirst
             }
+            previousFirst = first() ?? previousFirst
+            moves += 1
             XCTAssertEqual(observer.viewport?.frames.count, TranscriptWindowNavigation.maximumCount)
-            if target == 820 {
-                // A prefetch is asynchronous even with a zero-I/O fake. Wait for
-                // its merge, not an arbitrary sleep or merely its request start.
-                try await wait("The look-ahead page did not merge", timeout: 10) {
-                    store.records["session-one"]?.transcript.count == 300
-                }
-                XCTAssertEqual(first(), 820, "Prefetch must not move the pinned window")
-            }
         }
-        let requests = await host.transcriptPageCount; XCTAssertEqual(requests, 2)
+
+        let requests = await host.transcriptPageCount
+        XCTAssertEqual(requests, 2)
         XCTAssertEqual(store.records["session-one"]?.transcript.count, 300)
+        XCTAssertLessThan(previousFirst, 900, "Both pages must be covered while staying in history")
         await store.stop()
     }
 

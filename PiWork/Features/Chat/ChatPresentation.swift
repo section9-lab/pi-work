@@ -355,7 +355,7 @@ struct PiChatMessage: Identifiable, Equatable {
 }
 
 struct TranscriptWindow: Equatable {
-    static let batchSize = 100
+    static let batchSize = 48
 
     let messages: [PiChatMessage]
     let hiddenCount: Int

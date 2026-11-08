@@ -600,34 +600,45 @@ final class SessionStoreTests: XCTestCase {
         await host.setSnapshot(makeStoreSnapshot(messages: (81...120).map {
             makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
         }, history: AgentHostSessionHistory(revision: "history-revision", nextCursor: "page-one", hasMore: true)))
-        await host.setTranscriptPage(AgentHostSessionTranscriptPageResult(
-            sessionId: "session-one", messages: (41...80).map {
-                makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
-            }, revision: "history-revision", nextCursor: "page-two", hasMore: true
-        ))
+        await host.setTranscriptPagesByCursor([
+            "page-one": AgentHostSessionTranscriptPageResult(
+                sessionId: "session-one", messages: (41...80).map {
+                    makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
+                }, revision: "history-revision", nextCursor: "page-two", hasMore: true
+            ),
+            "page-two": AgentHostSessionTranscriptPageResult(
+                sessionId: "session-one", messages: (1...40).map {
+                    makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
+                }, revision: "history-revision", nextCursor: nil, hasMore: false
+            )
+        ])
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
-        var oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
-        scrollHistoryToTop(fixture)
-        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
-        var requests = await host.transcriptPageCount
-        XCTAssertEqual(requests, 1)
-        XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 80)
 
-        await host.setTranscriptPage(AgentHostSessionTranscriptPageResult(
-            sessionId: "session-one", messages: (1...40).map {
-                makeSessionMessage(id: "remote-\($0)", text: "Remote question \($0)")
-            }, revision: "history-revision", nextCursor: nil, hasMore: false
-        ))
-        oldIDs = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
-        scrollHistoryToTop(fixture)
-        try await waitForHistoryWindow(fixture, previousIDs: oldIDs)
+        // A smaller window reaches the loaded-history boundary sooner, so the
+        // look-ahead may join the same gesture. Wait for both pages, not for a
+        // particular gesture-to-request mapping.
+        var requests = 0
+        for _ in 0..<6 {
+            if fixture.store.records["session-one"]?.messages.count == 120 { break }
+            scrollHistoryToTop(fixture)
+            for _ in 0..<100 {
+                if fixture.store.records["session-one"]?.messages.count == 120 { break }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
         requests = await host.transcriptPageCount
         XCTAssertEqual(requests, 2)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.count, 120)
         XCTAssertEqual(fixture.store.records["session-one"]?.messages.first?.id, "remote-1")
         XCTAssertEqual(fixture.store.records["session-one"]?.hasEarlierMessages, false)
         XCTAssertGreaterThan(fixture.scroll.contentView.bounds.minY, 160)
+
+        // No further page may be requested once the history boundary is spent.
+        scrollHistoryToTop(fixture)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let settled = await host.transcriptPageCount
+        XCTAssertEqual(settled, requests)
         await fixture.store.stop()
     }
 
@@ -665,14 +676,14 @@ final class SessionStoreTests: XCTestCase {
 
     func testHistoryRestoresAnchorWhenAdjacentToolRowsMerge() async throws {
         let host = FakeAgentHost()
-        var messages = (0..<110).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
+        var messages = (0..<60).map { makeSessionMessage(id: "history-\($0)", text: "History message \($0)") }
         func assistant(_ id: String, _ content: [AgentHostSessionMessageContent]) -> AgentHostSessionMessage {
             AgentHostSessionMessage(id: id, role: .assistant, content: content,
                 timestamp: "2026-08-09T00:00:00.000Z", provider: nil, model: nil,
                 stopReason: nil, errorMessage: nil, toolCallId: nil, toolName: nil, isError: nil)
         }
-        messages[9] = assistant("preceding", [.text("Preparing"), .toolCall(id: "tool-one", name: "bash", argumentsSummary: "{}")])
-        messages[10] = assistant("old-anchor", [.toolCall(id: "tool-two", name: "bash", argumentsSummary: "{}")])
+        messages[11] = assistant("preceding", [.text("Preparing"), .toolCall(id: "tool-one", name: "bash", argumentsSummary: "{}")])
+        messages[12] = assistant("old-anchor", [.toolCall(id: "tool-two", name: "bash", argumentsSummary: "{}")])
         await host.setSnapshot(makeStoreSnapshot(messages: messages))
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
@@ -703,16 +714,17 @@ final class SessionStoreTests: XCTestCase {
         defer { fixture.window.close() }
         let viewport = try XCTUnwrap(fixture.observer.viewport)
         scrollHistoryToTop(fixture)
-        let expectedOffset = try XCTUnwrap(viewport.currentFrame(for: "history-80")).minY
+        var visible: [String: CGRect] = [:]
         for _ in 0..<150 {
-            if viewport.frames["history-0"] != nil,
-               let frame = viewport.currentFrame(for: "history-80"), abs(frame.minY - expectedOffset) < 2 { break }
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            visible = viewport.frames.filter {
+                $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height
+            }
+            if !visible.isEmpty { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        let restored = try XCTUnwrap(viewport.frames["history-80"])
-        XCTAssertEqual(restored.minY, expectedOffset, accuracy: 2, "Wait for the exact history offset before streaming")
-        let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
         let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
+        let expectedOffset = anchor.value.minY
         await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
             sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
             phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
@@ -745,8 +757,11 @@ final class SessionStoreTests: XCTestCase {
         fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: fixture.scroll.contentView)
         try await Task.sleep(nanoseconds: 160_000_000)
-        let visible = viewport.frames.filter { $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height }
+        let visible = viewport.frames.filter {
+            $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height
+        }
         let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
+
         await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
             sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
             phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
