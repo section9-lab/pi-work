@@ -3,6 +3,19 @@ import Combine
 import MarkdownUI
 import SwiftUI
 
+/// Injectable visibility checks so UI tests can exercise the streaming render
+/// gate without depending on the test host's activation or occlusion state.
+@MainActor
+enum MarkdownRenderActivity {
+    static var isApplicationVisible: () -> Bool = {
+        NSApplication.shared.occlusionState.contains(.visible)
+    }
+    static var isWindowVisible: (NSWindow?) -> Bool = { window in
+        guard let window else { return true }
+        return window.occlusionState.contains(.visible)
+    }
+}
+
 /// Parsing is owned by a persistent object, not the parent's body. Streaming
 /// revisions are coalesced without caching every growing prefix of a response.
 struct AssistantMarkdownView: View {
@@ -53,10 +66,9 @@ struct AssistantMarkdownView: View {
         let viewport = transcriptViewport
         let messageID = messageID
         return {
-            guard NSApplication.shared.occlusionState.contains(.visible) else { return false }
+            guard MarkdownRenderActivity.isApplicationVisible() else { return false }
             guard let viewport else { return true }
-            if let window = viewport.scrollView?.window,
-               !window.occlusionState.contains(.visible) {
+            guard MarkdownRenderActivity.isWindowVisible(viewport.scrollView?.window) else {
                 return false
             }
             guard let messageID else { return true }
@@ -208,6 +220,12 @@ enum AssistantMarkdownDiagnostics {
 
     static func hasRendered(_ text: String, after checkpoint: UInt64) -> Bool {
         entries.contains { $0.ordinal > checkpoint && $0.presentation?.renderedText == text }
+    }
+
+    static func renderedTexts(after checkpoint: UInt64) -> [String] {
+        entries
+            .filter { $0.ordinal > checkpoint }
+            .compactMap { $0.presentation?.renderedText }
     }
 }
 #endif

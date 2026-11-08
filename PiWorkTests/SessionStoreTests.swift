@@ -764,6 +764,109 @@ final class SessionStoreTests: XCTestCase {
         await fixture.store.stop()
     }
 
+    func testOffscreenStreamingMarkdownDefersParsingUntilItReturns() async throws {
+        #if DEBUG || TRANSCRIPT_ACCEPTANCE
+        let previousAppVisibility = MarkdownRenderActivity.isApplicationVisible
+        let previousWindowVisibility = MarkdownRenderActivity.isWindowVisible
+        MarkdownRenderActivity.isApplicationVisible = { true }
+        MarkdownRenderActivity.isWindowVisible = { _ in true }
+        defer {
+            MarkdownRenderActivity.isApplicationVisible = previousAppVisibility
+            MarkdownRenderActivity.isWindowVisible = previousWindowVisibility
+        }
+
+        let host = FakeAgentHost()
+        let messages = (0..<180).map { index in
+            makeSessionMessage(
+                id: "history-\(index)",
+                text: String(
+                    repeating: "History message \(index) with enough text to occupy a few lines. ",
+                    count: 4
+                )
+            )
+        }
+        await host.setSnapshot(makeStoreSnapshot(messages: messages))
+        let fixture = try await historyConversation(host: host)
+        defer { fixture.window.close() }
+        let viewport = try XCTUnwrap(fixture.observer.viewport)
+
+        let checkpoint = AssistantMarkdownDiagnostics.checkpoint
+        await host.emit(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "live", state: .running
+        )))
+        await host.emit(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 2, turnId: "live", delta: "visible start"
+        )))
+        let streamingID = "turn:live:assistant"
+        for _ in 0..<150 {
+            if viewport.frames[streamingID] != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(viewport.frames[streamingID], "The streaming row must be mounted before scrolling away")
+
+        // Scroll up while keeping the streaming row inside the bounded window.
+        let point = fixture.scroll.convert(CGPoint(x: 100, y: 100), to: nil)
+        fixture.observer.handleScrollWheel(TestPhaseLessScrollWheelEvent(window: fixture.window, point: point))
+        let viewportHeight = fixture.scroll.contentView.bounds.height
+        var bounds = fixture.scroll.contentView.bounds
+        bounds.origin.y = max(0, bounds.origin.y - viewportHeight * 3)
+        fixture.scroll.contentView.scroll(to: fixture.scroll.contentView.constrainBoundsRect(bounds).origin)
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(
+            name: NSView.boundsDidChangeNotification,
+            object: fixture.scroll.contentView
+        )
+        fixture.window.contentView?.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        let frame = try XCTUnwrap(viewport.frames[streamingID])
+        XCTAssertGreaterThan(
+            frame.minY, viewportHeight * 2,
+            "The streaming row must be more than one viewport below the reader"
+        )
+
+        let hidden = String(repeating: "hidden block\n\n", count: 80) + "HIDDEN_MARKER"
+        await host.emit(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 3, turnId: "live", delta: hidden
+        )))
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertFalse(
+            AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint)
+                .contains { $0.contains("HIDDEN_MARKER") },
+            "An offscreen streaming row must not parse its Markdown"
+        )
+
+        // Return to the tail; the next token renders the accumulated text.
+        var bottom = fixture.scroll.contentView.bounds
+        if let document = fixture.scroll.documentView {
+            bottom.origin.y = max(0, document.bounds.height - bottom.height)
+        }
+        fixture.scroll.contentView.scroll(to: fixture.scroll.contentView.constrainBoundsRect(bottom).origin)
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(
+            name: NSView.boundsDidChangeNotification,
+            object: fixture.scroll.contentView
+        )
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        await host.emit(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 4, turnId: "live", delta: " VISIBLE_TAIL"
+        )))
+        for _ in 0..<100 {
+            if AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint)
+                .contains(where: { $0.contains("VISIBLE_TAIL") }) { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let rendered = AssistantMarkdownDiagnostics.renderedTexts(after: checkpoint)
+        XCTAssertTrue(
+            rendered.contains { $0.contains("HIDDEN_MARKER") },
+            "Returning to the streaming row must render the deferred text"
+        )
+        XCTAssertTrue(rendered.contains { $0.contains("VISIBLE_TAIL") })
+        await fixture.store.stop()
+        #endif
+    }
+
     func testLongHistoryCanScrollBackToLatestWithoutSkippingRows() async throws {
         let host = FakeAgentHost()
         let messages = (0..<500).map { index -> AgentHostSessionMessage in
