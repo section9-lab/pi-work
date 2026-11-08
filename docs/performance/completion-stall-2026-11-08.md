@@ -73,6 +73,37 @@ viewport size through a background preference instead of wrapping the content in
 The outer `GeometryReader` is load-bearing: it supplies the ScrollView's size
 proposal. Removing it caused runaway layout, not a smaller tail. Rejected.
 
+## Experiment D: skip the final content update — confirms the cause, not shippable
+
+Staged completion kept the last streaming content and skipped the final
+`MarkdownContent` replacement. The final chunks are therefore missing; this is a
+diagnostic, not a shippable state.
+
+| Scenario | Publish lag | CPU |
+|---|---:|---:|
+| forced-mixed-3 | 26 ms | 999 ms |
+| mounted-mixed-1000 | 53 ms | 1301 ms |
+| forced-mixed-1000 | 56 ms | 1426 ms |
+
+The tail disappears entirely. Every part of the ~1 s stall is the final content
+update, not the terminal event itself.
+
+## Experiment E: stable segments plus a changing tail — no improvement
+
+The accumulator exposed its frozen chunks and last tail; the view rendered one
+`Markdown` per frozen segment plus a separate tail `Markdown`, including at
+completion.
+
+| Scenario | Publish lag | CPU |
+|---|---:|---:|
+| forced-mixed-3 | 1103 ms | 2085 ms |
+| mounted-mixed-1000 | 1097 ms | 2347 ms |
+| forced-mixed-1000 | 1101 ms | 2755 ms |
+
+Stable block segments did not help. Any content update to the completed row
+still causes the ScrollView/row layout transaction; the cost is not the parser or
+the identity of unaffected blocks.
+
 ## Interpretation and next experiments
 
 - The completion tail is not parsing. It is the first full layout of the
@@ -90,6 +121,9 @@ proposal. Removing it caused runaway layout, not a smaller tail. Rejected.
      blocks).
   3. Re-test the separate-host idea specifically at completion; the earlier
      isolation experiments were measured during streaming, not this tail.
+  4. Investigate per-block height caching or a TextKit 2 viewport layout, so the
+     completed row does not re-measure its entire block tree through the shared
+     ScrollView. Segmenting the SwiftUI views alone (Experiment E) is not enough.
 
 Artifacts: `build/TranscriptAcceptance/stall-profile/`,
 `build/TranscriptAcceptance/stall-finalize-incremental-2026-11-08/`,
