@@ -4,6 +4,29 @@ import XCTest
 
 @MainActor
 final class TranscriptScrollObserverTests: XCTestCase {
+    func testRowVisibilityIncludesOneViewportOfBuffer() {
+        XCTAssertTrue(TranscriptViewport.isFrameVisible(
+            CGRect(x: 0, y: 100, width: 300, height: 400),
+            viewportHeight: 600,
+            buffer: 600
+        ))
+        XCTAssertTrue(TranscriptViewport.isFrameVisible(
+            CGRect(x: 0, y: 1_150, width: 300, height: 40),
+            viewportHeight: 600,
+            buffer: 600
+        ))
+        XCTAssertFalse(TranscriptViewport.isFrameVisible(
+            CGRect(x: 0, y: 1_201, width: 300, height: 40),
+            viewportHeight: 600,
+            buffer: 600
+        ))
+        XCTAssertFalse(TranscriptViewport.isFrameVisible(
+            CGRect(x: 0, y: -700, width: 300, height: 40),
+            viewportHeight: 600,
+            buffer: 600
+        ))
+    }
+
     func testDistancesUseDocumentGeometryWithoutRequiringAScroller() {
         let document = CGRect(x: 0, y: 0, width: 800, height: 2400)
         XCTAssertEqual(TranscriptScrollPresentation.distances(

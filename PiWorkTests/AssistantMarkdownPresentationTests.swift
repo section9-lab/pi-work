@@ -27,6 +27,28 @@ final class AssistantMarkdownPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.renderedText, "**complete**")
     }
 
+    func testInvisibleStreamingRowDefersParsingUntilAllowed() async throws {
+        let presentation = AssistantMarkdownPresentation(text: "", delayNanoseconds: 5_000_000)
+        presentation.renderAllowed = { false }
+        presentation.update(text: "**hidden**", isStreaming: true)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(presentation.renderedText, "")
+
+        presentation.renderAllowed = { true }
+        presentation.update(text: "**visible**", isStreaming: true)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(presentation.renderedText, "**visible**")
+        presentation.cancel()
+    }
+
+    func testCompletionFlushesEvenWhenStreamingRendersAreDeferred() {
+        let presentation = AssistantMarkdownPresentation(text: "", delayNanoseconds: 5_000_000)
+        presentation.renderAllowed = { false }
+        presentation.update(text: "partial", isStreaming: true)
+        presentation.update(text: "**complete**", isStreaming: false)
+        XCTAssertEqual(presentation.renderedText, "**complete**")
+    }
+
     func testDisappearanceCancelsPendingWorkAndReappearanceCanResume() async throws {
         let presentation = AssistantMarkdownPresentation(text: "initial", delayNanoseconds: 30_000_000)
         presentation.update(text: "latest", isStreaming: true)

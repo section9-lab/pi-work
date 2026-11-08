@@ -475,6 +475,7 @@ struct ChatView: View {
                     }
                 }
                 .coordinateSpace(name: TranscriptLayout.coordinateSpace)
+                .environment(\.transcriptViewport, transcriptViewport)
                 .overlay(alignment: .bottom) {
                     if !isFollowingTranscriptTail {
                         Button {
@@ -1712,6 +1713,24 @@ private struct SessionOpenFirstFrameReporter: View {
 
     func currentFrame(for id: String) -> CGRect? {
         (absolutePartFrames[id] ?? absoluteFrames[id]).map { adjusted($0) }
+    }
+
+    /// Whether a mounted row is at or near the viewport. One screen of buffer
+    /// keeps scrolling smooth while avoiding Markdown work for rows the reader
+    /// has scrolled away from. An unmeasured row renders normally.
+    func isRowVisible(_ id: String) -> Bool {
+        guard let scrollView else { return true }
+        let height = scrollView.contentView.bounds.height
+        guard height > 0, let raw = absoluteFrames[id] else { return true }
+        return Self.isFrameVisible(adjusted(raw), viewportHeight: height, buffer: height)
+    }
+
+    nonisolated static func isFrameVisible(
+        _ frame: CGRect,
+        viewportHeight: CGFloat,
+        buffer: CGFloat
+    ) -> Bool {
+        frame.maxY > -buffer && frame.minY < viewportHeight + buffer
     }
 
     func hasFrames(forExactly ids: Set<String>) -> Bool {
@@ -4352,7 +4371,7 @@ private struct ChatMessageRow: View, Equatable {
         switch block {
         case .text(let id, let text):
             VStack(alignment: .leading, spacing: 4) {
-                AssistantMarkdownView(text: text, isStreaming: message.isStreaming, blockID: id)
+                AssistantMarkdownView(text: text, isStreaming: message.isStreaming, blockID: id, messageID: message.id)
                     .markdownTheme(assistantMarkdownTheme)
                     .textSelection(.enabled)
                 if id == metadataAnchorID {

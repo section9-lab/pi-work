@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import MarkdownUI
 import SwiftUI
@@ -8,13 +9,21 @@ struct AssistantMarkdownView: View {
     let text: String
     let isStreaming: Bool
     let blockID: String?
+    let messageID: String?
     @Environment(\.transcriptMessagePresentation) private var source
+    @Environment(\.transcriptViewport) private var transcriptViewport
     @StateObject private var presentation: AssistantMarkdownPresentation
 
-    init(text: String, isStreaming: Bool, blockID: String? = nil) {
+    init(
+        text: String,
+        isStreaming: Bool,
+        blockID: String? = nil,
+        messageID: String? = nil
+    ) {
         self.text = text
         self.isStreaming = isStreaming
         self.blockID = blockID
+        self.messageID = messageID
         _presentation = StateObject(wrappedValue: AssistantMarkdownPresentation(text: text))
     }
 
@@ -24,20 +33,44 @@ struct AssistantMarkdownView: View {
             .onChange(of: text) { if !usesSource { presentation.update(text: $0, isStreaming: isStreaming) } }
             .onChange(of: isStreaming) { if !usesSource { presentation.update(text: text, isStreaming: $0) } }
             .onChange(of: blockID) { _ in synchronize() }
+            .onChange(of: messageID) { _ in synchronize() }
             .onChange(of: source.map { ObjectIdentifier($0) }) { _ in synchronize() }
             .onDisappear { presentation.disconnect(); presentation.cancel() }
     }
 
     private var usesSource: Bool { source != nil && blockID != nil }
     private func synchronize() {
+        presentation.renderAllowed = renderGate()
         if let source, let blockID { presentation.connect(to: source, blockID: blockID) }
         else { presentation.disconnect(); presentation.update(text: text, isStreaming: isStreaming) }
+    }
+
+    /// Markdown is only parsed for streaming rows that are at or near the
+    /// viewport, and never while the application is hidden or fully occluded.
+    /// The model keeps accumulating text; the next visible tick or completion
+    /// renders it. Non-streaming content always renders so final state is exact.
+    private func renderGate() -> () -> Bool {
+        let viewport = transcriptViewport
+        let messageID = messageID
+        return {
+            guard NSApplication.shared.occlusionState.contains(.visible) else { return false }
+            guard let viewport else { return true }
+            if let window = viewport.scrollView?.window,
+               !window.occlusionState.contains(.visible) {
+                return false
+            }
+            guard let messageID else { return true }
+            return viewport.isRowVisible(messageID)
+        }
     }
 }
 
 @MainActor
 final class AssistantMarkdownPresentation: ObservableObject {
     @Published private(set) var content: MarkdownContent
+    /// Set by the owning row. Evaluated on every streaming update so an
+    /// offscreen or occluded reply stops parsing without losing latest text.
+    var renderAllowed: (() -> Bool)?
     private(set) var renderedText: String
     private var pendingText: String
     private var renderTask: Task<Void, Never>?
@@ -85,6 +118,10 @@ final class AssistantMarkdownPresentation: ObservableObject {
         guard isStreaming else {
             cancel()
             render(cache: true)
+            return
+        }
+        guard renderAllowed?() ?? true else {
+            cancel()
             return
         }
         guard text != renderedText, renderTask == nil else { return }

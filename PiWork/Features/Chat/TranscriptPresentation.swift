@@ -250,7 +250,16 @@ private struct TranscriptMessagePresentationKey: EnvironmentKey {
 private struct TranscriptToolExpansionKey: EnvironmentKey {
     static let defaultValue: TranscriptToolExpansionState? = nil
 }
+
+private struct TranscriptViewportKey: EnvironmentKey {
+    static let defaultValue: TranscriptViewport? = nil
+}
+
 extension EnvironmentValues {
+    var transcriptViewport: TranscriptViewport? {
+        get { self[TranscriptViewportKey.self] }
+        set { self[TranscriptViewportKey.self] = newValue }
+    }
     var transcriptMessagePresentation: TranscriptMessagePresentation? {
         get { self[TranscriptMessagePresentationKey.self] }
         set { self[TranscriptMessagePresentationKey.self] = newValue }
