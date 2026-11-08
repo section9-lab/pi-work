@@ -113,13 +113,17 @@ final class AssistantMarkdownPresentation: ObservableObject {
 }
 
 @MainActor
-private enum AssistantMarkdownCache {
+enum AssistantMarkdownCache {
     private static let cache: NSCache<NSString, CachedContent> = {
         let cache = NSCache<NSString, CachedContent>()
-        cache.countLimit = 200
-        cache.totalCostLimit = 4 * 1024 * 1024
+        cache.countLimit = 128
+        cache.totalCostLimit = 32 * 1024 * 1024
         return cache
     }()
+
+    static func removeAll() {
+        cache.removeAllObjects()
+    }
 
     private final class CachedContent {
         let content: MarkdownContent
@@ -130,7 +134,10 @@ private enum AssistantMarkdownCache {
         let key = text as NSString
         if let cached = cache.object(forKey: key) { return cached.content }
         let parsed = MarkdownContent(text)
-        cache.setObject(CachedContent(parsed), forKey: key, cost: text.utf8.count)
+        // Parsed ASTs are several times larger than the source. Charge the
+        // cache for that so a few hundred completed replies cannot retain tens
+        // of megabytes invisibly.
+        cache.setObject(CachedContent(parsed), forKey: key, cost: max(1, text.utf8.count * 4))
         return parsed
     }
 }

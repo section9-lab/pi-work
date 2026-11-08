@@ -196,6 +196,7 @@ final class SessionStoreReducerTests: XCTestCase {
         )), timestamp: "now")
         _ = reducer.receive(assistantContent(sequence: 3, generationIndex: 1, phase: .delta,
             contentType: .text, contentIndex: 0, delta: "late ACP text"), timestamp: "now")
+        reducer.flushStreamingText()
 
         let record = try XCTUnwrap(reducer.records["session-one"])
         XCTAssertEqual(record.runState, .idle)
@@ -295,10 +296,132 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertEqual(duplicateEffects, [])
         XCTAssertEqual(gapEffects, [.requestSnapshot(sessionId: "session-one")])
         XCTAssertEqual(reducer.records["session-one"]?.lastSequence, 1)
+        reducer.flushStreamingText()
         XCTAssertEqual(
             reducer.records["session-one"]?.messages.last?.content,
             [.text("Hello")]
         )
+    }
+
+    func testStreamingTextStaysBufferedUntilFlush() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )), timestamp: "now")
+        for (offset, delta) in ["a", "b", "c"].enumerated() {
+            _ = reducer.receive(.sessionMessageDelta(.init(
+                sessionId: "session-one", sequence: offset + 2, turnId: "turn-one", delta: delta
+            )), timestamp: "now")
+        }
+
+        // Identity is available immediately, but the text is not copied per token.
+        let buffered = try XCTUnwrap(reducer.records["session-one"]?.transcript.last)
+        XCTAssertEqual(buffered.parts.count, 1)
+        XCTAssertEqual(buffered.parts.first?.id, "turn:turn-one:assistant:text:0")
+        guard case .text(_, let bufferedText) = buffered.parts[0] else {
+            return XCTFail("Expected a text part")
+        }
+        XCTAssertEqual(bufferedText, "")
+        XCTAssertEqual(reducer.records["session-one"]?.messages.last?.content, [.text("")])
+
+        reducer.flushStreamingText()
+        let flushed = try XCTUnwrap(reducer.records["session-one"]?.transcript.last)
+        guard case .text(_, let flushedText) = flushed.parts[0] else {
+            return XCTFail("Expected a text part")
+        }
+        XCTAssertEqual(flushedText, "abc")
+        XCTAssertEqual(reducer.records["session-one"]?.messages.last?.content, [.text("abc")])
+
+        // Flushing again must not duplicate text.
+        reducer.flushStreamingText()
+        guard case .text(_, let repeated) = try XCTUnwrap(
+            reducer.records["session-one"]?.transcript.last?.parts.first
+        ) else {
+            return XCTFail("Expected a text part")
+        }
+        XCTAssertEqual(repeated, "abc")
+    }
+
+    func testStructuralEventMaterializesBufferedTextBeforeTools() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )), timestamp: "now")
+        _ = reducer.receive(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one", delta: "alpha"
+        )), timestamp: "now")
+        _ = reducer.receive(.sessionToolStarted(.init(
+            sessionId: "session-one", sequence: 3, turnId: "turn-one",
+            toolCallId: "tool-one", toolName: "read", summary: "read"
+        )), timestamp: "now")
+
+        var parts = try XCTUnwrap(reducer.records["session-one"]?.transcript.last?.parts)
+        XCTAssertEqual(parts.count, 2)
+        guard case .text(_, let text) = parts[0], case .tool(let tool) = parts[1] else {
+            return XCTFail("Text must be materialized before the tool")
+        }
+        XCTAssertEqual(text, "alpha")
+        XCTAssertEqual(tool.id, "tool-one")
+
+        // A delta after the tool opens a new text part, keeping source order.
+        _ = reducer.receive(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 4, turnId: "turn-one", delta: "beta"
+        )), timestamp: "now")
+        reducer.flushStreamingText()
+        parts = try XCTUnwrap(reducer.records["session-one"]?.transcript.last?.parts)
+        XCTAssertEqual(parts.count, 3)
+        guard case .text(_, let trailing) = parts[2] else {
+            return XCTFail("Expected trailing text after the tool")
+        }
+        XCTAssertEqual(trailing, "beta")
+    }
+
+    func testACPTextDeltaBatchesUntilAStructuralContentBoundary() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .work, sessionDirectory: nil)
+        for event in [
+            assistantContent(sequence: 1, generationIndex: 0, phase: .start,
+                contentType: .text, contentIndex: 0),
+            assistantContent(sequence: 2, generationIndex: 0, phase: .delta,
+                contentType: .text, contentIndex: 0, delta: "A"),
+            assistantContent(sequence: 3, generationIndex: 0, phase: .delta,
+                contentType: .text, contentIndex: 0, delta: "B"),
+            assistantContent(sequence: 4, generationIndex: 0, phase: .start,
+                contentType: .thinking, contentIndex: 1),
+            assistantContent(sequence: 5, generationIndex: 0, phase: .delta,
+                contentType: .thinking, contentIndex: 1, delta: "T")
+        ] {
+            _ = reducer.receive(event, timestamp: "now")
+        }
+        reducer.flushStreamingText()
+
+        let parts = try XCTUnwrap(reducer.records["session-one"]?.transcript.last?.parts)
+        XCTAssertEqual(parts.count, 2)
+        guard case .text(_, let text) = parts[0], case .thinking(let thinking) = parts[1] else {
+            return XCTFail("Expected text followed by thinking")
+        }
+        XCTAssertEqual(text, "AB")
+        XCTAssertEqual(thinking.text, "T")
+    }
+
+    func testSnapshotRepairDiscardsBufferedStreamingText() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        _ = reducer.receive(.sessionStateChanged(.init(
+            sessionId: "session-one", sequence: 1, turnId: "turn-one", state: .running
+        )), timestamp: "now")
+        _ = reducer.receive(.sessionMessageDelta(.init(
+            sessionId: "session-one", sequence: 2, turnId: "turn-one", delta: "stale"
+        )), timestamp: "now")
+
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        reducer.flushStreamingText()
+
+        let record = try XCTUnwrap(reducer.records["session-one"])
+        XCTAssertTrue(record.transcript.isEmpty)
+        XCTAssertTrue(record.messages.isEmpty)
     }
 
     func testEventsAreRoutedOnlyToTheirCorrelatedSession() {
@@ -524,6 +647,7 @@ final class SessionStoreReducerTests: XCTestCase {
             ),
             timestamp: "2026-08-09T00:00:05.000Z"
         )
+        reducer.flushStreamingText()
 
         let parts = try XCTUnwrap(reducer.records["session-one"]?.transcript.last?.parts)
         XCTAssertEqual(parts.count, 3)
@@ -661,6 +785,7 @@ final class SessionStoreReducerTests: XCTestCase {
         ] {
             _ = reducer.receive(event, timestamp: "2026-08-09T00:00:04.000Z")
         }
+        reducer.flushStreamingText()
 
         let transcript = try XCTUnwrap(reducer.records["session-one"]?.transcript)
         XCTAssertEqual(transcript.count, 2)
@@ -1554,6 +1679,94 @@ final class SessionStoreReducerTests: XCTestCase {
         XCTAssertEqual(record?.acpState.plan, plan)
         XCTAssertEqual(record?.descriptor.title, "Renamed")
         XCTAssertEqual(record?.acpState.updatedAt, "2026-08-29T00:00:00Z")
+    }
+
+    func testBufferedStreamingMatchesNaiveConcatenationAcrossFlushBoundaries() throws {
+        var reducer = SessionStoreReducer()
+        reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+        var expected = ""
+        var random = SystemRandomNumberGenerator()
+        for sequence in 1...500 {
+            let length = Int.random(in: 0...40, using: &random)
+            let delta = String(repeating: "x", count: length)
+            expected += delta
+            _ = reducer.receive(.sessionMessageDelta(.init(
+                sessionId: "session-one", sequence: sequence, turnId: "turn-one", delta: delta
+            )), timestamp: "now")
+            if Bool.random(using: &random) { reducer.flushStreamingText() }
+        }
+        reducer.flushStreamingText()
+
+        let record = try XCTUnwrap(reducer.records["session-one"])
+        let transcriptText = record.transcript.flatMap(\.parts).compactMap { part -> String? in
+            guard case .text(_, let text) = part else { return nil }
+            return text
+        }.joined()
+        XCTAssertEqual(transcriptText, expected)
+        let messageText = record.messages.last?.content.compactMap { content -> String? in
+            guard case .text(let text) = content else { return nil }
+            return text
+        }.joined()
+        XCTAssertEqual(messageText, expected)
+    }
+
+    /// Opt-in scaling guard for the token path. A fixed number of publication
+    /// flushes is used so the test measures append cost rather than wall-clock
+    /// publication cadence. Normal runs skip it to avoid timing flakiness.
+    func testStreamingAppendScalesNearLinearlyWithFixedFlushes() throws {
+        guard ProcessInfo.processInfo.environment["PERF_STREAMING_APPEND"] == "1" else {
+            throw XCTSkip("Set PERF_STREAMING_APPEND=1 to run the append scaling benchmark")
+        }
+
+        func elapsed(deltas: Int, flushes: Int) -> Double {
+            var reducer = SessionStoreReducer()
+            reducer.apply(snapshot: makeSnapshot(sessionId: "session-one"), profile: .chat, sessionDirectory: nil)
+            let stride = max(1, deltas / flushes)
+            let start = CFAbsoluteTimeGetCurrent()
+            for sequence in 1...deltas {
+                _ = reducer.receive(.sessionMessageDelta(.init(
+                    sessionId: "session-one", sequence: sequence, turnId: "turn-one",
+                    delta: "0123456789abcdef"
+                )), timestamp: "now")
+                if sequence % stride == 0 { reducer.flushStreamingText() }
+            }
+            reducer.flushStreamingText()
+            return CFAbsoluteTimeGetCurrent() - start
+        }
+
+        _ = elapsed(deltas: 2_000, flushes: 20)  // warm-up
+        let small = (0..<3).map { _ in elapsed(deltas: 10_000, flushes: 40) }.min() ?? 0
+        let large = (0..<3).map { _ in elapsed(deltas: 40_000, flushes: 40) }.min() ?? .infinity
+        let ratio = large / max(small, 0.000_001)
+
+        // Reference: the replaced implementation copied the full text for both
+        // the transcript and the messages snapshot on every token.
+        func legacyElapsed(deltas: Int) -> Double {
+            var transcriptText = ""
+            var messageText = ""
+            let start = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<deltas {
+                messageText = messageText + "0123456789abcdef"
+                transcriptText = transcriptText + "0123456789abcdef"
+            }
+            _ = (transcriptText.count, messageText.count)
+            return CFAbsoluteTimeGetCurrent() - start
+        }
+        let legacy = (0..<2).map { _ in legacyElapsed(deltas: 40_000) }.min() ?? .infinity
+        let speedup = legacy / max(large, 0.000_001)
+        print("STREAMING_APPEND small=\(small) large=\(large) ratio=\(ratio) legacy=\(legacy) speedup=\(speedup)")
+        XCTAssertLessThan(
+            large, 1.0,
+            "40k deltas with 40 flushes must stay well below a frame budget per flush; got \(large)s"
+        )
+        XCTAssertLessThan(
+            ratio, 8.0,
+            "Quadrupling token count should not quadruple squared copy work; got \(ratio)x"
+        )
+        XCTAssertGreaterThan(
+            speedup, 3.0,
+            "Buffered deltas must beat per-token full-string copies by a clear margin; got \(speedup)x"
+        )
     }
 }
 

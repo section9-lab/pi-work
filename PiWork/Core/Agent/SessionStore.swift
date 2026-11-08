@@ -168,6 +168,178 @@ enum SessionStoreEffect: Equatable {
 struct SessionStoreReducer {
     private(set) var records: [String: SessionRecord] = [:]
 
+    /// Streaming text arrives token by token. Materializing it per event copied
+    /// the whole accumulated string (plus the duplicate `messages` copy), which
+    /// made a long reply quadratic in characters copied and allocator churn.
+    /// Deltas are appended to this per-part buffer instead and written into the
+    /// record at the Store's publication boundary or before a structural event.
+    private struct StreamingTextKey: Hashable {
+        let sessionID: String
+        let messageID: String
+        let partID: String
+        let syncsMessageSnapshot: Bool
+    }
+
+    private struct StreamingTextValue {
+        var text: String
+        let timestamp: String
+    }
+
+    private var pendingStreamingText: [StreamingTextKey: StreamingTextValue] = [:]
+
+    /// Materialize every pending delta. The Store calls this at its fixed
+    /// publication boundary so the published snapshot is never stale.
+    mutating func flushStreamingText() {
+        guard !pendingStreamingText.isEmpty else { return }
+        let pending = pendingStreamingText
+        pendingStreamingText.removeAll(keepingCapacity: true)
+        for (key, value) in pending {
+            guard !value.text.isEmpty, var record = records[key.sessionID] else { continue }
+            Self.materializeStreamingText(
+                value.text,
+                timestamp: value.timestamp,
+                key: key,
+                in: &record
+            )
+            records[key.sessionID] = record
+        }
+    }
+
+    private mutating func flushStreamingText(sessionId: String) {
+        let keys = pendingStreamingText.keys.filter { $0.sessionID == sessionId }
+        guard !keys.isEmpty else { return }
+        guard var record = records[sessionId] else {
+            for key in keys { pendingStreamingText.removeValue(forKey: key) }
+            return
+        }
+        for key in keys {
+            guard let value = pendingStreamingText.removeValue(forKey: key),
+                  !value.text.isEmpty else { continue }
+            Self.materializeStreamingText(
+                value.text,
+                timestamp: value.timestamp,
+                key: key,
+                in: &record
+            )
+        }
+        records[sessionId] = record
+    }
+
+    private mutating func discardStreamingText(sessionId: String) {
+        pendingStreamingText = pendingStreamingText.filter { $0.key.sessionID != sessionId }
+    }
+
+    private mutating func accumulateStreamingText(
+        _ delta: String,
+        sessionID: String,
+        messageID: String,
+        partID: String,
+        timestamp: String,
+        syncsMessageSnapshot: Bool,
+        in record: inout SessionRecord
+    ) {
+        guard !delta.isEmpty else { return }
+        let key = StreamingTextKey(
+            sessionID: sessionID,
+            messageID: messageID,
+            partID: partID,
+            syncsMessageSnapshot: syncsMessageSnapshot
+        )
+        Self.ensureStreamingContainers(
+            key: key,
+            timestamp: timestamp,
+            model: record.model,
+            in: &record
+        )
+        pendingStreamingText[key, default: StreamingTextValue(text: "", timestamp: timestamp)]
+            .text.append(delta)
+    }
+
+    /// Create the row/part eagerly so identity checks, emptiness checks and
+    /// incremental publication keep working while the text itself is buffered.
+    private static func ensureStreamingContainers(
+        key: StreamingTextKey,
+        timestamp: String,
+        model: AgentHostModel?,
+        in record: inout SessionRecord
+    ) {
+        if let messageIndex = record.transcript.firstIndex(where: { $0.id == key.messageID }) {
+            if !record.transcript[messageIndex].parts.contains(where: { $0.id == key.partID }) {
+                record.transcript[messageIndex].parts.append(.text(id: key.partID, text: ""))
+            }
+        } else {
+            record.transcript.append(
+                SessionTranscriptMessage(
+                    id: key.messageID,
+                    role: .assistant,
+                    parts: [.text(id: key.partID, text: "")],
+                    timestamp: timestamp
+                )
+            )
+        }
+        guard key.syncsMessageSnapshot,
+              !record.messages.contains(where: { $0.id == key.messageID }) else { return }
+        record.messages.append(
+            AgentHostSessionMessage(
+                id: key.messageID,
+                role: .assistant,
+                content: [.text("")],
+                timestamp: timestamp,
+                provider: model?.provider,
+                model: model?.id,
+                stopReason: nil,
+                errorMessage: nil,
+                toolCallId: nil,
+                toolName: nil,
+                isError: nil
+            )
+        )
+    }
+
+    private static func materializeStreamingText(
+        _ delta: String,
+        timestamp: String,
+        key: StreamingTextKey,
+        in record: inout SessionRecord
+    ) {
+        if let messageIndex = record.transcript.firstIndex(where: { $0.id == key.messageID }) {
+            if let partIndex = record.transcript[messageIndex].parts.firstIndex(where: { $0.id == key.partID }),
+               case .text(let id, let text) = record.transcript[messageIndex].parts[partIndex] {
+                record.transcript[messageIndex].parts[partIndex] = .text(id: id, text: text + delta)
+            } else {
+                record.transcript[messageIndex].parts.append(.text(id: key.partID, text: delta))
+            }
+        } else {
+            record.transcript.append(
+                SessionTranscriptMessage(
+                    id: key.messageID,
+                    role: .assistant,
+                    parts: [.text(id: key.partID, text: delta)],
+                    timestamp: timestamp
+                )
+            )
+        }
+        guard key.syncsMessageSnapshot,
+              let messageIndex = record.messages.firstIndex(where: { $0.id == key.messageID }) else { return }
+        let message = record.messages[messageIndex]
+        let existingText = message.content.reduce(into: "") { result, content in
+            if case .text(let text) = content { result += text }
+        }
+        record.messages[messageIndex] = AgentHostSessionMessage(
+            id: message.id,
+            role: .assistant,
+            content: [.text(existingText + delta)],
+            timestamp: message.timestamp,
+            provider: message.provider,
+            model: message.model,
+            stopReason: message.stopReason,
+            errorMessage: message.errorMessage,
+            toolCallId: nil,
+            toolName: nil,
+            isError: nil
+        )
+    }
+
     mutating func apply(
         snapshot: AgentHostSessionSnapshotResult,
         profile: AgentHostSessionProfile,
@@ -181,6 +353,9 @@ struct SessionStoreReducer {
     }
 
     mutating func apply(_ record: SessionRecord) {
+        // A snapshot is authoritative. Never let an older buffered delta land
+        // on top of it after the projection has been applied.
+        discardStreamingText(sessionId: record.id)
         var record = record
         record.recoveredInputs = records[record.id]?.recoveredInputs ?? []
         records[record.id] = record
@@ -323,6 +498,7 @@ struct SessionStoreReducer {
     }
 
     mutating func prependTranscriptPage(_ page: AgentHostSessionTranscriptPageResult) -> Int {
+        flushStreamingText(sessionId: page.sessionId)
         guard var record = records[page.sessionId] else { return 0 }
         let existingIDs = Set(record.messages.map(\.id))
         let earlierMessages = page.messages.filter { !existingIDs.contains($0.id) }
@@ -591,7 +767,23 @@ struct SessionStoreReducer {
     }
 
     mutating func remove(sessionId: String) {
+        discardStreamingText(sessionId: sessionId)
         records.removeValue(forKey: sessionId)
+    }
+
+    /// Only token deltas may stay buffered. Everything else is a structural
+    /// boundary and must see the accumulated text first.
+    private static func isAppendableTextDelta(_ event: AgentHostServerEvent) -> Bool {
+        switch event {
+        case .sessionMessageDelta(let payload):
+            return !payload.delta.isEmpty
+        case .sessionAssistantContent(let payload):
+            return payload.phase == .delta
+                && payload.contentType == .text
+                && !(payload.delta ?? "").isEmpty
+        default:
+            return false
+        }
     }
 
     mutating func receive(
@@ -612,13 +804,22 @@ struct SessionStoreReducer {
             return []
         }
         guard let identity = eventIdentity(event) else { return [] }
-        guard var record = records[identity.sessionId] else {
+        guard let existing = records[identity.sessionId] else {
             return [.requestSnapshot(sessionId: identity.sessionId)]
         }
-        if identity.sequence <= record.lastSequence {
+        if identity.sequence <= existing.lastSequence {
             return []
         }
-        guard identity.sequence == record.lastSequence + 1 else {
+        guard identity.sequence == existing.lastSequence + 1 else {
+            return [.requestSnapshot(sessionId: identity.sessionId)]
+        }
+        // Every non-delta event is a structural boundary: materialize the text
+        // first so tools, thinking and terminal updates observe the same order
+        // the Host produced.
+        if !Self.isAppendableTextDelta(event) {
+            flushStreamingText(sessionId: identity.sessionId)
+        }
+        guard var record = records[identity.sessionId] else {
             return [.requestSnapshot(sessionId: identity.sessionId)]
         }
 
@@ -645,7 +846,13 @@ struct SessionStoreReducer {
                 record.runState = .running
                 record.activeTurnId = payload.turnId
             }
-            append(delta: payload.delta, turnId: payload.turnId, timestamp: timestamp, to: &record)
+            append(
+                delta: payload.delta,
+                turnId: payload.turnId,
+                sessionID: identity.sessionId,
+                timestamp: timestamp,
+                to: &record
+            )
         case .sessionCompactionChanged(let payload):
             record.compaction = payload.compaction.status == .running ? payload.compaction : nil
             if let usage = payload.contextUsage { record.contextUsage = usage }
@@ -908,51 +1115,33 @@ struct SessionStoreReducer {
         }
     }
 
-    private func append(
+    private mutating func append(
         delta: String,
         turnId: String,
+        sessionID: String,
         timestamp: String,
         to record: inout SessionRecord
     ) {
-        appendTranscript(delta: delta, turnId: turnId, timestamp: timestamp, to: &record.transcript)
         let messageID = "turn:\(turnId):assistant"
-        if let index = record.messages.firstIndex(where: { $0.id == messageID }) {
-            let message = record.messages[index]
-            let existingText = message.content.reduce(into: "") { result, content in
-                if case .text(let text) = content {
-                    result += text
-                }
-            }
-            record.messages[index] = AgentHostSessionMessage(
-                id: message.id,
-                role: .assistant,
-                content: [.text(existingText + delta)],
-                timestamp: message.timestamp,
-                provider: message.provider,
-                model: message.model,
-                stopReason: message.stopReason,
-                errorMessage: message.errorMessage,
-                toolCallId: nil,
-                toolName: nil,
-                isError: nil
-            )
-            return
+        // Match the previous destination exactly: append to the last text part
+        // when it exists, otherwise add a new part after any tools.
+        let partID: String
+        if let message = record.transcript.first(where: { $0.id == messageID }),
+           let last = message.parts.last,
+           case .text(let id, _) = last {
+            partID = id
+        } else {
+            let partCount = record.transcript.first(where: { $0.id == messageID })?.parts.count ?? 0
+            partID = "\(messageID):text:\(partCount)"
         }
-
-        record.messages.append(
-            AgentHostSessionMessage(
-                id: messageID,
-                role: .assistant,
-                content: [.text(delta)],
-                timestamp: timestamp,
-                provider: record.model?.provider,
-                model: record.model?.id,
-                stopReason: nil,
-                errorMessage: nil,
-                toolCallId: nil,
-                toolName: nil,
-                isError: nil
-            )
+        accumulateStreamingText(
+            delta,
+            sessionID: sessionID,
+            messageID: messageID,
+            partID: partID,
+            timestamp: timestamp,
+            syncsMessageSnapshot: true,
+            in: &record
         )
     }
 
@@ -1017,7 +1206,7 @@ struct SessionStoreReducer {
         }
     }
 
-    private func applyAssistantContent(
+    private mutating func applyAssistantContent(
         _ payload: AgentHostSessionAssistantContentPayload,
         timestamp: String,
         to record: inout SessionRecord
@@ -1048,17 +1237,15 @@ struct SessionStoreReducer {
                     record.transcript[messageIndex].parts.append(.text(id: partID, text: ""))
                 }
             case .delta:
-                if let textIndex,
-                   case .text(_, let text) = record.transcript[messageIndex].parts[textIndex] {
-                    record.transcript[messageIndex].parts[textIndex] = .text(
-                        id: partID,
-                        text: text + (payload.delta ?? "")
-                    )
-                } else {
-                    record.transcript[messageIndex].parts.append(
-                        .text(id: partID, text: payload.delta ?? "")
-                    )
-                }
+                accumulateStreamingText(
+                    payload.delta ?? "",
+                    sessionID: record.id,
+                    messageID: messageID,
+                    partID: partID,
+                    timestamp: timestamp,
+                    syncsMessageSnapshot: false,
+                    in: &record
+                )
             case .end:
                 if let content = payload.content {
                     if let textIndex {
@@ -1203,34 +1390,6 @@ struct SessionStoreReducer {
                 )
             }
         }
-    }
-
-    private func appendTranscript(
-        delta: String,
-        turnId: String,
-        timestamp: String,
-        to transcript: inout [SessionTranscriptMessage]
-    ) {
-        let messageID = "turn:\(turnId):assistant"
-        if let messageIndex = transcript.firstIndex(where: { $0.id == messageID }) {
-            if let lastIndex = transcript[messageIndex].parts.indices.last,
-               case .text(let id, let text) = transcript[messageIndex].parts[lastIndex] {
-                transcript[messageIndex].parts[lastIndex] = .text(id: id, text: text + delta)
-            } else {
-                let partID = "\(messageID):text:\(transcript[messageIndex].parts.count)"
-                transcript[messageIndex].parts.append(.text(id: partID, text: delta))
-            }
-            return
-        }
-
-        transcript.append(
-            SessionTranscriptMessage(
-                id: messageID,
-                role: .assistant,
-                parts: [.text(id: "\(messageID):text:0", text: delta)],
-                timestamp: timestamp
-            )
-        )
     }
 
     private func replaceOrAppend(
@@ -2648,6 +2807,9 @@ final class SessionStore: ObservableObject {
     private func publishReducerState(notifyWorkspace: Bool = true) {
         streamingPublishTask?.cancel()
         streamingPublishTask = nil
+        // Materialize buffered token deltas once per publication window instead
+        // of copying the whole reply for every delta.
+        reducer.flushStreamingText()
         let next = reducer.records
         var changedIDs = Set(records.keys).union(next.keys).filter { id in
             // Compare the sequence first, avoiding transcript equality on every delta.

@@ -715,7 +715,7 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let timelineStart = try XCTUnwrap(source.range(of: "private var assistantTimeline"))
+        let timelineStart = try XCTUnwrap(source.range(of: "private func assistantTimeline("))
         let timelineEnd = try XCTUnwrap(
             source.range(of: "private var assistantBlocks", range: timelineStart.upperBound..<source.endIndex)
         )
@@ -1008,9 +1008,10 @@ final class AssistantTimelinePresentationTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(
-            source.contains("guard currentMessageForActions.hasCopyableText else { return nil }")
-        )
+        // Metadata anchoring is now derived from the same block pass as the
+        // timeline; only a non-empty text block can produce an anchor.
+        XCTAssertTrue(source.contains("AssistantTranscriptPresentation.metadataAnchorID(in: blocks)"))
+        XCTAssertTrue(source.contains("if id == metadataAnchorID"))
         XCTAssertTrue(source.contains("MessageClipboard.copy(currentMessageForActions.copyableText)"))
         XCTAssertTrue(source.contains("snapshotSource?.message"))
     }

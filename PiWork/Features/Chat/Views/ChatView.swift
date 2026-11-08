@@ -74,6 +74,8 @@ struct ChatView: View {
     @State private var presentedMessageLimit = TranscriptWindow.batchSize
     @State private var isPreparingSessionPresentation = false
     @State private var loadedToolOutputs: [String: String] = [:]
+    @State private var loadedToolOutputOrder: [String] = []
+    @State private var loadedToolOutputBytes = 0
     @State private var loadingToolOutputIDs: Set<String> = []
     @State private var currentPromptID: String?
     @State private var highlightedPromptID: String?
@@ -315,10 +317,13 @@ struct ChatView: View {
             presentedMessageLimit = SessionPresentationBatch.initialCount
             presentedSessionID = activeSessionId
             loadedToolOutputs.removeAll()
+            loadedToolOutputOrder.removeAll()
+            loadedToolOutputBytes = 0
             loadingToolOutputIDs.removeAll()
             transcriptToolExpansion.reset()
             transcriptViewport.frames = [:]
             transcriptViewport.partFrames = [:]
+            MessageImageThumbnailCache.clear()
             isTranscriptAutoFollowPaused = false
             isFollowingTranscriptTail = true
             transcriptScrollRequest &+= 1
@@ -1441,9 +1446,29 @@ struct ChatView: View {
                     toolCallId: tool.id
                 )
                 guard activeSessionId == sessionId else { return }
-                loadedToolOutputs[tool.id] = output
+                storeLoadedToolOutput(output, for: tool.id)
             } catch {
                 actionFailure = AgentErrorPresentation(error)
+            }
+        }
+    }
+
+    /// On-demand tool output can be large and is only needed while its details
+    /// are open. Keep a small byte-bounded LRU instead of retaining everything
+    /// opened during a session.
+    private func storeLoadedToolOutput(_ output: String, for id: String) {
+        if let previous = loadedToolOutputs[id] {
+            loadedToolOutputBytes -= previous.utf8.count
+            loadedToolOutputOrder.removeAll { $0 == id }
+        }
+        loadedToolOutputs[id] = output
+        loadedToolOutputOrder.append(id)
+        loadedToolOutputBytes += output.utf8.count
+        while loadedToolOutputOrder.count > 16 || loadedToolOutputBytes > 2_000_000,
+              let oldest = loadedToolOutputOrder.first {
+            loadedToolOutputOrder.removeFirst()
+            if let removed = loadedToolOutputs.removeValue(forKey: oldest) {
+                loadedToolOutputBytes -= removed.utf8.count
             }
         }
     }
@@ -4101,14 +4126,18 @@ private struct ChatMessageRow: View, Equatable {
                 ComposerImagePreview(data: image.data)
             }
         case .assistant:
+            let blocks = assistantBlocks
+            let anchorID = AssistantTranscriptPresentation.metadataAnchorID(in: blocks)
             HStack(alignment: .top) {
-                assistantTimeline
+                assistantTimeline(blocks, metadataAnchorID: anchorID)
                 Spacer(minLength: 60)
             }
         case .tool:
+            let blocks = assistantBlocks
+            let anchorID = AssistantTranscriptPresentation.metadataAnchorID(in: blocks)
             VStack(alignment: .leading, spacing: 11) {
-                ForEach(assistantBlocks) { block in
-                    assistantBlock(block)
+                ForEach(blocks) { block in
+                    assistantBlock(block, metadataAnchorID: anchorID)
                 }
             }
         case .system:
@@ -4130,7 +4159,10 @@ private struct ChatMessageRow: View, Equatable {
                     previewedMessageImage = image
                 } label: {
                     Group {
-                        if let preview = NSImage(data: image.data) {
+                        if let preview = MessageImageThumbnailCache.image(
+                            for: image,
+                            maxPixelSize: sentImageThumbnailPixelSize
+                        ) {
                             Image(nsImage: preview)
                                 .resizable()
                                 .scaledToFill()
@@ -4165,18 +4197,27 @@ private struct ChatMessageRow: View, Equatable {
             : CGSize(width: 64, height: 64)
     }
 
+    /// Retina-sized decode target; the cache stores only this downsample.
+    private var sentImageThumbnailPixelSize: Int {
+        let size = sentImageThumbnailSize
+        return Int(max(size.width, size.height) * 2)
+    }
+
     private var currentMessageForActions: PiChatMessage {
         guard let current = snapshotSource?.message, current.id == message.id else { return message }
         return current
     }
 
-    private var assistantTimeline: some View {
+    private func assistantTimeline(
+        _ blocks: [AssistantTranscriptBlock],
+        metadataAnchorID: String?
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 11) {
-                ForEach(assistantBlocks) { block in
-                    assistantBlock(block)
+                ForEach(blocks) { block in
+                    assistantBlock(block, metadataAnchorID: metadataAnchorID)
                 }
-                if assistantBlocks.isEmpty, message.isStreaming {
+                if blocks.isEmpty, message.isStreaming {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -4189,17 +4230,15 @@ private struct ChatMessageRow: View, Equatable {
         }
     }
 
+    /// Resolved once per body pass. Group identity is applied here so `ForEach`
+    /// keeps stable keys across merges; metadata is derived from the same array
+    /// instead of re-running the block scan for every row.
     private var assistantBlocks: [AssistantTranscriptBlock] {
         AssistantTranscriptPresentation.blocks(from: message.parts).map { block in
             guard case .tools(let group) = block,
                   let identity = expansionState?.groupIdentity(for: group.tools) else { return block }
             return .tools(AssistantToolGroup(id: identity, tools: group.tools))
         }
-    }
-
-    private var assistantMetadataAnchorID: String? {
-        guard currentMessageForActions.hasCopyableText else { return nil }
-        return AssistantTranscriptPresentation.metadataAnchorID(in: assistantBlocks)
     }
 
     private var assistantMetadata: some View {
@@ -4306,21 +4345,24 @@ private struct ChatMessageRow: View, Equatable {
     }
 
     @ViewBuilder
-    private func assistantBlock(_ block: AssistantTranscriptBlock) -> some View {
+    private func assistantBlock(
+        _ block: AssistantTranscriptBlock,
+        metadataAnchorID: String?
+    ) -> some View {
         switch block {
         case .text(let id, let text):
             VStack(alignment: .leading, spacing: 4) {
                 AssistantMarkdownView(text: text, isStreaming: message.isStreaming, blockID: id)
                     .markdownTheme(assistantMarkdownTheme)
                     .textSelection(.enabled)
-                if id == assistantMetadataAnchorID {
+                if id == metadataAnchorID {
                     assistantMetadata
                 }
             }
             .padding(.leading, 6)
             .contentShape(Rectangle())
             .onHover { hovering in
-                guard id == assistantMetadataAnchorID else { return }
+                guard id == metadataAnchorID else { return }
                 isAssistantMetadataHovered = hovering
                 if !hovering {
                     isCopyButtonHovered = false

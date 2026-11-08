@@ -4,6 +4,9 @@
 # Xcode-only development previews are omitted; production sources stay intact.
 set -euo pipefail
 NATIVE_SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Offline/manual runs can skip remote dependency updates when the checkouts are
+# already populated (benchmark scripts set this).
+SWIFTPM_UPDATE_FLAG="${PI_WORK_NATIVE_SKIP_UPDATE:+--skip-update}"
 if [ -n "${PI_WORK_NATIVE_CHECK_ROOT:-}" ]; then
   NATIVE_CHECK_ROOT="$PI_WORK_NATIVE_CHECK_ROOT"
   mkdir -p "$NATIVE_CHECK_ROOT"
@@ -36,7 +39,7 @@ let package = Package(name: "PiWorkNativeChecks", platforms: [.macOS(.v13)], dep
 ])
 ''')
 PY
-swift build --package-path "$NATIVE_CHECK_ROOT" -j 4
+swift build --package-path "$NATIVE_CHECK_ROOT" $SWIFTPM_UPDATE_FLAG -j 4
 if ! xcrun --find xctest >/dev/null 2>&1; then
   cd "$NATIVE_SOURCE_ROOT"
   swiftc -swift-version 5 -parse-as-library \
@@ -73,10 +76,14 @@ PLIST
   echo "Native application compiled and MCP checks passed. Full XCTest requires Xcode."
   exit 0
 fi
-swift build --package-path "$NATIVE_CHECK_ROOT" --build-tests -j 4
+swift build --package-path "$NATIVE_CHECK_ROOT" $SWIFTPM_UPDATE_FLAG --build-tests -j 4
 # L10n uses Bundle.main in both Xcode-hosted and standalone test runs.
 NATIVE_TEST_BUNDLE="$(find "$NATIVE_CHECK_ROOT/.build" -type d -name '*.xctest' -print -quit)"
 mkdir -p "$NATIVE_TEST_BUNDLE/Contents/Resources"
 cp -R "$NATIVE_SOURCE_ROOT"/PiWork/Resources/*.lproj "$NATIVE_TEST_BUNDLE/Contents/Resources/"
 cp "$NATIVE_SOURCE_ROOT"/PiWork/Resources/Lucide*.pdf "$NATIVE_TEST_BUNDLE/Contents/Resources/"
-swift test --package-path "$NATIVE_CHECK_ROOT" --skip-build
+if [ -n "${NATIVE_TEST_FILTER:-}" ]; then
+  swift test --package-path "$NATIVE_CHECK_ROOT" --skip-build $SWIFTPM_UPDATE_FLAG --filter "$NATIVE_TEST_FILTER"
+else
+  swift test --package-path "$NATIVE_CHECK_ROOT" --skip-build $SWIFTPM_UPDATE_FLAG
+fi

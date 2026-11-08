@@ -1907,7 +1907,7 @@ final class SessionComposerTests: XCTestCase {
             encoding: .utf8
         )
 
-        let timelineStart = try XCTUnwrap(source.range(of: "private var assistantTimeline"))
+        let timelineStart = try XCTUnwrap(source.range(of: "private func assistantTimeline("))
         let timelineEnd = try XCTUnwrap(
             source.range(
                 of: "private var copyMessageLabel",
@@ -1964,7 +1964,7 @@ final class SessionComposerTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
             encoding: .utf8
         )
-        let timelineStart = try XCTUnwrap(source.range(of: "private var assistantTimeline"))
+        let timelineStart = try XCTUnwrap(source.range(of: "private func assistantTimeline("))
         let timelineEnd = try XCTUnwrap(
             source.range(
                 of: "private var copyMessageLabel",
