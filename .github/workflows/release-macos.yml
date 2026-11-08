@@ -60,6 +60,12 @@ jobs:
       - name: Check runtime packaging and release workflow
         run: python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py scripts/test_appcast.py scripts/test_ci_dependencies.py
 
+      - name: Cache pinned Sparkle signing tools
+        uses: actions/cache@v4
+        with:
+          path: build/Sparkle-2.10.1
+          key: macos-sparkle-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-sparkle-tools.sh') }}
+
       - name: Check application updates
         run: bash scripts/test-app-updates.sh
 

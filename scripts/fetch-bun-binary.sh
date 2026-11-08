@@ -37,6 +37,26 @@ fetch_architecture() {
   temporary_directory="$(mktemp -d)"
   TEMPORARY_DIRECTORIES+=("$temporary_directory")
 
+  # CI installs the pinned Bun before building; reuse it instead of depending
+  # on the GitHub release asset CDN on every job.
+  local installed_bun
+  if installed_bun="$(command -v bun 2>/dev/null)" && [ -n "$installed_bun" ]; then
+    local installed_path installed_version installed_arch
+    installed_path="$(realpath "$installed_bun" 2>/dev/null || printf '%s' "$installed_bun")"
+    installed_version="$("$installed_path" --version 2>/dev/null || true)"
+    installed_arch="$(lipo -archs "$installed_path" 2>/dev/null || true)"
+    if [ "$installed_version" = "$BUN_VERSION" ]; then
+      case "$architecture:$installed_arch" in
+        arm64:arm64|x64:x86_64)
+          mkdir -p "$DESTINATION_ROOT/$architecture"
+          install -m 755 "$installed_path" "$DESTINATION_ROOT/$architecture/bun"
+          echo "Using installed Bun ${BUN_VERSION} at $installed_path"
+          return
+          ;;
+      esac
+    fi
+  fi
+
   echo "Fetching Bun ${BUN_VERSION} for darwin-${architecture}..."
   curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors     --connect-timeout 30 --max-time 600     -o "$temporary_directory/$archive" "$RELEASE_URL/$archive"
   curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors     --connect-timeout 30 --max-time 600     -o "$temporary_directory/SHASUMS256.txt" "$RELEASE_URL/SHASUMS256.txt"
