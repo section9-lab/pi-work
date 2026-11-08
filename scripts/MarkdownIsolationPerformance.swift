@@ -256,7 +256,10 @@ extension SessionStoreTests {
         let store = SessionStore(service: host)
         try await store.openSession(makeSummary(), profile: .work, sessionDirectory: nil)
         let surface: IsolationSurface? = mode == "unmounted" ? nil : isoSurface(store)
-        if let surface { try await isoWait(surface, rows: min(count, 100), first: max(0, count - 100)) }
+        if let surface {
+            let window = TranscriptWindowNavigation.maximumCount
+            try await isoWait(surface, rows: min(count, window), first: max(0, count - window))
+        }
         let body = env["PERF_DIAG_BODY_PLAIN"] == "1"
             ? String(repeating: "Simple plain text for streaming. ", count: 280)
             : "# STREAM-BEGIN:live\n\n" + isoText(template, index: 1000, salt: "diagnostic")
