@@ -80,7 +80,7 @@ struct ContextUsagePopover: View {
                 Button {
                     showsCompactionForm.toggle()
                 } label: {
-                    Label(L10n.string("chat.compaction.action"), systemImage: "arrow.down.right.and.arrow.up.left")
+                    Label(L10n.string("chat.compaction.action"), systemImage: "arrow.down.and.line.horizontal.and.arrow.up")
                         .font(.system(size: 11))
                 }
                 .buttonStyle(.bordered)
