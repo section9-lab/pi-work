@@ -38,8 +38,8 @@ fetch_architecture() {
   TEMPORARY_DIRECTORIES+=("$temporary_directory")
 
   echo "Fetching Bun ${BUN_VERSION} for darwin-${architecture}..."
-  curl -fsSL -o "$temporary_directory/$archive" "$RELEASE_URL/$archive"
-  curl -fsSL -o "$temporary_directory/SHASUMS256.txt" "$RELEASE_URL/SHASUMS256.txt"
+  curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors     --connect-timeout 30 --max-time 600     -o "$temporary_directory/$archive" "$RELEASE_URL/$archive"
+  curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors     --connect-timeout 30 --max-time 600     -o "$temporary_directory/SHASUMS256.txt" "$RELEASE_URL/SHASUMS256.txt"
 
   local expected_checksum
   local actual_checksum
