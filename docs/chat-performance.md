@@ -10,6 +10,7 @@ The event reducer consumes every delivered host event in order. Raw tool progres
 - Token deltas are appended to a per-part buffer and materialized once per 80 ms publication window (or before a structural event). The published record is unchanged; the per-token full-string copies in both `transcript` and `messages` are gone. Snapshot repair discards any buffered delta so stale text cannot land on a newer projection.
 - An assistant row derives its blocks and metadata anchor from one part scan per body pass. Message attachments decode once into a Retina-sized thumbnail cache instead of re-decoding `Data` in every body pass, and on-demand tool output keeps a 16-entry/2 MB LRU.
 - Each Markdown block owns persistent parsed content. Streaming revisions are coalesced over 200 ms; completion flushes immediately. There is no periodic idle timer. Streaming prefixes do not enter the bounded shared Markdown cache on each revision.
+- Streaming Markdown keeps a parsed frozen prefix and reparses only the active tail. Boundaries are only taken after a blank line that starts a new top-level block; fences, blockquotes, lists, tables, indented code, HTML and link reference definitions are never split. The finalized message gets one full parse on completion, so the stored result is identical to the old path.
 - Auto-follow responds to message insertion and measured content height, not event sequence numbers. Scroll requests share a 50 ms window and are cancelled on navigation/disappearance. Manual scroll pause is respected.
 
 ## Verification

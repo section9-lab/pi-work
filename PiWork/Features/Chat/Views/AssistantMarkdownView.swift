@@ -42,6 +42,7 @@ final class AssistantMarkdownPresentation: ObservableObject {
     private var pendingText: String
     private var renderTask: Task<Void, Never>?
     private let delayNanoseconds: UInt64
+    private var streamingAccumulator = StreamingMarkdownAccumulator()
     private var sourceSubscription: AnyCancellable?
     private weak var connectedSource: TranscriptMessagePresentation?
     private var connectedBlockID: String?
@@ -106,9 +107,13 @@ final class AssistantMarkdownPresentation: ObservableObject {
     private func render(cache: Bool) {
         guard pendingText != renderedText else { return }
         renderedText = pendingText
-        content = cache
-            ? AssistantMarkdownCache.content(for: pendingText)
-            : MarkdownContent(pendingText)
+        if cache {
+            streamingAccumulator.reset()
+            content = AssistantMarkdownCache.content(for: pendingText)
+        } else {
+            // Parse only the growing tail; completed blocks are frozen.
+            content = streamingAccumulator.content(for: pendingText)
+        }
     }
 }
 
