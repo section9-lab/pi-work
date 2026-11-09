@@ -4274,12 +4274,6 @@ private func assistantCodeBlock(_ configuration: CodeBlockConfiguration) -> some
     .markdownMargin(top: 0, bottom: 16)
 }
 
-#if DEBUG
-/// The transcript theme stays private; tests render it end to end so the
-/// Mermaid `.codeBlock` hook is covered, not just its factory.
-var assistantMarkdownThemeForTesting: Theme { assistantMarkdownTheme }
-#endif
-
 private struct ChatMessageRow: View, Equatable {
     @Environment(\.transcriptToolExpansion) private var expansionState
     @Environment(\.transcriptMessagePresentation) private var snapshotSource

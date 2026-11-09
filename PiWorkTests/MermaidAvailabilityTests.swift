@@ -45,4 +45,20 @@ final class MermaidAvailabilityTests: XCTestCase {
             "Flowchart with 2 nodes: 桌面端 MCP Server, 第二个 节点"
         )
     }
+
+    /// The hook itself is a source-level contract: macOS 13 must keep the
+    /// plain code block, and only the factory decides otherwise.
+    func testAssistantThemeRoutesMermaidCodeBlocksThroughTheFactory() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("private let assistantMarkdownTheme = Theme.gitHub"))
+        XCTAssertTrue(source.contains(".codeBlock { configuration in"))
+        XCTAssertTrue(source.contains("MermaidDiagramFactory.makeBlock("))
+        XCTAssertTrue(source.contains("assistantCodeBlock(configuration)"))
+    }
 }
