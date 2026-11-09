@@ -33,6 +33,12 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     exactVersion: 2.4.1
+  # pi-work fork of clintecker/MermaidKit: lowers the platform floor to
+  # macOS 13 / swift-tools 6.0 and drops the Linux-only Silica graph.
+  # See FORK.md in the fork; pin by revision so the patch cannot drift.
+  MermaidKit:
+    url: https://github.com/section9-lab/MermaidKit
+    revision: 0572d98d60430842705adb0469ec5fe55aa9b47f
 
 targets:
   PiWork:
@@ -45,6 +51,8 @@ targets:
       - package: Mixpanel
         product: Mixpanel
       - package: MarkdownUI
+      - package: MermaidKit
+        product: MermaidRender
     sources:
       - path: PiWork
         excludes:
@@ -255,6 +263,8 @@ targets:
       - path: PiWorkTests
     dependencies:
       - target: PiWork
+      - package: MermaidKit
+        product: MermaidRender
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cc.vibevibe.pi-work.tests

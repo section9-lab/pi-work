@@ -10,6 +10,14 @@
       }
     },
     {
+      "identity" : "mermaidkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/section9-lab/MermaidKit",
+      "state" : {
+        "revision" : "0572d98d60430842705adb0469ec5fe55aa9b47f"
+      }
+    },
+    {
       "identity" : "mixpanel-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mixpanel/mixpanel-swift",

@@ -390,6 +390,8 @@
 "chat.image.error.image_too_large" = "The converted image exceeds the 50 MB safety limit.";
 "chat.image.error.too_many" = "You can attach up to 5 images.";
 "chat.image.error.total_too_large" = "Attachments must total 50 MB or less.";
+"chat.mermaid.expand" = "Open diagram";
+"chat.mermaid.diagram" = "Mermaid diagram";
 "chat.skill.used" = "Used skill · %@";
 "chat.message.copy" = "Copy response";
 "chat.message.copied" = "Copied";

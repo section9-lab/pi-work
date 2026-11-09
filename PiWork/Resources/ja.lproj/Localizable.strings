@@ -390,6 +390,8 @@
 "chat.image.error.image_too_large" = "変換後の画像が安全上の上限50 MBを超えています。";
 "chat.image.error.too_many" = "添付できる画像は5枚までです。";
 "chat.image.error.total_too_large" = "添付画像の合計は50 MB以下にしてください。";
+"chat.mermaid.expand" = "図を開く";
+"chat.mermaid.diagram" = "Mermaid の図";
 "chat.skill.used" = "スキルを使用 · %@";
 "chat.message.copy" = "回答をコピー";
 "chat.message.copied" = "コピーしました";

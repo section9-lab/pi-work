@@ -4211,6 +4211,18 @@ private let assistantMarkdownTheme = Theme.gitHub
         FontSize(.em(0.85))
         BackgroundColor(Color.primary.opacity(0.07))
     }
+    .codeBlock { configuration in
+        // macOS 14+ gets a native diagram; everything else — Ventura, parse
+        // failures, oversized sources — keeps the plain code block.
+        if let diagram = MermaidDiagramFactory.makeBlock(
+            language: configuration.language,
+            source: configuration.content
+        ) {
+            diagram.markdownMargin(top: 0, bottom: 16)
+        } else {
+            assistantCodeBlock(configuration)
+        }
+    }
     .table { configuration in
         configuration.label
             .fixedSize(horizontal: false, vertical: true)
@@ -4231,6 +4243,42 @@ private let assistantMarkdownTheme = Theme.gitHub
             .frame(height: 1)
             .markdownMargin(top: 14, bottom: 14)
     }
+
+/// The GitHub theme's default code block, reproduced because overriding
+/// `.codeBlock` for Mermaid replaces it wholesale. Colors match MarkdownUI's
+/// GitHub palette (its own helpers are fileprivate).
+private let assistantCodeBlockBackground = Color(nsColor: NSColor(name: nil) { appearance in
+    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? NSColor(srgbRed: 0x25 / 255, green: 0x26 / 255, blue: 0x2A / 255, alpha: 1)
+        : NSColor(srgbRed: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF9 / 255, alpha: 1)
+})
+
+@ViewBuilder
+private func assistantCodeBlock(_ configuration: CodeBlockConfiguration) -> some View {
+    ScrollView(.horizontal) {
+        configuration.label
+            .fixedSize(horizontal: false, vertical: true)
+            .relativeLineSpacing(.em(0.225))
+            .markdownTextStyle {
+                FontFamilyVariant(.monospaced)
+                FontSize(.em(0.85))
+            }
+            .padding(16)
+    }
+    .background(assistantCodeBlockBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 6))
+    // Belt and braces: the text-selection layer can size to the unwrapped line
+    // width. In the reported transcript it escaped the card and painted over
+    // the gutter, so clip at the card's bounds as well as its rounded shape.
+    .clipped()
+    .markdownMargin(top: 0, bottom: 16)
+}
+
+#if DEBUG
+/// The transcript theme stays private; tests render it end to end so the
+/// Mermaid `.codeBlock` hook is covered, not just its factory.
+var assistantMarkdownThemeForTesting: Theme { assistantMarkdownTheme }
+#endif
 
 private struct ChatMessageRow: View, Equatable {
     @Environment(\.transcriptToolExpansion) private var expansionState
