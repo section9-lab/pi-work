@@ -59,6 +59,7 @@ Browse Skills and Extensions without leaving the app. Search or filter the catal
 <p align="center">
   <img src="docs/images/skills.png" width="49%" alt="Browse and install Pi skills in the pi-work macOS app">
   <img src="docs/images/extensions.png" width="49%" alt="Manage Pi Coding Agent extensions in pi-work">
+  <img src="docs/images/setting.png"width="49%" alt="setting">
 </p>
 
 ## Start your first task

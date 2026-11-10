@@ -59,6 +59,7 @@
 <p align="center">
   <img src="docs/images/skills.png" width="49%" alt="在 pi-work Mac 客户端中浏览和安装 Pi 技能">
   <img src="docs/images/extensions.png" width="49%" alt="在 pi-work 中管理 Pi Coding Agent 扩展">
+  <img src="docs/images/setting.png"width="49%" alt="setting">
 </p>
 
 ## 开始第一个任务
