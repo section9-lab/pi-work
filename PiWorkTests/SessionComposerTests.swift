@@ -1220,6 +1220,9 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(source.contains("selectedModelSupportsImages"))
         XCTAssertTrue(source.contains("images: promptImages"))
         XCTAssertTrue(source.contains("let textView = ComposerTextView"))
+        XCTAssertTrue(source.contains("onPickImages: pickImageAttachments"))
+        XCTAssertTrue(source.contains("panel.allowedContentTypes = [.image]"))
+        XCTAssertTrue(source.contains("accessibilityIdentifier(\"add-image-attachment\")"))
     }
 
     func testImageThumbnailOpensDismissiblePreview() throws {

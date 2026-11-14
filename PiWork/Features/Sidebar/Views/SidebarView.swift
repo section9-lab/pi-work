@@ -59,6 +59,7 @@ struct SidebarView: View {
     var onDeleteChatSession: (AgentHostSessionSummary) -> Void = { _ in }
     var workSessionsByProjectPath: [String: [AgentHostSessionSummary]] = [:]
     var activeSessionIDs: Set<String> = []
+    var unreadSessionIDs: Set<String> = []
     var selectedWorkSidebarItem: WorkSidebarItem? = nil
     var pendingWorkSidebarItem: WorkSidebarItem? = nil
     var onSelectWorkSession: (PiProject, AgentHostSessionSummary) -> Void = { _, _ in }
@@ -98,6 +99,8 @@ struct SidebarView: View {
                         ForEach(chatSessions) { session in
                             ChatSessionRow(
                                 session: session,
+                                showsActivity: activeSessionIDs.contains(session.id),
+                                showsUnread: unreadSessionIDs.contains(session.id),
                                 showsOpening: pendingChatSessionId == session.id,
                                 isSelected: (pendingChatSessionId ?? selectedChatSessionId) == session.id,
                                 action: {
@@ -161,6 +164,7 @@ struct SidebarView: View {
                                             WorkSessionRow(
                                                 session: session,
                                                 showsActivity: activeSessionIDs.contains(session.id),
+                                                showsUnread: unreadSessionIDs.contains(session.id),
                                                 showsOpening: pendingWorkSidebarItem == .session(
                                                     projectID: project.id,
                                                     sessionID: session.id
@@ -415,6 +419,8 @@ private struct SectionLabel: View {
 
 private struct ChatSessionRow: View {
     let session: AgentHostSessionSummary
+    let showsActivity: Bool
+    let showsUnread: Bool
     let showsOpening: Bool
     let isSelected: Bool
     let action: () -> Void
@@ -430,10 +436,14 @@ private struct ChatSessionRow: View {
                     .font(.system(size: 14))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if showsOpening {
+                if showsActivity || showsOpening {
                     ProgressView()
                         .controlSize(.small)
-                        .accessibilityLabel(Text(L10n.string("chat.session_loading")))
+                        .accessibilityLabel(Text(L10n.string(
+                            showsOpening ? "chat.session_loading" : "chat.tool.running"
+                        )))
+                } else if showsUnread {
+                    SessionUnreadDot()
                 }
             }
             .foregroundStyle(Color.primary.opacity(0.78))
@@ -564,6 +574,7 @@ private struct FolderRow: View {
 private struct WorkSessionRow: View {
     let session: AgentHostSessionSummary
     let showsActivity: Bool
+    let showsUnread: Bool
     let showsOpening: Bool
     let isSelected: Bool
     let action: () -> Void
@@ -583,6 +594,8 @@ private struct WorkSessionRow: View {
                         .accessibilityLabel(Text(L10n.string(
                             showsOpening ? "chat.session_loading" : "chat.tool.running"
                         )))
+                } else if showsUnread {
+                    SessionUnreadDot()
                 }
             }
             .foregroundStyle(Color.primary.opacity(0.72))
@@ -610,6 +623,18 @@ private struct WorkSessionRow: View {
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
         .accessibilityIdentifier("work-session-\(session.id)")
+    }
+}
+
+private struct SessionUnreadDot: View {
+    var body: some View {
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: 7, height: 7)
+            .padding(.leading, 2)
+            .help(L10n.string("sidebar.session_finished_unread"))
+            .accessibilityLabel(Text(L10n.string("sidebar.session_finished_unread")))
+            .accessibilityIdentifier("session-unread-dot")
     }
 }
 

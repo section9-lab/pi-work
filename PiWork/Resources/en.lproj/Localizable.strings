@@ -318,6 +318,7 @@
 "sidebar.copy_session_id" = "Copy Session ID";
 "sidebar.export_html_report" = "Export HTML Report";
 "sidebar.delete_session" = "Delete Session";
+"sidebar.session_finished_unread" = "Finished — not viewed yet";
 "sidebar.remove_project" = "Remove Project";
 "sidebar.remove_project_title" = "Remove %@?";
 "sidebar.remove_project_action" = "Remove Project and Delete Sessions";
@@ -381,6 +382,7 @@
 "chat.image_attachment" = "[Image · %@]";
 "chat.image.preview" = "Image attachment";
 "chat.image.remove" = "Remove image";
+"chat.image.add" = "Add Image";
 "chat.image.processing" = "Processing…";
 "chat.image.model_unsupported" = "The selected model does not support images.";
 "chat.image.error.processing" = "Wait for the current images to finish processing.";

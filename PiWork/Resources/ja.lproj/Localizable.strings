@@ -318,6 +318,7 @@
 "sidebar.copy_session_id" = "Session ID をコピー";
 "sidebar.export_html_report" = "HTML レポートを書き出す";
 "sidebar.delete_session" = "セッションを削除";
+"sidebar.session_finished_unread" = "完了・未確認";
 "sidebar.remove_project" = "プロジェクトを削除";
 "sidebar.remove_project_title" = "%@ を削除しますか？";
 "sidebar.remove_project_action" = "プロジェクトを削除してセッションをすべて削除";
@@ -381,6 +382,7 @@
 "chat.image_attachment" = "[画像 · %@]";
 "chat.image.preview" = "画像の添付";
 "chat.image.remove" = "画像を削除";
+"chat.image.add" = "画像を追加";
 "chat.image.processing" = "処理中…";
 "chat.image.model_unsupported" = "選択したモデルは画像に対応していません。";
 "chat.image.error.processing" = "現在の画像の処理が完了するまでお待ちください。";

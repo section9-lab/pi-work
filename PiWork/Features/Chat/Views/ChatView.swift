@@ -1,6 +1,7 @@
 import AppKit
 import MarkdownUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One conversation surface shared by Chat and Work. Chat owns an isolated
 /// application-support working directory; Work only creates an agent after
@@ -211,6 +212,7 @@ struct ChatView: View {
                 onSelectSessionMode: selectSessionMode,
                 onSelectAccessMode: selectAccessMode,
                 onPasteboard: handlePasteboard,
+                onPickImages: pickImageAttachments,
                 onRemoveImage: removeImageAttachment,
                 onSend: send,
                 onStop: stopGeneration,
@@ -1333,14 +1335,36 @@ struct ChatView: View {
     private func handlePasteboard(_ pasteboard: NSPasteboard) -> Bool {
         let sources = ComposerImagePasteboard.sources(from: pasteboard)
         guard !sources.isEmpty else { return false }
+        addImageSources(sources)
+        return true
+    }
+
+    private func pickImageAttachments() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image]
+        panel.prompt = L10n.string("chat.image.add")
+
+        guard panel.runModal() == .OK else { return }
+        let sources = panel.urls.compactMap { url -> ComposerImageSource? in
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            return ComposerImageSource(data: data)
+        }
+        addImageSources(sources)
+    }
+
+    private func addImageSources(_ sources: [ComposerImageSource]) {
+        guard !sources.isEmpty else { return }
         guard !isProcessingImageAttachments else {
             actionFailure = AgentErrorPresentation(informationalKey: "chat.image.error.processing")
-            return true
+            return
         }
 
         let draftKey = composerDraftKey
         let existingAttachments = imageAttachments
-        guard let processingID = composerDrafts.beginImageProcessing(for: draftKey) else { return true }
+        guard let processingID = composerDrafts.beginImageProcessing(for: draftKey) else { return }
         actionFailure = nil
 
         Task { @MainActor in
@@ -1361,7 +1385,6 @@ struct ChatView: View {
                 actionFailure = AgentErrorPresentation(informationalKey: key)
             }
         }
-        return true
     }
 
     private func removeImageAttachment(_ id: UUID) {
@@ -2334,6 +2357,7 @@ private struct SessionComposer: View {
     let onSelectSessionMode: (String) -> Void
     let onSelectAccessMode: (AgentHostAccessMode) -> Void
     let onPasteboard: (NSPasteboard) -> Bool
+    let onPickImages: () -> Void
     let onRemoveImage: (UUID) -> Void
     let onSend: () -> Void
     let onStop: () -> Void
@@ -2934,6 +2958,19 @@ private struct SessionComposer: View {
             .disabled(isSubmittingInput)
 
             HStack(spacing: 10) {
+                Button(action: onPickImages) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.72))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(RoundedInteractionButtonStyle(cornerRadius: 9))
+                .disabled(isSubmittingInput || isProcessingImageAttachments)
+                .opacity(isSubmittingInput || isProcessingImageAttachments ? 0.45 : 1)
+                .help(L10n.string("chat.image.add"))
+                .accessibilityLabel(L10n.string("chat.image.add"))
+                .accessibilityIdentifier("add-image-attachment")
+
                 if mode == .work, let selectedAccessMode {
                     accessModeMenu(selectedAccessMode)
                 }

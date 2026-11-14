@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var sessionOpenTask: Task<Void, Never>?
     @State private var agentError: AgentErrorPresentation?
     @State private var exportingSessionIDs: Set<String> = []
+    @State private var unreadState = SessionUnreadState()
     @State private var showsProjectChanges = false
 
     init(
@@ -55,6 +56,19 @@ struct ContentView: View {
                 for id in changedIDs where sessionStore.records[id]?.runState == .running {
                     composerDrafts.acceptSubmission(sessionID: id)
                 }
+                unreadState.update(
+                    activeSessionIDs: runningSessionIDs,
+                    visibleSessionID: visibleSessionID
+                )
+            }
+            .onChange(of: visibleSessionID) { sessionID in
+                if let sessionID { unreadState.markViewed(sessionID) }
+            }
+            .onAppear {
+                unreadState.update(
+                    activeSessionIDs: runningSessionIDs,
+                    visibleSessionID: visibleSessionID
+                )
             }
             .task {
                 await bootstrapChatIfNeeded()
@@ -77,7 +91,8 @@ struct ContentView: View {
                 onSelectChatSession: openChatSession,
                 onDeleteChatSession: deleteChatSession,
                 workSessionsByProjectPath: sessionStore.workSessionsByProjectPath,
-                activeSessionIDs: activeSessionIDs.union(exportingSessionIDs),
+                activeSessionIDs: activeSessionIDs,
+                unreadSessionIDs: unreadState.unreadSessionIDs,
                 selectedWorkSidebarItem: workSession.sidebarItem,
                 pendingWorkSidebarItem: sessionOpeningState.pendingWorkSidebarItem,
                 onSelectWorkSession: openWorkSession,
@@ -129,12 +144,29 @@ struct ContentView: View {
         }
     }
 
-    private var activeSessionIDs: Set<String> {
+    private var runningSessionIDs: Set<String> {
         Set(
             sessionStore.records.values.compactMap { record in
                 record.runState.showsSidebarActivity ? record.id : nil
             }
         )
+    }
+
+    private var activeSessionIDs: Set<String> {
+        runningSessionIDs.union(exportingSessionIDs)
+    }
+
+    /// The conversation actually rendered in the detail column. Switching tabs
+    /// or opening a catalog makes the previous session count as background.
+    private var visibleSessionID: String? {
+        guard selectedCustomDestination == nil else { return nil }
+        switch selectedTab {
+        case .chat:
+            return sessionStore.selectedChatSessionId
+        case .work:
+            guard let project = workSession.selectedProject else { return nil }
+            return sessionStore.selectedWorkSessionIdByProjectPath[project.path]
+        }
     }
 
     private var selectedTabBinding: Binding<SidebarTab> {
@@ -181,6 +213,7 @@ struct ContentView: View {
 
     private func openChatSession(_ session: AgentHostSessionSummary) {
         selectedCustomDestination = nil
+        unreadState.markViewed(session.id)
         guard !selectCachedSessionIfAvailable(session, profile: .chat) else { return }
         beginOpeningSession(session, profile: .chat)
     }
@@ -272,6 +305,7 @@ struct ContentView: View {
     ) {
         selectedTab = .work
         selectedCustomDestination = nil
+        unreadState.markViewed(session.id)
         guard !selectCachedSessionIfAvailable(
             session,
             profile: .work,
@@ -399,6 +433,7 @@ struct ContentView: View {
                     sessionDirectory: nil
                 )
                 composerDrafts.removeSession(session.id)
+                unreadState.remove(session.id)
                 agentError = nil
             } catch {
                 agentError = AgentErrorPresentation(error)
@@ -419,6 +454,7 @@ struct ContentView: View {
                     sessionDirectory: nil
                 )
                 composerDrafts.removeSession(session.id)
+                unreadState.remove(session.id)
                 agentError = nil
             } catch {
                 agentError = AgentErrorPresentation(error)
@@ -480,12 +516,16 @@ struct ContentView: View {
     }
 
     private func deleteWorkProject(_ project: PiProject) {
+        let sessionIDs = Set(
+            (sessionStore.workSessionsByProjectPath[project.path] ?? []).map(\.id)
+        )
         Task {
             do {
                 try await sessionStore.deleteWorkSessions(
                     cwd: project.path,
                     sessionDirectory: nil
                 )
+                for sessionID in sessionIDs { unreadState.remove(sessionID) }
                 if workSession.selectedProject?.id == project.id {
                     workSession.startNewSession()
                 }

@@ -318,6 +318,7 @@
 "sidebar.copy_session_id" = "复制 Session ID";
 "sidebar.export_html_report" = "导出 HTML 报告";
 "sidebar.delete_session" = "删除 Session";
+"sidebar.session_finished_unread" = "已完成，未查看";
 "sidebar.remove_project" = "移除项目";
 "sidebar.remove_project_title" = "移除 %@？";
 "sidebar.remove_project_action" = "移除项目并删除 Session";
@@ -381,6 +382,7 @@
 "chat.image_attachment" = "[图片 · %@]";
 "chat.image.preview" = "图片附件";
 "chat.image.remove" = "移除图片";
+"chat.image.add" = "添加图片";
 "chat.image.processing" = "正在处理…";
 "chat.image.model_unsupported" = "当前选择的模型不支持图片。";
 "chat.image.error.processing" = "请等待当前图片处理完成。";

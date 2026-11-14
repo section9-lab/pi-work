@@ -318,6 +318,7 @@
 "sidebar.copy_session_id" = "Session ID 복사";
 "sidebar.export_html_report" = "HTML 보고서 내보내기";
 "sidebar.delete_session" = "세션 삭제";
+"sidebar.session_finished_unread" = "완료됨 · 아직 보지 않음";
 "sidebar.remove_project" = "프로젝트 제거";
 "sidebar.remove_project_title" = "%@을(를) 제거할까요?";
 "sidebar.remove_project_action" = "프로젝트 제거 및 세션 삭제";
@@ -381,6 +382,7 @@
 "chat.image_attachment" = "[이미지 · %@]";
 "chat.image.preview" = "이미지 첨부";
 "chat.image.remove" = "이미지 제거";
+"chat.image.add" = "이미지 추가";
 "chat.image.processing" = "처리 중…";
 "chat.image.model_unsupported" = "선택한 모델은 이미지를 지원하지 않습니다.";
 "chat.image.error.processing" = "현재 이미지 처리가 끝날 때까지 기다려 주세요.";

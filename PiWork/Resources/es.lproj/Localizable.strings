@@ -318,6 +318,7 @@
 "sidebar.copy_session_id" = "Copiar ID de sesión";
 "sidebar.export_html_report" = "Exportar informe HTML";
 "sidebar.delete_session" = "Eliminar sesión";
+"sidebar.session_finished_unread" = "Terminado · sin revisar";
 "sidebar.add_mac_folder" = "Añadir carpeta del Mac";
 "sidebar.remove_project" = "Eliminar proyecto";
 "sidebar.remove_project_title" = "¿Eliminar %@?";
@@ -381,6 +382,7 @@
 "chat.image_attachment" = "[Imagen · %@]";
 "chat.image.preview" = "Imagen adjunta";
 "chat.image.remove" = "Quitar imagen";
+"chat.image.add" = "Añadir imagen";
 "chat.image.processing" = "Procesando…";
 "chat.image.model_unsupported" = "El modelo seleccionado no admite imágenes.";
 "chat.image.error.processing" = "Espera a que terminen de procesarse las imágenes actuales.";
