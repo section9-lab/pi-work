@@ -285,10 +285,22 @@ private struct TranscriptViewportKey: EnvironmentKey {
     static let defaultValue: TranscriptViewport? = nil
 }
 
+/// False while the reader is scrolled away from the tail. Streaming rows use it
+/// to stop virtualizing their own blocks: scroll does not invalidate SwiftUI
+/// every frame, so a fixed "newest N blocks" window would leave the content the
+/// reader just scrolled to blank.
+private struct TranscriptFollowsTailKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
     var transcriptViewport: TranscriptViewport? {
         get { self[TranscriptViewportKey.self] }
         set { self[TranscriptViewportKey.self] = newValue }
+    }
+    var transcriptFollowsTail: Bool {
+        get { self[TranscriptFollowsTailKey.self] }
+        set { self[TranscriptFollowsTailKey.self] = newValue }
     }
     var transcriptMessagePresentation: TranscriptMessagePresentation? {
         get { self[TranscriptMessagePresentationKey.self] }

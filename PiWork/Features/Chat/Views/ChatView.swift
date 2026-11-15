@@ -496,6 +496,7 @@ struct ChatView: View {
                 }
                 .coordinateSpace(name: TranscriptLayout.coordinateSpace)
                 .environment(\.transcriptViewport, transcriptViewport)
+                .environment(\.transcriptFollowsTail, isFollowingTranscriptTail)
                 .onChange(of: viewport.size.width) { _ in
                     // Cached row heights are only valid at the width that
                     // produced them; mount everything once and re-measure.
