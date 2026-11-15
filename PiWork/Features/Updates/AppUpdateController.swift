@@ -14,6 +14,54 @@ enum AppUpdateState: Equatable {
     case failed
 }
 
+/// Automatic checks follow the local working day instead of one fixed interval:
+/// every 10 minutes between 09:00 and 19:00 local time, hourly otherwise.
+///
+/// Sparkle cannot express that alone: `updateCheckInterval` is clamped to
+/// `SPUUpdaterSettings.minimumUpdateCheckInterval`, which is 3600 s in release
+/// builds. Sparkle therefore keeps its own hourly floor, and the controller
+/// drives the frequent checks with `checkForUpdatesInBackground()`.
+struct AppUpdateCheckSchedule {
+    /// Local hours that count as working time (10 hours).
+    static let workingHours: Range<Int> = 9..<19
+    static let activeInterval: TimeInterval = 10 * 60
+    static let idleInterval: TimeInterval = 60 * 60
+
+    let calendar: Calendar
+
+    init(calendar: Calendar = .autoupdatingCurrent) {
+        self.calendar = calendar
+    }
+
+    func isWithinWorkingHours(_ date: Date) -> Bool {
+        Self.workingHours.contains(calendar.component(.hour, from: date))
+    }
+
+    /// Delay until the next check. A boundary shortens the delay so the cadence
+    /// switches at 09:00 and 19:00 instead of one interval later.
+    func delay(after date: Date) -> TimeInterval {
+        let interval = isWithinWorkingHours(date) ? Self.activeInterval : Self.idleInterval
+        guard let boundary = nextBoundary(after: date) else { return interval }
+        return min(interval, max(1, boundary.timeIntervalSince(date)))
+    }
+
+    private func nextBoundary(after date: Date) -> Date? {
+        let startOfDay = calendar.startOfDay(for: date)
+        var candidates: [Date] = []
+        for dayOffset in 0...1 {
+            guard let day = calendar.date(byAdding: .day, value: dayOffset, to: startOfDay) else {
+                continue
+            }
+            for hour in [Self.workingHours.lowerBound, Self.workingHours.upperBound] {
+                guard let candidate = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day),
+                      candidate > date else { continue }
+                candidates.append(candidate)
+            }
+        }
+        return candidates.min()
+    }
+}
+
 /// Sparkle owns scheduling, signature verification, installation and relaunch.
 /// This driver keeps consent and progress in the application's existing UI.
 @MainActor
@@ -42,6 +90,9 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
     private var preparedInstallation: (() -> Void)?
     private var taskActivityObservation: AnyCancellable?
     private var currentTaskActivity: () -> Bool = { false }
+    private let checkSchedule = AppUpdateCheckSchedule()
+    private var automaticCheckTimer: Timer?
+    private var scheduleObservers: [NSObjectProtocol] = []
 
     init(bundle: Bundle = .main, architecture: AppArchitecture = .current, feedURL: URL? = nil) {
         self.bundle = bundle
@@ -95,17 +146,60 @@ final class AppUpdateController: NSObject, ObservableObject, SPUUserDriver, SPUU
             // Checking is automatic; downloading always requires an explicit click,
             // including when an older installation saved different Sparkle preferences.
             updater.automaticallyDownloadsUpdates = false
-            updater.updateCheckInterval = 4 * 60 * 60
+            // Sparkle's lower bound; the frequent working-hours cadence is
+            // scheduled by `scheduleAutomaticCheck()`.
+            updater.updateCheckInterval = AppUpdateCheckSchedule.idleInterval
             try updater.start()
             self.updater = updater
             updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
             updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecksForUpdates)
+            observeScheduleEnvironment()
             if updater.automaticallyChecksForUpdates { updater.checkForUpdatesInBackground() }
+            scheduleAutomaticCheck()
         } catch { fail(error) }
     }
 
     func setAutomaticChecks(_ enabled: Bool) {
         updater?.automaticallyChecksForUpdates = enabled
+        scheduleAutomaticCheck()
+    }
+
+    /// Re-evaluate the cadence when the clock, time zone or wake state changes;
+    /// a timer that was armed for the old working day is no longer correct.
+    private func observeScheduleEnvironment() {
+        guard scheduleObservers.isEmpty else { return }
+        let workspace = NSWorkspace.shared.notificationCenter
+        scheduleObservers.append(workspace.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.scheduleAutomaticCheck() }
+        })
+        for name in [Notification.Name.NSSystemTimeZoneDidChange, Notification.Name.NSSystemClockDidChange] {
+            scheduleObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.scheduleAutomaticCheck() }
+            })
+        }
+    }
+
+    private func scheduleAutomaticCheck() {
+        automaticCheckTimer?.invalidate()
+        automaticCheckTimer = nil
+        guard let updater, updater.automaticallyChecksForUpdates else { return }
+        let delay = checkSchedule.delay(after: Date())
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.automaticCheckFired() }
+        }
+        timer.tolerance = min(60, delay * 0.1)
+        RunLoop.main.add(timer, forMode: .common)
+        automaticCheckTimer = timer
+    }
+
+    private func automaticCheckFired() {
+        guard let updater, updater.automaticallyChecksForUpdates else { return }
+        updater.checkForUpdatesInBackground()
+        scheduleAutomaticCheck()
     }
 
     func checkForUpdatesAndPresent() {

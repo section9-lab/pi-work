@@ -206,4 +206,55 @@ final class AppUpdateControllerTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Check cadence
+
+    private func shanghaiSchedule() -> AppUpdateCheckSchedule {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return AppUpdateCheckSchedule(calendar: calendar)
+    }
+
+    private func time(_ hour: Int, _ minute: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return calendar.date(from: DateComponents(
+            year: 2026, month: 11, day: 16, hour: hour, minute: minute))!
+    }
+
+    func testWorkingHoursRunEveryTenMinutes() {
+        let schedule = shanghaiSchedule()
+        XCTAssertTrue(schedule.isWithinWorkingHours(time(9, 0)))
+        XCTAssertTrue(schedule.isWithinWorkingHours(time(18, 59)))
+        XCTAssertEqual(schedule.delay(after: time(10, 0)), 600, accuracy: 1)
+        XCTAssertEqual(schedule.delay(after: time(14, 37)), 600, accuracy: 1)
+    }
+
+    func testOutsideWorkingHoursStayHourly() {
+        let schedule = shanghaiSchedule()
+        XCTAssertFalse(schedule.isWithinWorkingHours(time(8, 30)))
+        XCTAssertFalse(schedule.isWithinWorkingHours(time(19, 0)))
+        XCTAssertFalse(schedule.isWithinWorkingHours(time(23, 15)))
+        // 30 minutes before the window opens: the boundary shortens the idle
+        // hour so the frequent cadence starts at 09:00 sharp.
+        XCTAssertEqual(schedule.delay(after: time(8, 30)), 1800, accuracy: 1)
+        XCTAssertEqual(schedule.delay(after: time(22, 0)), 3600, accuracy: 1)
+        XCTAssertEqual(schedule.delay(after: time(3, 0)), 3600, accuracy: 1)
+    }
+
+    func testWorkingHourBoundariesShortenTheLastDelay() {
+        let schedule = shanghaiSchedule()
+        // One minute before the window opens: check then, not ten minutes later.
+        XCTAssertEqual(schedule.delay(after: time(8, 59)), 60, accuracy: 1)
+        // Five minutes before the window closes: fall back to hourly at 19:00.
+        XCTAssertEqual(schedule.delay(after: time(18, 55)), 300, accuracy: 1)
+    }
+
+    func testWorkingWindowIsTenHours() {
+        XCTAssertEqual(AppUpdateCheckSchedule.workingHours.count, 10)
+        XCTAssertEqual(AppUpdateCheckSchedule.workingHours.lowerBound, 9)
+        XCTAssertEqual(AppUpdateCheckSchedule.workingHours.upperBound, 19)
+        XCTAssertEqual(AppUpdateCheckSchedule.activeInterval, 600)
+        XCTAssertEqual(AppUpdateCheckSchedule.idleInterval, 3600)
+    }
 }
