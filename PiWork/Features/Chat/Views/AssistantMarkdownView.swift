@@ -117,7 +117,10 @@ struct AssistantMarkdownView: View {
 
     var body: some View {
         Group {
-            if AssistantMarkdownRendering.usesSegments {
+            // The segment path is the streaming renderer. `content` is always
+            // seeded, so an empty segment list falls back instead of silently
+            // showing an empty reply.
+            if AssistantMarkdownRendering.usesSegments, !presentation.segments.isEmpty {
                 AssistantMarkdownBlocksView(
                     segments: presentation.segments,
                     mode: AssistantMarkdownRendering.blockMode,
@@ -335,6 +338,11 @@ final class AssistantMarkdownPresentation: ObservableObject {
         pendingText = text
         self.delayNanoseconds = delayNanoseconds
         content = AssistantMarkdownCache.content(for: text)
+        if AssistantMarkdownRendering.usesSegments {
+            // Completed and historical messages never streamed through
+            // `render(cache:)`, so their single segment has to be seeded here.
+            segments = [StreamingMarkdownSegment(id: 0, content: content)]
+        }
         #if DEBUG || TRANSCRIPT_ACCEPTANCE
         AssistantMarkdownDiagnostics.register(self)
         #endif

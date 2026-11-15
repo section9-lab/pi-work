@@ -199,4 +199,29 @@ final class AssistantMarkdownPresentationTests: XCTestCase {
         XCTAssertTrue(AssistantMarkdownRendering.usesSegments)
         XCTAssertEqual(AssistantMarkdownRendering.blockMode, .windowed)
     }
+
+    /// Historical rows are created from stored text and never stream through
+    /// `render(cache:)`. They must still publish a segment, or the block view
+    /// renders an empty document while tool/thinking parts stay visible.
+    func testHistoricalTextIsSeededAsOneSegment() {
+        let original = AssistantMarkdownRendering.strategy
+        AssistantMarkdownRendering.strategy = .blockWindow
+        defer { AssistantMarkdownRendering.strategy = original }
+
+        let presentation = AssistantMarkdownPresentation(text: "# Title\n\nBody text.")
+        XCTAssertEqual(presentation.segments.count, 1)
+        XCTAssertEqual(
+            presentation.segments[0].content.renderPlainText(),
+            presentation.content.renderPlainText()
+        )
+        XCTAssertFalse(presentation.segments[0].content.renderPlainText().isEmpty)
+
+        let host = NSHostingView(
+            rootView: AssistantMarkdownBlocksView(
+                segments: presentation.segments, mode: .windowed, resetToken: 0
+            ).frame(width: 420))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 600)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(host.fittingSize.height, 0)
+    }
 }
