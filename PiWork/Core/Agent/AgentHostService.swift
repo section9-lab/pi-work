@@ -42,6 +42,7 @@ protocol AgentHostServicing: Actor {
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        sessionId: String?,
         requestID: String
     ) async throws -> AgentHostSessionCreateDraftResult
     func openSession(
@@ -913,6 +914,7 @@ actor AgentHostService: AgentHostServicing,
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        sessionId: String? = nil,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionCreateDraftResult {
         let result: AgentHostACPSessionNewResult = try await request(
@@ -921,7 +923,8 @@ actor AgentHostService: AgentHostServicing,
             params: AgentHostSessionCreateDraftParameters(
                 cwd: cwd,
                 sessionDirectory: sessionDirectory,
-                profile: profile
+                profile: profile,
+                sessionId: sessionId
             ),
             as: AgentHostACPSessionNewResult.self
         )

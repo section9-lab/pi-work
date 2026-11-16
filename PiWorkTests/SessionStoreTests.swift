@@ -1603,6 +1603,102 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testBootstrapPreservesADraftCreatedBeforeTheSessionListReturns() async throws {
+        let host = FakeAgentHost()
+        await host.setSessions([])
+        let store = SessionStore(service: host)
+
+        let record = try await store.createDraft(
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .work
+        )
+        try await store.bootstrap(
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .work
+        )
+
+        XCTAssertEqual(
+            store.workSessionsByProjectPath["/tmp/project"]?.map(\.id),
+            [record.id]
+        )
+        await store.stop()
+    }
+
+    func testBootstrapMergesRemoteSummariesAndKeepsNewerOrder() {
+        let local = makeSummary(id: "local", modifiedAt: "2026-08-09T00:00:00.000Z")
+        let remote = makeSummary(id: "remote", modifiedAt: "2026-08-10T00:00:00.000Z")
+
+        let merged = SessionStore.mergedSessionSummaries(
+            remote: [remote],
+            existing: [local]
+        )
+
+        XCTAssertEqual(merged.map(\.id), ["remote", "local"])
+    }
+
+    func testProvisionalDraftIsSelectableBeforeTheHostCreatesIt() {
+        let store = SessionStore(service: FakeAgentHost())
+
+        let record = store.beginProvisionalDraft(
+            sessionId: "draft-local",
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .chat
+        )
+
+        XCTAssertEqual(record.id, "draft-local")
+        XCTAssertEqual(store.selectedChatSessionId, "draft-local")
+        XCTAssertNotNil(store.records["draft-local"])
+        XCTAssertTrue(store.chatSessions.contains { $0.id == "draft-local" })
+    }
+
+    func testDiscardingAProvisionalDraftRestoresThePreviousSelection() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot())
+        let store = SessionStore(service: host)
+        try await store.openSession(makeSummary(), profile: .chat, sessionDirectory: nil)
+        let previousChatSessionID = store.selectedChatSessionId
+
+        _ = store.beginProvisionalDraft(
+            sessionId: "draft-local",
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .chat
+        )
+        XCTAssertEqual(store.selectedChatSessionId, "draft-local")
+
+        store.discardProvisionalDraft(
+            sessionId: "draft-local",
+            cwd: "/tmp/project",
+            profile: .chat,
+            previousChatSessionID: previousChatSessionID,
+            previousWorkSessionID: nil
+        )
+
+        XCTAssertEqual(store.selectedChatSessionId, previousChatSessionID)
+        XCTAssertNil(store.records["draft-local"])
+        XCTAssertFalse(store.chatSessions.contains { $0.id == "draft-local" })
+        await store.stop()
+    }
+
+    func testCreateDraftForwardsTheRequestedSessionId() async throws {
+        let host = FakeAgentHost()
+        await host.setPiWorkCapabilities([])
+        let store = SessionStore(service: host)
+
+        let record = try await store.createDraft(
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .chat,
+            sessionId: "draft-local"
+        )
+
+        XCTAssertEqual(record.id, "draft-local")
+        await store.stop()
+    }
+
     func testBootstrapWorksWhenPrivateModelCatalogIsUnavailable() async throws {
         let host = FakeAgentHost()
         await host.setSessions([makeSummary()])
@@ -2044,10 +2140,11 @@ actor FakeAgentHost: AgentHostServicing {
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        sessionId: String?,
         requestID: String
     ) async throws -> AgentHostSessionCreateDraftResult {
         AgentHostSessionCreateDraftResult(
-            session: makeSummary(),
+            session: makeSummary(id: sessionId ?? "session-one"),
             acpState: acpState
         )
     }

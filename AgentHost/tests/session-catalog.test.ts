@@ -90,6 +90,20 @@ describe("SessionCatalog", () => {
     expect(existsSync(draft.summary.path)).toBe(false);
   });
 
+  test("uses a client supplied draft id", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-work-host-draft-id-test-"));
+    temporaryDirectories.push(root);
+    const cwd = join(root, "project");
+    const sessionDirectory = join(root, "sessions");
+    mkdirSync(cwd, { recursive: true });
+
+    const catalog = new SessionCatalog();
+    const draft = catalog.createDraft(cwd, sessionDirectory, "draft-local");
+
+    expect(draft.summary.id).toBe("draft-local");
+    expect(draft.manager.getSessionId()).toBe("draft-local");
+  });
+
   test("opens an existing native Pi session", () => {
     const root = mkdtempSync(join(tmpdir(), "pi-work-host-open-test-"));
     temporaryDirectories.push(root);

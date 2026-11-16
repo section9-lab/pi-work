@@ -1,6 +1,16 @@
 import SwiftUI
 import AppKit
 
+private struct DraftPreparation: Identifiable, Equatable {
+    let id = UUID()
+    let sessionID: String
+    let profile: AgentHostSessionProfile
+    let cwd: String
+    let projectID: UUID?
+    let previousChatSessionID: String?
+    let previousWorkSessionID: String?
+}
+
 struct ContentView: View {
     @ObservedObject private var sessionStore: SessionStore
     @ObservedObject private var installedExtensionsStore: InstalledExtensionsStore
@@ -19,6 +29,8 @@ struct ContentView: View {
     @State private var bootstrappedWorkProjectPaths: Set<String> = []
     @State private var sessionOpeningState = SessionOpeningState()
     @State private var sessionOpenTask: Task<Void, Never>?
+    @State private var draftPreparation: DraftPreparation?
+    @State private var sessionDraftTask: Task<Void, Never>?
     @State private var agentError: AgentErrorPresentation?
     @State private var exportingSessionIDs: Set<String> = []
     @State private var unreadState = SessionUnreadState()
@@ -87,14 +99,14 @@ struct ContentView: View {
                 onNewProjectSession: startNewSession(for:),
                 chatSessions: sessionStore.chatSessions,
                 selectedChatSessionId: sessionStore.selectedChatSessionId,
-                pendingChatSessionId: sessionOpeningState.pendingChatSessionID,
+                pendingChatSessionId: pendingChatSessionID,
                 onSelectChatSession: openChatSession,
                 onDeleteChatSession: deleteChatSession,
                 workSessionsByProjectPath: sessionStore.workSessionsByProjectPath,
                 activeSessionIDs: activeSessionIDs,
                 unreadSessionIDs: unreadState.unreadSessionIDs,
                 selectedWorkSidebarItem: workSession.sidebarItem,
-                pendingWorkSidebarItem: sessionOpeningState.pendingWorkSidebarItem,
+                pendingWorkSidebarItem: pendingWorkSidebarItem,
                 onSelectWorkSession: openWorkSession,
                 onDeleteWorkSession: deleteWorkSession,
                 onDeleteWorkProject: deleteWorkProject,
@@ -185,7 +197,9 @@ struct ContentView: View {
         selectedCustomDestination = nil
         switch selectedTab {
         case .chat:
-            Task { await createChatSession() }
+            guard let preparation = prepareChatDraft() else { return }
+            draftPreparation = preparation
+            sessionDraftTask = Task { await createChatSession(preparation) }
         case .work:
             workSession.startNewSession()
         }
@@ -196,10 +210,13 @@ struct ContentView: View {
         selectedTab = .work
         selectedCustomDestination = nil
         workSession.startNewSession(for: project)
-        Task { await createWorkSession(for: project) }
+        guard let preparation = prepareWorkDraft(for: project) else { return }
+        draftPreparation = preparation
+        sessionDraftTask = Task { await createWorkSession(preparation) }
     }
 
     private var isOpeningSelectedSession: Bool {
+        if isPreparingDraftForSelectedTab { return true }
         guard let target = sessionOpeningState.target else { return false }
         switch (selectedTab, target.profile) {
         case (.chat, .chat):
@@ -211,7 +228,32 @@ struct ContentView: View {
         }
     }
 
+    private var isPreparingDraftForSelectedTab: Bool {
+        guard let draftPreparation else { return false }
+        switch (selectedTab, draftPreparation.profile) {
+        case (.chat, .chat), (.work, .work):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var pendingChatSessionID: String? {
+        if let pending = sessionOpeningState.pendingChatSessionID { return pending }
+        guard draftPreparation?.profile == .chat else { return nil }
+        return draftPreparation?.sessionID
+    }
+
+    private var pendingWorkSidebarItem: WorkSidebarItem? {
+        if let pending = sessionOpeningState.pendingWorkSidebarItem { return pending }
+        guard let preparation = draftPreparation,
+              preparation.profile == .work,
+              let projectID = preparation.projectID else { return nil }
+        return .session(projectID: projectID, sessionID: preparation.sessionID)
+    }
+
     private func openChatSession(_ session: AgentHostSessionSummary) {
+        cancelSessionOpening()
         selectedCustomDestination = nil
         unreadState.markViewed(session.id)
         guard !selectCachedSessionIfAvailable(session, profile: .chat) else { return }
@@ -249,16 +291,76 @@ struct ContentView: View {
         }
     }
 
-    private func createChatSession() async {
+    private func prepareChatDraft() -> DraftPreparation? {
         do {
             let directory = try prepareChatWorkingDirectory()
-            _ = try await sessionStore.createDraft(
+            let previousChatSessionID = sessionStore.selectedChatSessionId
+            let previousWorkSessionID = workSession.selectedProject.flatMap {
+                sessionStore.selectedWorkSessionIdByProjectPath[$0.path]
+            }
+            let sessionID = UUID().uuidString
+            let model = visibleSessionID.flatMap { sessionStore.records[$0]?.model }
+                ?? sessionStore.availableModels.first
+            _ = sessionStore.beginProvisionalDraft(
+                sessionId: sessionID,
                 cwd: directory.path,
                 sessionDirectory: nil,
-                profile: .chat
+                profile: .chat,
+                model: model
             )
-            agentError = nil
+            return DraftPreparation(
+                sessionID: sessionID,
+                profile: .chat,
+                cwd: directory.path,
+                projectID: nil,
+                previousChatSessionID: previousChatSessionID,
+                previousWorkSessionID: previousWorkSessionID
+            )
         } catch {
+            agentError = AgentErrorPresentation(error)
+            return nil
+        }
+    }
+
+    private func prepareWorkDraft(for project: PiProject) -> DraftPreparation? {
+        let previousChatSessionID = sessionStore.selectedChatSessionId
+        let previousWorkSessionID = sessionStore.selectedWorkSessionIdByProjectPath[project.path]
+        let sessionID = UUID().uuidString
+        let model = previousWorkSessionID.flatMap { sessionStore.records[$0]?.model }
+            ?? sessionStore.availableModels.first
+        _ = sessionStore.beginProvisionalDraft(
+            sessionId: sessionID,
+            cwd: project.path,
+            sessionDirectory: nil,
+            profile: .work,
+            model: model
+        )
+        return DraftPreparation(
+            sessionID: sessionID,
+            profile: .work,
+            cwd: project.path,
+            projectID: project.id,
+            previousChatSessionID: previousChatSessionID,
+            previousWorkSessionID: previousWorkSessionID
+        )
+    }
+
+    private func createChatSession(_ preparation: DraftPreparation) async {
+        let performanceTraceID = sessionStore.beginSessionDraftPerformanceTrace(profile: .chat)
+        do {
+            _ = try await sessionStore.createDraft(
+                cwd: preparation.cwd,
+                sessionDirectory: nil,
+                profile: .chat,
+                sessionId: preparation.sessionID,
+                performanceTraceID: performanceTraceID
+            )
+            completeDraftPreparation(preparation)
+            agentError = nil
+        } catch is CancellationError {
+            failDraftPreparation(preparation)
+        } catch {
+            failDraftPreparation(preparation)
             agentError = AgentErrorPresentation(error)
         }
     }
@@ -269,7 +371,10 @@ struct ContentView: View {
         }
     }
 
-    private func bootstrapWorkProjectIfNeeded(_ project: PiProject) async {
+    private func bootstrapWorkProjectIfNeeded(
+        _ project: PiProject,
+        reportErrors: Bool = true
+    ) async {
         guard !bootstrappedWorkProjectPaths.contains(project.path) else { return }
         bootstrappedWorkProjectPaths.insert(project.path)
         do {
@@ -281,21 +386,83 @@ struct ContentView: View {
             agentError = nil
         } catch {
             bootstrappedWorkProjectPaths.remove(project.path)
+            if reportErrors {
+                agentError = AgentErrorPresentation(error)
+            }
+        }
+    }
+
+    private func createWorkSession(_ preparation: DraftPreparation) async {
+        let performanceTraceID = sessionStore.beginSessionDraftPerformanceTrace(profile: .work)
+        do {
+            // The draft does not need the project's session list. Put its RPC
+            // first, then refresh the sidebar without blocking the new session.
+            _ = try await sessionStore.createDraft(
+                cwd: preparation.cwd,
+                sessionDirectory: nil,
+                profile: .work,
+                sessionId: preparation.sessionID,
+                performanceTraceID: performanceTraceID
+            )
+            completeDraftPreparation(preparation)
+            if let project = projectStore.projects.first(where: { $0.id == preparation.projectID }) {
+                workSession.selectSession(preparation.sessionID, in: project)
+                Task { await bootstrapWorkProjectIfNeeded(project, reportErrors: false) }
+            }
+            agentError = nil
+        } catch is CancellationError {
+            failDraftPreparation(preparation)
+        } catch {
+            failDraftPreparation(preparation)
             agentError = AgentErrorPresentation(error)
         }
     }
 
-    private func createWorkSession(for project: PiProject) async {
-        await bootstrapWorkProjectIfNeeded(project)
-        do {
-            _ = try await sessionStore.createDraft(
-                cwd: project.path,
-                sessionDirectory: nil,
-                profile: .work
-            )
-            agentError = nil
-        } catch {
-            agentError = AgentErrorPresentation(error)
+    private func completeDraftPreparation(_ preparation: DraftPreparation) {
+        guard draftPreparation?.id == preparation.id else { return }
+        draftPreparation = nil
+        sessionDraftTask = nil
+    }
+
+    private func failDraftPreparation(_ preparation: DraftPreparation) {
+        guard draftPreparation?.id == preparation.id else { return }
+        sessionStore.discardProvisionalDraft(
+            sessionId: preparation.sessionID,
+            cwd: preparation.cwd,
+            profile: preparation.profile,
+            previousChatSessionID: preparation.previousChatSessionID,
+            previousWorkSessionID: preparation.previousWorkSessionID
+        )
+        restoreWorkSelection(after: preparation)
+        draftPreparation = nil
+        sessionDraftTask = nil
+    }
+
+    private func cancelDraftPreparation() {
+        guard let preparation = draftPreparation else { return }
+        sessionDraftTask?.cancel()
+        sessionDraftTask = nil
+        sessionStore.discardProvisionalDraft(
+            sessionId: preparation.sessionID,
+            cwd: preparation.cwd,
+            profile: preparation.profile,
+            previousChatSessionID: preparation.previousChatSessionID,
+            previousWorkSessionID: preparation.previousWorkSessionID
+        )
+        restoreWorkSelection(after: preparation)
+        draftPreparation = nil
+    }
+
+    private func restoreWorkSelection(after preparation: DraftPreparation) {
+        guard preparation.profile == .work,
+              let project = projectStore.projects.first(where: { $0.id == preparation.projectID }) else {
+            return
+        }
+        if let previousWorkSessionID = preparation.previousWorkSessionID,
+           sessionStore.records[previousWorkSessionID] != nil {
+            workSession.selectSession(previousWorkSessionID, in: project)
+        } else {
+            workSession.selectProject(project)
         }
     }
 
@@ -303,6 +470,7 @@ struct ContentView: View {
         _ project: PiProject,
         _ session: AgentHostSessionSummary
     ) {
+        cancelSessionOpening()
         selectedTab = .work
         selectedCustomDestination = nil
         unreadState.markViewed(session.id)
@@ -422,6 +590,7 @@ struct ContentView: View {
         sessionOpenTask?.cancel()
         sessionOpenTask = nil
         sessionOpeningState.cancel()
+        cancelDraftPreparation()
     }
 
     private func deleteChatSession(_ session: AgentHostSessionSummary) {

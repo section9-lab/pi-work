@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import OSLog
 
 enum AgentHostClientError: LocalizedError {
     case alreadyRunning
@@ -58,6 +59,12 @@ enum AgentHostPath {
 }
 
 actor AgentHostClient {
+    private static let hostTimingPrefix = "PIWORK_PERF "
+    private static let hostTimingLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "cc.vibevibe.pi-work",
+        category: "AgentHostTiming"
+    )
+
     private let executableURL: URL
     private let arguments: [String]
     private let environment: [String: String]
@@ -144,7 +151,19 @@ actor AgentHostClient {
             }
         }
         stderrReadTask = Task.detached { [handle = stderrPipe.fileHandleForReading] in
-            while !Task.isCancelled, !handle.availableData.isEmpty {}
+            var buffer = Data()
+            while !Task.isCancelled {
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                buffer.append(data)
+                while let newline = buffer.firstIndex(of: 0x0A) {
+                    let lineData = buffer[buffer.startIndex..<newline]
+                    buffer.removeSubrange(buffer.startIndex...newline)
+                    guard let line = String(data: lineData, encoding: .utf8),
+                          line.hasPrefix(Self.hostTimingPrefix) else { continue }
+                    Self.hostTimingLogger.notice("\(line, privacy: .public)")
+                }
+            }
         }
         task.terminationHandler = { [weak self] terminatedProcess in
             Task { await self?.processDidExit(terminatedProcess.terminationStatus) }

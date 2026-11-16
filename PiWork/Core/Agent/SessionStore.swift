@@ -1766,6 +1766,12 @@ final class SessionStore: ObservableObject {
         performanceTracer.begin(sessionID: sessionID, profile: profile)
     }
 
+    func beginSessionDraftPerformanceTrace(
+        profile: AgentHostSessionProfile
+    ) -> UUID {
+        performanceTracer.beginDraft(profile: profile)
+    }
+
     func markSessionOpenPerformanceTrace(
         _ traceID: UUID,
         stage: SessionOpenPerformanceStage
@@ -1824,22 +1830,59 @@ final class SessionStore: ObservableObject {
             requestID: UUID().uuidString
         )
         var models: [AgentHostModel] = []
+        var didLoadModels = false
         if supportsPiWorkCapability(.modelsList) {
             do {
                 models = try await service.listModels(requestID: UUID().uuidString)
+                didLoadModels = true
             } catch where Self.isMethodNotFound(error) {
                 models = []
             }
         }
         let sessions = try await listedSessions
-        let sortedSessions = sessions.sorted { lhs, rhs in
-            lhs.modifiedAt == rhs.modifiedAt ? lhs.id < rhs.id : lhs.modifiedAt > rhs.modifiedAt
+        let sortedSessions = Self.sortedSessionSummaries(sessions)
+        if didLoadModels {
+            availableModels = models
         }
-        availableModels = models
+        // Only preserve rows the store still has a live record for: a draft
+        // created before the listing returned, or an open/cached conversation.
+        // Rows that only exist in the previous listing stay authoritative from
+        // the host, so a session deleted on disk does not linger forever.
         if profile == .chat {
-            chatSessions = sortedSessions
+            chatSessions = Self.mergedSessionSummaries(
+                remote: sortedSessions,
+                existing: chatSessions.filter { records[$0.id] != nil }
+            )
         } else {
-            workSessionsByProjectPath[cwd] = sortedSessions
+            workSessionsByProjectPath[cwd] = Self.mergedSessionSummaries(
+                remote: sortedSessions,
+                existing: (workSessionsByProjectPath[cwd] ?? []).filter {
+                    records[$0.id] != nil
+                }
+            )
+        }
+    }
+
+    /// Bootstrap can finish after a draft was created (or after a local cache
+    /// entry was inserted). Keep those local rows instead of letting a stale
+    /// directory listing erase the session the user is looking at.
+    static func mergedSessionSummaries(
+        remote: [AgentHostSessionSummary],
+        existing: [AgentHostSessionSummary]
+    ) -> [AgentHostSessionSummary] {
+        guard !existing.isEmpty else { return sortedSessionSummaries(remote) }
+        var byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        for session in remote {
+            byID[session.id] = session
+        }
+        return sortedSessionSummaries(Array(byID.values))
+    }
+
+    private static func sortedSessionSummaries(
+        _ sessions: [AgentHostSessionSummary]
+    ) -> [AgentHostSessionSummary] {
+        sessions.sorted { lhs, rhs in
+            lhs.modifiedAt == rhs.modifiedAt ? lhs.id < rhs.id : lhs.modifiedAt > rhs.modifiedAt
         }
     }
 
@@ -2086,35 +2129,139 @@ final class SessionStore: ObservableObject {
         historyLoads.removeValue(forKey: sessionID)?.task.cancel()
     }
 
+    /// Insert a local row before the host has created the session. The host is
+    /// asked to use this id, so the provisional record can be replaced in place
+    /// without remapping the selection or the composer draft.
+    @discardableResult
+    func beginProvisionalDraft(
+        sessionId: String,
+        cwd: String,
+        sessionDirectory: String?,
+        profile: AgentHostSessionProfile,
+        model: AgentHostModel? = nil
+    ) -> SessionRecord {
+        let timestamp = Self.timestamp(from: now())
+        let summary = AgentHostSessionSummary(
+            id: sessionId,
+            path: sessionId,
+            cwd: cwd,
+            title: "New Session",
+            firstMessage: "",
+            messageCount: 0,
+            createdAt: timestamp,
+            modifiedAt: timestamp
+        )
+        var record = SessionStoreReducer.project(
+            summary: summary,
+            profile: profile,
+            sessionDirectory: sessionDirectory
+        )
+        record.model = model
+        record.accessMode = profile == .chat ? .none : .full
+        reducer.apply(record)
+        touchSession(sessionId)
+        appendSummaryIfNeeded(summary, profile: profile, cwd: cwd)
+        select(sessionId, profile: profile, cwd: cwd)
+        publishReducerState()
+        return records[sessionId] ?? record
+    }
+
+    func discardProvisionalDraft(
+        sessionId: String,
+        cwd: String,
+        profile: AgentHostSessionProfile,
+        previousChatSessionID: String?,
+        previousWorkSessionID: String?
+    ) {
+        reducer.remove(sessionId: sessionId)
+        selectedSessionIds.remove(sessionId)
+        sessionRecency.removeAll { $0 == sessionId }
+        if profile == .chat {
+            chatSessions.removeAll { $0.id == sessionId }
+            if selectedChatSessionId == sessionId {
+                if let previousChatSessionID, records[previousChatSessionID] != nil {
+                    selectedChatSessionId = previousChatSessionID
+                    selectedSessionIds.insert(previousChatSessionID)
+                } else {
+                    selectedChatSessionId = nil
+                }
+            }
+        } else {
+            workSessionsByProjectPath[cwd]?.removeAll { $0.id == sessionId }
+            if selectedWorkSessionIdByProjectPath[cwd] == sessionId {
+                if let previousWorkSessionID, records[previousWorkSessionID] != nil {
+                    selectedWorkSessionIdByProjectPath[cwd] = previousWorkSessionID
+                    selectedSessionIds.insert(previousWorkSessionID)
+                } else {
+                    selectedWorkSessionIdByProjectPath.removeValue(forKey: cwd)
+                }
+            }
+        }
+        publishReducerState()
+    }
+
     @discardableResult
     func createDraft(
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
-        selectSession: Bool = true
+        sessionId: String? = nil,
+        selectSession: Bool = true,
+        performanceTraceID: UUID? = nil
     ) async throws -> SessionRecord {
-        try await start()
-        let result = try await service.createDraft(
-            cwd: cwd,
-            sessionDirectory: sessionDirectory,
-            profile: profile,
-            requestID: UUID().uuidString
-        )
-        let summary = result.session
-        let acpState = normalizedACPState(result.acpState)
-        let projectedRecord: SessionRecord
-        if supportsPiWorkCapability(.sessionSnapshot) {
-            do {
-                let snapshot = try await service.snapshot(
-                    sessionId: summary.id,
-                    requestID: UUID().uuidString
-                )
-                projectedRecord = await project(
-                    snapshot: snapshot,
-                    profile: profile,
-                    sessionDirectory: sessionDirectory
-                )
-            } catch where Self.isMethodNotFound(error) {
+        do {
+            try Task.checkCancellation()
+            try await start()
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .hostReady)
+            }
+            let result = try await service.createDraft(
+                cwd: cwd,
+                sessionDirectory: sessionDirectory,
+                profile: profile,
+                sessionId: sessionId,
+                requestID: UUID().uuidString
+            )
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .draftRPCCompleted)
+            }
+            let summary = result.session
+            let acpState = normalizedACPState(result.acpState)
+            let projectedRecord: SessionRecord
+            if supportsPiWorkCapability(.sessionSnapshot) {
+                do {
+                    let snapshot = try await service.snapshot(
+                        sessionId: summary.id,
+                        requestID: UUID().uuidString
+                    )
+                    if let performanceTraceID {
+                        performanceTracer.mark(
+                            traceID: performanceTraceID,
+                            stage: .snapshotCompleted,
+                            messageCount: snapshot.messages.count,
+                            hasEarlierMessages: snapshot.history?.hasMore
+                        )
+                    }
+                    projectedRecord = await project(
+                        snapshot: snapshot,
+                        profile: profile,
+                        sessionDirectory: sessionDirectory
+                    )
+                } catch where Self.isMethodNotFound(error) {
+                    if let performanceTraceID {
+                        performanceTracer.mark(traceID: performanceTraceID, stage: .snapshotCompleted)
+                    }
+                    projectedRecord = SessionStoreReducer.project(
+                        summary: summary,
+                        profile: profile,
+                        sessionDirectory: sessionDirectory,
+                        acpState: acpState
+                    )
+                }
+            } else {
+                if let performanceTraceID {
+                    performanceTracer.mark(traceID: performanceTraceID, stage: .snapshotCompleted)
+                }
                 projectedRecord = SessionStoreReducer.project(
                     summary: summary,
                     profile: profile,
@@ -2122,27 +2269,48 @@ final class SessionStore: ObservableObject {
                     acpState: acpState
                 )
             }
-        } else {
-            projectedRecord = SessionStoreReducer.project(
-                summary: summary,
-                profile: profile,
-                sessionDirectory: sessionDirectory,
-                acpState: acpState
-            )
+            try Task.checkCancellation()
+            if let performanceTraceID {
+                performanceTracer.mark(
+                    traceID: performanceTraceID,
+                    stage: .projectionCompleted,
+                    transcriptCount: projectedRecord.transcript.count
+                )
+            }
+            mergeAvailableModels(acpState.availableModels)
+            reducer.apply(projectedRecord)
+            touchSession(projectedRecord.id)
+            appendSummaryIfNeeded(summary, profile: profile, cwd: cwd)
+            if selectSession {
+                select(summary.id, profile: profile, cwd: cwd)
+                if let performanceTraceID {
+                    performanceTracer.mark(traceID: performanceTraceID, stage: .selectionCommitted)
+                }
+            }
+            publishReducerState()
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .storePublished)
+            }
+            await trimSessionCache(protecting: [projectedRecord.id])
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .cacheTrimCompleted)
+            }
+            guard let record = records[summary.id] else {
+                throw SessionStoreError.sessionNotOpen(summary.id)
+            }
+            if let performanceTraceID {
+                performanceTracer.finishDraft(
+                    traceID: performanceTraceID,
+                    transcriptCount: record.transcript.count
+                )
+            }
+            return record
+        } catch {
+            if let performanceTraceID {
+                performanceTracer.fail(traceID: performanceTraceID)
+            }
+            throw error
         }
-        mergeAvailableModels(acpState.availableModels)
-        reducer.apply(projectedRecord)
-        touchSession(projectedRecord.id)
-        appendSummaryIfNeeded(summary, profile: profile, cwd: cwd)
-        if selectSession {
-            select(summary.id, profile: profile, cwd: cwd)
-        }
-        publishReducerState()
-        await trimSessionCache(protecting: [projectedRecord.id])
-        guard let record = records[summary.id] else {
-            throw SessionStoreError.sessionNotOpen(summary.id)
-        }
-        return record
     }
 
     func slashCommands(sessionId: String) async throws -> [AgentHostSlashCommand] {
@@ -2780,13 +2948,17 @@ final class SessionStore: ObservableObject {
         cwd: String
     ) {
         if profile == .chat {
-            if !chatSessions.contains(where: { $0.id == summary.id }) {
+            if let index = chatSessions.firstIndex(where: { $0.id == summary.id }) {
+                chatSessions[index] = summary
+            } else {
                 chatSessions.insert(summary, at: 0)
             }
             return
         }
         var sessions = workSessionsByProjectPath[cwd] ?? []
-        if !sessions.contains(where: { $0.id == summary.id }) {
+        if let index = sessions.firstIndex(where: { $0.id == summary.id }) {
+            sessions[index] = summary
+        } else {
             sessions.insert(summary, at: 0)
         }
         workSessionsByProjectPath[cwd] = sessions

@@ -240,9 +240,11 @@ export async function createPiSessionHandle(
     mcpServers?: McpServerEntry[];
     computerUse?: ComputerUseCoordinator;
     rtk?: RTKCoordinator;
+    timings?: Record<string, number>;
   },
   createSession: CreateSession = createAgentSession,
 ): Promise<PiSessionHandle> {
+  const totalStartedAt = performance.now();
   const createOptions: CreateAgentSessionOptions = {
     cwd: options.sessionManager.getCwd(),
     sessionManager: options.sessionManager,
@@ -257,6 +259,7 @@ export async function createPiSessionHandle(
     cwd: options.sessionManager.getCwd(),
     mode: accessMode,
   });
+  const resourceLoaderStartedAt = performance.now();
   createOptions.resourceLoader = await createPiWorkResourceLoader({
     cwd: options.sessionManager.getCwd(),
     profile: options.profile,
@@ -270,6 +273,9 @@ export async function createPiSessionHandle(
       sessionId: options.sessionManager.getSessionId(),
     }) ?? []), ...(options.computerUse ? [options.computerUse.extension(accessController, options.profile)] : [])],
   });
+  if (options.timings) {
+    options.timings.resourceLoader = performance.now() - resourceLoaderStartedAt;
+  }
   if (options.profile === "chat") {
     createOptions.excludeTools = builtInPiToolNames;
   } else {
@@ -282,7 +288,11 @@ export async function createPiSessionHandle(
     ];
   }
 
+  const agentSessionStartedAt = performance.now();
   const { session } = await createSession(createOptions);
+  if (options.timings) {
+    options.timings.agentSession = performance.now() - agentSessionStartedAt;
+  }
   let handle: PiSessionHandle | undefined;
   const pendingWidgets = new Map<string, SessionExtensionWidget>();
   const pendingStatuses = new Map<string, string>();
@@ -309,6 +319,7 @@ export async function createPiSessionHandle(
       },
     );
   }
+  const bindExtensionsStartedAt = performance.now();
   await session.bindExtensions({
     uiContext: extensionUI, mode: "rpc",
     onError: () => {
@@ -317,6 +328,10 @@ export async function createPiSessionHandle(
       else pendingStatuses.set("pi-work.extensions", message);
     },
   });
+  if (options.timings) {
+    options.timings.bindExtensions = performance.now() - bindExtensionsStartedAt;
+  }
+  const activeToolsStartedAt = performance.now();
   const extensionSelection: ExtensionToolSelection = options.profile === "chat"
     ? "pi-web-access"
     : "all";
@@ -325,6 +340,10 @@ export async function createPiSessionHandle(
     ...activeToolsForMode(accessMode),
     ...alwaysActiveToolNames,
   ]);
+  if (options.timings) {
+    options.timings.activeTools = performance.now() - activeToolsStartedAt;
+    options.timings.handleTotal = performance.now() - totalStartedAt;
+  }
   handle = new PiSessionHandle(
     session,
     options.sessionManager,

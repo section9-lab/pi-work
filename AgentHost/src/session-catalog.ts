@@ -37,8 +37,12 @@ export class SessionCatalog {
     }));
   }
 
-  createDraft(cwd: string, sessionDirectory?: string): SessionDraft {
-    const manager = SessionManager.create(cwd, sessionDirectory);
+  createDraft(cwd: string, sessionDirectory?: string, sessionId?: string): SessionDraft {
+    const manager = SessionManager.create(
+      cwd,
+      sessionDirectory,
+      sessionId ? { id: sessionId } : undefined,
+    );
     const path = manager.getSessionFile();
     if (!path) {
       throw new Error("Pi did not allocate a session file for a persistent draft");

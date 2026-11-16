@@ -3,9 +3,11 @@ import OSLog
 
 enum SessionOpenPerformanceStage: String, Equatable {
     case requested
+    case draftRequested = "draft_requested"
     case hostReady = "host_ready"
     case cacheHit = "cache_hit"
     case openRPCCompleted = "open_rpc_completed"
+    case draftRPCCompleted = "draft_rpc_completed"
     case snapshotCompleted = "snapshot_completed"
     case projectionCompleted = "projection_completed"
     case storePublished = "store_published"
@@ -14,6 +16,7 @@ enum SessionOpenPerformanceStage: String, Equatable {
     case presentationStarted = "presentation_started"
     case presentationReady = "presentation_ready"
     case firstFrame = "first_frame"
+    case draftCompleted = "draft_completed"
     case cancelled
     case failed
 }
@@ -60,6 +63,25 @@ final class SessionOpenPerformanceTracer {
 
     @discardableResult
     func begin(sessionID: String, profile: AgentHostSessionProfile) -> UUID {
+        begin(sessionID: sessionID, profile: profile, initialStage: .requested)
+    }
+
+    /// A draft has no host session id until `session.createDraft` returns, so
+    /// keep the trace under a synthetic id and finish it explicitly.
+    @discardableResult
+    func beginDraft(profile: AgentHostSessionProfile) -> UUID {
+        begin(
+            sessionID: "draft-\(UUID().uuidString)",
+            profile: profile,
+            initialStage: .draftRequested
+        )
+    }
+
+    private func begin(
+        sessionID: String,
+        profile: AgentHostSessionProfile,
+        initialStage: SessionOpenPerformanceStage
+    ) -> UUID {
         if let existingTraceID = traceIDBySessionID[sessionID] {
             end(traceID: existingTraceID, stage: .cancelled)
         }
@@ -73,7 +95,7 @@ final class SessionOpenPerformanceTracer {
         )
         tracesByID[trace.id] = trace
         traceIDBySessionID[sessionID] = trace.id
-        emit(trace: trace, stage: .requested, now: now)
+        emit(trace: trace, stage: initialStage, now: now)
         return trace.id
     }
 
@@ -110,6 +132,10 @@ final class SessionOpenPerformanceTracer {
     func finishActive(sessionID: String, transcriptCount: Int? = nil) {
         guard let traceID = traceIDBySessionID[sessionID] else { return }
         end(traceID: traceID, stage: .firstFrame, transcriptCount: transcriptCount)
+    }
+
+    func finishDraft(traceID: UUID, transcriptCount: Int? = nil) {
+        end(traceID: traceID, stage: .draftCompleted, transcriptCount: transcriptCount)
     }
 
     func cancel(traceID: UUID) {

@@ -295,6 +295,23 @@ function unclassifiedErrorCode(error: unknown): string {
     : "internal_error";
 }
 
+/**
+ * Host startup phases are invisible to the Swift tracer, so emit one compact
+ * stderr line for the app's stderr reader. Keep the prefix stable: the client
+ * drops every other stderr line instead of flooding the system log.
+ */
+function reportHostTimings(
+  method: string,
+  sessionId: string,
+  timings: Record<string, number>,
+): void {
+  const fields = Object.entries(timings)
+    .filter(([, milliseconds]) => Number.isFinite(milliseconds))
+    .map(([name, milliseconds]) => `${name}_ms=${milliseconds.toFixed(2)}`)
+    .join(" ");
+  console.error(`PIWORK_PERF method=${method} session=${sessionId} ${fields}`);
+}
+
 async function handleRequest(request: HostRequest): Promise<HostResponse> {
   if (request.method === "rtk.get" || request.method === "rtk.action") {
     const params = request.params ?? {};
@@ -654,15 +671,23 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     const cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
     const profile = request.params?.profile ?? "work";
+    const requestedSessionId = request.params?.sessionId;
     if (
       typeof cwd !== "string"
       || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
+      || (requestedSessionId !== undefined && typeof requestedSessionId !== "string")
       || (profile !== "chat" && profile !== "work")
     ) {
-      throw new Error("session.createDraft requires a string cwd and optional string sessionDirectory");
+      throw new Error(
+        "session.createDraft requires a string cwd, optional string sessionDirectory, and optional string sessionId",
+      );
     }
 
-    const draft = sessionCatalog.createDraft(cwd, sessionDirectory);
+    const requestStartedAt = performance.now();
+    const timings: Record<string, number> = {};
+    const managerStartedAt = performance.now();
+    const draft = sessionCatalog.createDraft(cwd, sessionDirectory, requestedSessionId);
+    timings.sessionManager = performance.now() - managerStartedAt;
     const handle = await createPiSessionHandle({
       sessionManager: draft.manager,
       profile: profile as SessionProfile,
@@ -673,13 +698,20 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       rtk: rtkCoordinator,
       mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(cwd, Bun.env),
+      timings,
       ...(clientSupportsACPFormElicitation
         ? { requestElicitation: elicitationBroker.request }
         : {}),
     });
+    const registerStartedAt = performance.now();
     sessionRegistry.register(handle);
+    timings.register = performance.now() - registerStartedAt;
     startRequiredExtensionSetup(handle);
+    const acpStateStartedAt = performance.now();
     const state = await acpSessionState(handle.sessionId);
+    timings.acpState = performance.now() - acpStateStartedAt;
+    timings.total = performance.now() - requestStartedAt;
+    reportHostTimings("session.createDraft", draft.summary.id, timings);
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
@@ -704,19 +736,29 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
         "session.open requires either path or sessionId with cwd, optional sessionDirectory, and a valid profile",
       );
     }
+    const requestStartedAt = performance.now();
+    const timings: Record<string, number> = {};
     if (typeof path !== "string") {
+      const catalogStartedAt = performance.now();
       const summary = (await sessionCatalog.list(cwd as string, sessionDirectory as string | undefined))
         .find((candidate) => candidate.id === sessionId);
+      timings.catalogList = performance.now() - catalogStartedAt;
       if (!summary) throw new HostRequestError("session_not_found", `Session not found: ${sessionId}`);
       path = summary.path;
     }
 
+    const managerStartedAt = performance.now();
     const manager = sessionCatalog.open(path as string, sessionDirectory as string | undefined);
+    timings.sessionManager = performance.now() - managerStartedAt;
     const mcpChanged = mcpCoordinator.setSessionServers(manager.getSessionId(), parseACPMcpServers(request.params?.mcpServers));
     const existing = sessionRegistry.descriptor(manager.getSessionId());
     if (existing) {
       if (mcpChanged) await sessionRegistry.reloadExtensions();
+      const acpStateStartedAt = performance.now();
       const state = await acpSessionState(existing.id);
+      timings.acpState = performance.now() - acpStateStartedAt;
+      timings.total = performance.now() - requestStartedAt;
+      reportHostTimings("session.open", existing.id, timings);
       return {
         version: PROTOCOL_VERSION,
         kind: "response",
@@ -740,13 +782,20 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
       rtk: rtkCoordinator,
       mcpServers: parseACPMcpServers(request.params?.mcpServers),
       settingsManager: createAgentSettingsManager(manager.getCwd(), Bun.env),
+      timings,
       ...(clientSupportsACPFormElicitation
         ? { requestElicitation: elicitationBroker.request }
         : {}),
     });
+    const registerStartedAt = performance.now();
     sessionRegistry.register(handle);
+    timings.register = performance.now() - registerStartedAt;
     startRequiredExtensionSetup(handle);
+    const acpStateStartedAt = performance.now();
     const state = await acpSessionState(handle.sessionId);
+    timings.acpState = performance.now() - acpStateStartedAt;
+    timings.total = performance.now() - requestStartedAt;
+    reportHostTimings("session.open", manager.getSessionId(), timings);
     return {
       version: PROTOCOL_VERSION,
       kind: "response",
@@ -1546,6 +1595,7 @@ function normalizeACPParams(method: string, params: unknown): unknown {
   }
   if (method === "session/new") {
     return {
+      sessionId: value.sessionId,
       cwd: value.cwd,
       sessionDirectory: piWorkMetadata.sessionDirectory,
       profile: piWorkMetadata.profile ?? "work",

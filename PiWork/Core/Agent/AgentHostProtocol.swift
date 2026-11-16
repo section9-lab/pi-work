@@ -2409,15 +2409,18 @@ struct AgentHostSessionCreateDraftParameters: Encodable, Equatable {
     let cwd: String
     let sessionDirectory: String?
     let profile: AgentHostSessionProfile
+    let sessionId: String?
 
     init(
         cwd: String,
         sessionDirectory: String?,
-        profile: AgentHostSessionProfile
+        profile: AgentHostSessionProfile,
+        sessionId: String? = nil
     ) {
         self.cwd = cwd
         self.sessionDirectory = sessionDirectory
         self.profile = profile
+        self.sessionId = sessionId
     }
 }
 

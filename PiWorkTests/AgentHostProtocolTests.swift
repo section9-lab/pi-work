@@ -1331,6 +1331,26 @@ final class AgentHostProtocolTests: XCTestCase {
         XCTAssertEqual((metadata["piWork"] as? [String: Any])?["profile"] as? String, "work")
     }
 
+    func testSessionNewForwardsTheRequestedSessionId() throws {
+        let request = AgentHostRequest(
+            id: "new-2",
+            method: "session.createDraft",
+            params: AgentHostSessionCreateDraftParameters(
+                cwd: "/tmp/project",
+                sessionDirectory: nil,
+                profile: .chat,
+                sessionId: "draft-local"
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["sessionId"] as? String, "draft-local")
+        XCTAssertEqual(params["cwd"] as? String, "/tmp/project")
+    }
+
     func testSessionResumeUsesOnlyACPV1Fields() throws {
         let request = AgentHostRequest(
             id: "load-1",
