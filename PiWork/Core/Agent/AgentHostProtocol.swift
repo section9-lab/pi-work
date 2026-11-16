@@ -2455,12 +2455,14 @@ struct AgentHostACPSessionOpenParameters: Encodable, Equatable {
 
     let sessionId: String
     let cwd: String
+    let path: String?
     let mcpServers: [String]
     let metadata: Metadata
 
     private enum CodingKeys: String, CodingKey {
         case sessionId
         case cwd
+        case path
         case mcpServers
         case metadata = "_meta"
     }
@@ -2469,10 +2471,12 @@ struct AgentHostACPSessionOpenParameters: Encodable, Equatable {
         sessionId: String,
         cwd: String,
         sessionDirectory: String?,
-        profile: AgentHostSessionProfile
+        profile: AgentHostSessionProfile,
+        path: String? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
+        self.path = path
         mcpServers = []
         metadata = Metadata(
             piWork: .init(

@@ -50,6 +50,7 @@ protocol AgentHostServicing: Actor {
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        path: String?,
         requestID: String
     ) async throws -> AgentHostSessionOpenResult
     func exportHTML(
@@ -951,6 +952,7 @@ actor AgentHostService: AgentHostServicing,
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        path: String? = nil,
         requestID: String = UUID().uuidString
     ) async throws -> AgentHostSessionOpenResult {
         _ = try await start()
@@ -964,7 +966,8 @@ actor AgentHostService: AgentHostServicing,
                 sessionId: sessionId,
                 cwd: cwd,
                 sessionDirectory: sessionDirectory,
-                profile: profile
+                profile: profile,
+                path: path
             ),
             as: AgentHostACPSessionResumeResult.self
         )

@@ -1506,6 +1506,22 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testOpenSessionForwardsTheSummaryPath() async throws {
+        let host = FakeAgentHost()
+        await host.setSnapshot(makeStoreSnapshot())
+        let store = SessionStore(service: host)
+
+        try await store.openSession(
+            makeSummary(),
+            profile: .chat,
+            sessionDirectory: nil
+        )
+
+        let paths = await host.openSessionPaths
+        XCTAssertEqual(paths, ["/tmp/session-one.jsonl"])
+        await store.stop()
+    }
+
     func testSelectingAnAlreadyOpenSessionDoesNotOpenASecondHandle() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot())
@@ -1955,6 +1971,7 @@ actor FakeAgentHost: AgentHostServicing {
     private(set) var startCount = 0
     private(set) var openCount = 0
     private(set) var openSessionRequestIDs: [String] = []
+    private(set) var openSessionPaths: [String?] = []
     private(set) var snapshotCount = 0
     private(set) var transcriptPageCount = 0
     private(set) var promptTexts: [String] = []
@@ -2154,10 +2171,12 @@ actor FakeAgentHost: AgentHostServicing {
         cwd: String,
         sessionDirectory: String?,
         profile: AgentHostSessionProfile,
+        path: String?,
         requestID: String
     ) async throws -> AgentHostSessionOpenResult {
         openCount += 1
         openSessionRequestIDs.append(requestID)
+        openSessionPaths.append(path)
         if openSessionTimeoutsRemaining > 0 {
             openSessionTimeoutsRemaining -= 1
             throw AgentHostClientError.requestTimedOut(requestID)

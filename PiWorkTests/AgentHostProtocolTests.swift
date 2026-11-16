@@ -1374,6 +1374,27 @@ final class AgentHostProtocolTests: XCTestCase {
         XCTAssertNil(params["path"])
     }
 
+    func testSessionResumeForwardsAnAbsolutePath() throws {
+        let request = AgentHostRequest(
+            id: "load-2",
+            method: "session.open",
+            params: AgentHostACPSessionOpenParameters(
+                sessionId: "session-one",
+                cwd: "/tmp/project",
+                sessionDirectory: nil,
+                profile: .work,
+                path: "/tmp/session-one.jsonl"
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["path"] as? String, "/tmp/session-one.jsonl")
+        XCTAssertEqual(params["sessionId"] as? String, "session-one")
+    }
+
     func testSessionCancelEncodesACPNotificationWithoutRequestID() throws {
         let notification = AgentHostNotification(
             method: "session.abort",

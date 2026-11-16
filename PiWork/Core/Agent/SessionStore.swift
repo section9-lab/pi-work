@@ -1923,6 +1923,10 @@ final class SessionStore: ObservableObject {
                 )
             )
             provisionalSessionID = summary.id
+            // The host can open the file directly and skip scanning every
+            // session in the project. Opaque summaries use the session id as a
+            // placeholder path, so only forward real absolute paths.
+            let sessionPath = summary.path.hasPrefix("/") ? summary.path : nil
             let openResult: AgentHostSessionOpenResult
             do {
                 openResult = try await service.openSession(
@@ -1930,6 +1934,7 @@ final class SessionStore: ObservableObject {
                     cwd: summary.cwd,
                     sessionDirectory: sessionDirectory,
                     profile: profile,
+                    path: sessionPath,
                     requestID: UUID().uuidString
                 )
             } catch AgentHostClientError.requestTimedOut {
@@ -1938,6 +1943,7 @@ final class SessionStore: ObservableObject {
                     cwd: summary.cwd,
                     sessionDirectory: sessionDirectory,
                     profile: profile,
+                    path: sessionPath,
                     requestID: UUID().uuidString
                 )
             }
@@ -2885,11 +2891,15 @@ final class SessionStore: ObservableObject {
         }
         for record in recoverable {
             do {
+                let recordPath = record.descriptor.path.hasPrefix("/")
+                    ? record.descriptor.path
+                    : nil
                 let result = try await service.openSession(
                     sessionId: record.id,
                     cwd: record.descriptor.cwd,
                     sessionDirectory: record.sessionDirectory,
                     profile: record.profile,
+                    path: recordPath,
                     requestID: UUID().uuidString
                 )
                 if let modeId = record.acpState.modes?.currentModeId {

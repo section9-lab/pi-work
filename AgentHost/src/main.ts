@@ -1,4 +1,5 @@
 import packageMetadata from "../package.json";
+import { existsSync } from "node:fs";
 import { extname, isAbsolute } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -727,6 +728,12 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     const cwd = request.params?.cwd;
     const sessionDirectory = request.params?.sessionDirectory;
     const profile = request.params?.profile;
+    // A supplied path is an optimization, not a trust boundary: if the file
+    // disappeared, fall back to the catalog lookup when the client provided a
+    // session id and cwd.
+    if (typeof path === "string" && !existsSync(path)) {
+      path = undefined;
+    }
     if (
       (typeof path !== "string" && (typeof sessionId !== "string" || typeof cwd !== "string"))
       || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
@@ -1606,6 +1613,7 @@ function normalizeACPParams(method: string, params: unknown): unknown {
     return {
       sessionId: value.sessionId,
       cwd: value.cwd,
+      path: value.path,
       sessionDirectory: piWorkMetadata.sessionDirectory,
       profile: piWorkMetadata.profile ?? "work",
       mcpServers: value.mcpServers,

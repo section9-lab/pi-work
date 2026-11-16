@@ -193,7 +193,7 @@ for (const scenario of ["success", "cancel", "failure"] as const) {
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
       }
       const sessionId = manager.getSessionId();
-      await send("open", "session/resume", { sessionId, cwd: root, mcpServers: [], _meta: { piWork: { sessionDirectory, profile: "work" } } });
+      await send("open", "session/resume", { sessionId, path: manager.getSessionFile(), cwd: root, mcpServers: [], _meta: { piWork: { sessionDirectory, profile: "work" } } });
       expect((await until(record => record.id === "open")).error).toBeUndefined();
       await send("compact", "_piWork/session/compact", { sessionId, instructions: scenario });
       await until(record => record.method === "_piWork/session.compactionChanged" && record.params.compaction.status === "running");
