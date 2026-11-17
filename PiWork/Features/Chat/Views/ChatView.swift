@@ -152,6 +152,19 @@ struct ChatView: View {
                     .transition(.opacity)
             }
 
+            if activeRecord?.attachmentState.isAttaching == true {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.string("chat.session_attaching"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 900, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 6)
+                .accessibilityIdentifier("session-attachment-status")
+            }
+
             inputQueue
                 .frame(maxWidth: 900)
                 .padding(.horizontal, 28)
@@ -252,6 +265,10 @@ struct ChatView: View {
                 || presentedSessionID.map(update.structuralSessionIDs.contains) == true {
                 transcriptPresentation.invalidate()
             }
+        }
+        .onChange(of: activeRecord?.attachmentState) { state in
+            guard state == .attached else { return }
+            Task { await loadSlashCommands() }
         }
         .onDisappear {
             historyPrefetchTask?.cancel()

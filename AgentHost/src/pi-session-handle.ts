@@ -46,6 +46,7 @@ import {
   type SessionThinkingState,
   type SessionTranscriptPage,
   type SessionUsage,
+  type SessionSnapshot,
 } from "./session-registry.ts";
 import { normalizeModel, supportsFastMode } from "./model-catalog.ts";
 import {
@@ -358,6 +359,112 @@ export async function createPiSessionHandle(
   return handle;
 }
 
+function transcriptMessagesFor(
+  sessionManager: SessionManager,
+  liveMessages: AgentSession["messages"],
+): AgentSession["messages"] {
+  const branch = sessionManager.getBranch();
+  const outcomes = new Map<string, SessionCompaction>();
+  for (const entry of branch) {
+    if (entry.type === "custom" && entry.customType === "pi-work.compaction" && entry.data) {
+      const outcome = entry.data as SessionCompaction;
+      outcomes.set(outcome.id, outcome);
+    }
+  }
+  const messages = branch.flatMap((entry) => {
+    if (entry.type === "custom" && entry.customType === "pi-work.compaction") {
+      const outcome = entry.data as SessionCompaction;
+      if (!outcome || outcome.status === "completed") return [];
+      return [{ role: "custom", customType: "pi-work.compaction", display: true,
+        content: "", timestamp: Date.parse(entry.timestamp), piWorkEntryId: outcome.id,
+        piWorkCompaction: outcome } as AgentSession["messages"][number]];
+    }
+    return sessionEntryToContextMessages(entry).filter((message) => message.role !== "system").map((message) => {
+      const compaction: SessionCompaction | undefined = entry.type === "compaction"
+        ? outcomes.get(entry.id) ?? { id: entry.id, status: "completed", timestamp: entry.timestamp,
+            summary: entry.summary, tokensBefore: entry.tokensBefore,
+            ...(entry.usage ? { cost: { amount: entry.usage.cost.total, currency: "USD",
+              source: entry.usage.cost.totalFromProvider ? "provider" : "estimated" } } : {}) }
+        : undefined;
+      return { ...message, piWorkEntryId: entry.id,
+        ...(compaction ? { piWorkCompaction: compaction } : {}) };
+    });
+  });
+  if (!messages.length) return liveMessages;
+  // A snapshot can arrive between message completion and its persisted entry.
+  const known = new Set(messages.map((message) => transcriptCursorAnchor(message, false)));
+  return [...messages, ...liveMessages.filter((message) => (
+    message.role !== "system" && message.role !== "compactionSummary"
+    && !known.has(transcriptCursorAnchor(message, false))
+  ))];
+}
+
+function descriptorFor(
+  sessionManager: SessionManager,
+  transcript: AgentSession["messages"],
+): SessionHandleSnapshot["session"] {
+  const sessionId = sessionManager.getSessionId();
+  const explicitTitle = sessionManager.getSessionName()?.trim();
+  const firstUserIndex = transcript.findIndex((message) => message.role === "user");
+  const firstUserMessage = firstUserIndex < 0
+    ? undefined
+    : normalizeAgentMessages(sessionId, [transcript[firstUserIndex]!], { startIndex: firstUserIndex })[0];
+  const firstUserText = firstUserMessage?.content
+    .filter((content): content is Extract<SessionMessageContent, { type: "text" }> => content.type === "text")
+    .map((content) => content.text)
+    .join(" ")
+    .trim();
+  return {
+    id: sessionId,
+    path: sessionManager.getSessionFile() ?? "",
+    cwd: sessionManager.getCwd(),
+    title: explicitTitle || firstUserText || "New Session",
+  };
+}
+
+/** Read-only transcript projection used before the Agent runtime is attached. */
+export function previewSessionSnapshot(
+  sessionManager: SessionManager,
+  options: { messageLimit?: number; profile?: SessionProfile } = {},
+): SessionSnapshot {
+  const transcript = transcriptMessagesFor(sessionManager, []);
+  const messageLimit = options.messageLimit === undefined
+    ? 40
+    : Math.max(1, Math.floor(options.messageLimit));
+  const messageStartIndex = transcriptPageStart(transcript, transcript.length, messageLimit);
+  const sessionId = sessionManager.getSessionId();
+  const messages = normalizeAgentMessages(sessionId, transcript.slice(messageStartIndex), {
+    maxToolOutputBytes: snapshotToolOutputPreviewBytes,
+    startIndex: messageStartIndex,
+  });
+  const revision = crypto.randomUUID();
+  const gitBranch = selectedGitBranch(sessionManager);
+  return {
+    session: descriptorFor(sessionManager, transcript),
+    messages,
+    history: {
+      revision,
+      nextCursor: messageStartIndex > 0
+        ? encodeTranscriptCursor(revision, messageStartIndex, transcript)
+        : null,
+      hasMore: messageStartIndex > 0,
+    },
+    state: "idle",
+    sequence: 0,
+    turnId: null,
+    ...(gitBranch ? { gitBranch } : {}),
+    model: null,
+    thinkingLevel: "off",
+    availableThinkingLevels: [],
+    modelOptions: {
+      fastMode: { supported: false, enabled: false },
+      oneMillionContext: { supported: false, enabled: false },
+    },
+    accessMode: options.profile === "chat" ? "none" : "full",
+    pendingApprovals: [],
+  };
+}
+
 export class PiSessionHandle implements SessionHandle {
   private fastModeEnabled = false;
   private compaction?: SessionCompaction;
@@ -406,66 +513,12 @@ export class PiSessionHandle implements SessionHandle {
   }
 
   descriptor(transcript = this.transcriptMessages()): SessionHandleSnapshot["session"] {
-    const explicitTitle = this.sessionManager.getSessionName()?.trim();
-    const firstUserIndex = transcript.findIndex((message) => message.role === "user");
-    const firstUserMessage = firstUserIndex < 0
-      ? undefined
-      : normalizeAgentMessages(
-          this.sessionId,
-          [transcript[firstUserIndex]!],
-          { startIndex: firstUserIndex },
-        )[0];
-    const firstUserText = firstUserMessage?.content
-      .filter((content): content is Extract<SessionMessageContent, { type: "text" }> => (
-        content.type === "text"
-      ))
-      .map((content) => content.text)
-      .join(" ")
-      .trim();
-    return {
-      id: this.sessionId,
-      path: this.sessionManager.getSessionFile() ?? "",
-      cwd: this.sessionManager.getCwd(),
-      title: explicitTitle || firstUserText || "New Session",
-    };
+    return descriptorFor(this.sessionManager, transcript);
   }
 
   /** UI history follows the raw active branch, not the compacted model projection. */
   private transcriptMessages(): AgentSession["messages"] {
-    const branch = this.sessionManager.getBranch();
-    const outcomes = new Map<string, SessionCompaction>();
-    for (const entry of branch) {
-      if (entry.type === "custom" && entry.customType === "pi-work.compaction" && entry.data) {
-        const outcome = entry.data as SessionCompaction;
-        outcomes.set(outcome.id, outcome);
-      }
-    }
-    const messages = branch.flatMap((entry) => {
-      if (entry.type === "custom" && entry.customType === "pi-work.compaction") {
-        const outcome = entry.data as SessionCompaction;
-        if (!outcome || outcome.status === "completed") return [];
-        return [{ role: "custom", customType: "pi-work.compaction", display: true,
-          content: "", timestamp: Date.parse(entry.timestamp), piWorkEntryId: outcome.id,
-          piWorkCompaction: outcome } as AgentSession["messages"][number]];
-      }
-      return sessionEntryToContextMessages(entry).filter((message) => message.role !== "system").map((message) => {
-        const compaction: SessionCompaction | undefined = entry.type === "compaction"
-          ? outcomes.get(entry.id) ?? { id: entry.id, status: "completed", timestamp: entry.timestamp,
-              summary: entry.summary, tokensBefore: entry.tokensBefore,
-              ...(entry.usage ? { cost: { amount: entry.usage.cost.total, currency: "USD",
-                source: entry.usage.cost.totalFromProvider ? "provider" : "estimated" } } : {}) }
-          : undefined;
-        return { ...message, piWorkEntryId: entry.id,
-          ...(compaction ? { piWorkCompaction: compaction } : {}) };
-      });
-    });
-    if (!messages.length) return this.session.messages;
-    // A snapshot can arrive between message completion and its persisted entry.
-    const known = new Set(messages.map((message) => transcriptCursorAnchor(message, false)));
-    return [...messages, ...this.session.messages.filter((message) => (
-      message.role !== "system" && message.role !== "compactionSummary"
-      && !known.has(transcriptCursorAnchor(message, false))
-    ))];
+    return transcriptMessagesFor(this.sessionManager, this.session.messages);
   }
 
   snapshot(options: { messageLimit?: number } = {}): SessionHandleSnapshot {

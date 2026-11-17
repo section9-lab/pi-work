@@ -1522,6 +1522,59 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testPreviewSessionShowsTranscriptBeforeAttachmentCompletes() async throws {
+        let host = FakeAgentHost()
+        await host.setPreviewSnapshot(
+            makeStoreSnapshot(messages: [makeSessionMessage(id: "preview-1", text: "Preview message")])
+        )
+        await host.setSnapshot(
+            makeStoreSnapshot(messages: [makeSessionMessage(id: "attached-1", text: "Attached message")])
+        )
+        await host.setOpenSessionDelay(nanoseconds: 150_000_000)
+        let store = SessionStore(service: host)
+
+        try await store.openSessionWithPreview(
+            makeSummary(),
+            profile: .chat,
+            sessionDirectory: nil
+        )
+
+        XCTAssertEqual(store.records["session-one"]?.attachmentState, .attaching)
+        XCTAssertEqual(store.records["session-one"]?.messages.first?.id, "preview-1")
+
+        try await waitUntil {
+            store.records["session-one"]?.attachmentState == .attached
+        }
+
+        XCTAssertEqual(store.records["session-one"]?.messages.first?.id, "attached-1")
+        let previewCount = await host.previewCount
+        XCTAssertEqual(previewCount, 1)
+        await store.stop()
+    }
+
+    func testPromptWaitsForPreviewAttachmentBeforeSending() async throws {
+        let host = FakeAgentHost()
+        await host.setPreviewSnapshot(
+            makeStoreSnapshot(messages: [makeSessionMessage(id: "preview-1", text: "Preview message")])
+        )
+        await host.setSnapshot(makeStoreSnapshot())
+        await host.setOpenSessionDelay(nanoseconds: 150_000_000)
+        let store = SessionStore(service: host)
+
+        try await store.openSessionWithPreview(
+            makeSummary(),
+            profile: .chat,
+            sessionDirectory: nil
+        )
+        let turnId = try await store.submitPrompt(sessionId: "session-one", text: "Hello")
+
+        XCTAssertFalse(turnId.isEmpty)
+        XCTAssertEqual(store.records["session-one"]?.attachmentState, .attached)
+        let promptTexts = await host.promptTexts
+        XCTAssertEqual(promptTexts, ["Hello"])
+        await store.stop()
+    }
+
     func testSelectingAnAlreadyOpenSessionDoesNotOpenASecondHandle() async throws {
         let host = FakeAgentHost()
         await host.setSnapshot(makeStoreSnapshot())
@@ -1943,6 +1996,7 @@ actor FakeAgentHost: AgentHostServicing {
     private var sessions: [AgentHostSessionSummary] = []
     private var models: [AgentHostModel] = []
     private var snapshotResult = makeStoreSnapshot()
+    private var previewSnapshot = makeStoreSnapshot()
     private var transcriptPageResult = AgentHostSessionTranscriptPageResult(
         sessionId: "session-one",
         messages: [],
@@ -1964,6 +2018,7 @@ actor FakeAgentHost: AgentHostServicing {
     private var shouldRejectTranscriptPages = false
     private var shouldRejectModelCatalog = false
     private var openSessionTimeoutsRemaining = 0
+    private var openSessionDelayNanoseconds: UInt64 = 0
     private var acpState = AgentHostACPSessionState.empty
     private var eventDuringOpen: AgentHostServerEvent?
     private var piWorkCapabilities = AgentHostPiWorkCapability.all
@@ -1972,6 +2027,7 @@ actor FakeAgentHost: AgentHostServicing {
     private(set) var openCount = 0
     private(set) var openSessionRequestIDs: [String] = []
     private(set) var openSessionPaths: [String?] = []
+    private(set) var previewCount = 0
     private(set) var snapshotCount = 0
     private(set) var transcriptPageCount = 0
     private(set) var promptTexts: [String] = []
@@ -2011,6 +2067,14 @@ actor FakeAgentHost: AgentHostServicing {
 
     func setSnapshot(_ snapshot: AgentHostSessionSnapshotResult) {
         snapshotResult = snapshot
+    }
+
+    func setPreviewSnapshot(_ snapshot: AgentHostSessionSnapshotResult) {
+        previewSnapshot = snapshot
+    }
+
+    func setOpenSessionDelay(nanoseconds: UInt64) {
+        openSessionDelayNanoseconds = nanoseconds
     }
 
     func setACPState(_ state: AgentHostACPSessionState) {
@@ -2166,6 +2230,16 @@ actor FakeAgentHost: AgentHostServicing {
         )
     }
 
+    func previewSession(
+        path: String,
+        sessionDirectory: String?,
+        profile: AgentHostSessionProfile,
+        requestID: String
+    ) async throws -> AgentHostSessionSnapshotResult {
+        previewCount += 1
+        return previewSnapshot
+    }
+
     func openSession(
         sessionId: String,
         cwd: String,
@@ -2177,6 +2251,9 @@ actor FakeAgentHost: AgentHostServicing {
         openCount += 1
         openSessionRequestIDs.append(requestID)
         openSessionPaths.append(path)
+        if openSessionDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: openSessionDelayNanoseconds)
+        }
         if openSessionTimeoutsRemaining > 0 {
             openSessionTimeoutsRemaining -= 1
             throw AgentHostClientError.requestTimedOut(requestID)

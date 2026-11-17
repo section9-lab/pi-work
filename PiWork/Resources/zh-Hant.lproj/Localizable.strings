@@ -422,6 +422,7 @@
 "chat.steps.collapse" = "收合步驟";
 "chat.scroll_to_latest" = "跳到最新訊息";
 "chat.session_loading" = "正在載入對話";
+"chat.session_attaching" = "正在連線 Agent…";
 "access.none.title" = "無存取權";
 "access.read_only.title" = "唯讀";
 "access.ask.title" = "每次詢問";

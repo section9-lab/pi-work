@@ -225,6 +225,8 @@ extension AgentErrorPresentation {
                 return FailureSignal(code: "session_busy", message: "session_busy")
             case .sessionNotOpen(let sessionId):
                 return FailureSignal(code: "session_not_open", message: sessionId)
+            case .sessionAttachmentFailed(let sessionId):
+                return FailureSignal(code: "session_attachment_failed", message: sessionId)
             case .historyChanged:
                 return FailureSignal(code: "history_changed", message: "history_changed")
             case .downloadsDirectoryUnavailable:

@@ -49,7 +49,7 @@ import {
   type ACPResponse,
 } from "./acp-protocol.ts";
 import { ACPElicitationBroker } from "./acp-extension-ui.ts";
-import { createPiSessionHandle, type PiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
+import { createPiSessionHandle, previewSessionSnapshot, type PiSessionHandle, type SessionProfile } from "./pi-session-handle.ts";
 import { RTKCoordinator } from "./rtk.ts";
 import { listAvailableModels } from "./model-catalog.ts";
 import { modelRuntimeOptions } from "./model-runtime-options.ts";
@@ -817,6 +817,42 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     };
   }
 
+  if (request.method === "session.preview") {
+    const path = request.params?.path;
+    const sessionDirectory = request.params?.sessionDirectory;
+    const profile = request.params?.profile ?? "work";
+    if (
+      typeof path !== "string"
+      || (sessionDirectory !== undefined && typeof sessionDirectory !== "string")
+      || (profile !== "chat" && profile !== "work")
+    ) {
+      throw new Error("session.preview requires a string path and a valid profile");
+    }
+    if (!existsSync(path)) {
+      throw new HostRequestError("session_not_found", `Session file not found: ${path}`);
+    }
+    const requestStartedAt = performance.now();
+    const timings: Record<string, number> = {};
+    const managerStartedAt = performance.now();
+    const manager = sessionCatalog.open(path, sessionDirectory);
+    timings.sessionManager = performance.now() - managerStartedAt;
+    const previewStartedAt = performance.now();
+    const snapshot = previewSessionSnapshot(manager, {
+      messageLimit: 40,
+      profile: profile as SessionProfile,
+    });
+    timings.preview = performance.now() - previewStartedAt;
+    timings.total = performance.now() - requestStartedAt;
+    reportHostTimings("session.preview", manager.getSessionId(), timings);
+    return {
+      version: PROTOCOL_VERSION,
+      kind: "response",
+      id: request.id,
+      ok: true,
+      result: snapshot,
+    };
+  }
+
   if (request.method === "session.snapshot") {
     const sessionId = request.params?.sessionId;
     if (typeof sessionId !== "string") {
@@ -1568,6 +1604,7 @@ function normalizeACPRequest(request: ACPRequest): HostRequest {
     "_piWork/session/cancelCompaction": "session.cancelCompaction",
     "_piWork/session/enqueueInput": "session.enqueueInput",
     "_piWork/session/clearInputQueue": "session.clearInputQueue",
+    "_piWork/session/preview": "session.preview",
     "_piWork/session/transcriptPage": "session.transcriptPage",
     "_piWork/session/toolOutput": "session.toolOutput",
     "_piWork/session/commands": "session.commands",
@@ -1617,6 +1654,13 @@ function normalizeACPParams(method: string, params: unknown): unknown {
       sessionDirectory: piWorkMetadata.sessionDirectory,
       profile: piWorkMetadata.profile ?? "work",
       mcpServers: value.mcpServers,
+    };
+  }
+  if (method === "_piWork/session/preview") {
+    return {
+      path: value.path,
+      sessionDirectory: piWorkMetadata.sessionDirectory,
+      profile: piWorkMetadata.profile ?? "work",
     };
   }
   if (method === "session/prompt") {

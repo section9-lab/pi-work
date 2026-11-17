@@ -422,6 +422,7 @@
 "chat.steps.collapse" = "단계 접기";
 "chat.scroll_to_latest" = "최신 메시지로 이동";
 "chat.session_loading" = "대화 불러오는 중";
+"chat.session_attaching" = "에이전트에 연결 중…";
 "access.none.title" = "접근 권한 없음";
 "access.read_only.title" = "읽기 전용";
 "access.ask.title" = "매번 확인";

@@ -45,6 +45,12 @@ protocol AgentHostServicing: Actor {
         sessionId: String?,
         requestID: String
     ) async throws -> AgentHostSessionCreateDraftResult
+    func previewSession(
+        path: String,
+        sessionDirectory: String?,
+        profile: AgentHostSessionProfile,
+        requestID: String
+    ) async throws -> AgentHostSessionSnapshotResult
     func openSession(
         sessionId: String,
         cwd: String,
@@ -944,6 +950,25 @@ actor AgentHostService: AgentHostServicing,
         return AgentHostSessionCreateDraftResult(
             session: summary,
             acpState: result.acpState
+        )
+    }
+
+    func previewSession(
+        path: String,
+        sessionDirectory: String?,
+        profile: AgentHostSessionProfile,
+        requestID: String = UUID().uuidString
+    ) async throws -> AgentHostSessionSnapshotResult {
+        _ = try await start()
+        return try await request(
+            id: requestID,
+            method: "_piWork/session/preview",
+            params: AgentHostSessionPreviewParameters(
+                path: path,
+                sessionDirectory: sessionDirectory,
+                profile: profile
+            ),
+            as: AgentHostSessionSnapshotResult.self
         )
     }
 

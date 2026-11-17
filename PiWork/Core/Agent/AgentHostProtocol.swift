@@ -2051,6 +2051,19 @@ private func agentHostACPParameters(for method: String, encodedParams: Any) -> A
         if !metadata.isEmpty {
             params["_meta"] = ["piWork": metadata]
         }
+    case "_piWork/session/preview":
+        var metadata: [String: Any] = [:]
+        if let value = params["sessionDirectory"], !(value is NSNull) {
+            metadata["sessionDirectory"] = value
+        }
+        if let value = params["profile"], !(value is NSNull) {
+            metadata["profile"] = value
+        }
+        params.removeValue(forKey: "sessionDirectory")
+        params.removeValue(forKey: "profile")
+        if !metadata.isEmpty {
+            params["_meta"] = ["piWork": metadata]
+        }
     case "session.delete":
         var metadata: [String: Any] = [:]
         if let value = params["sessionDirectory"], !(value is NSNull) {
@@ -2422,6 +2435,12 @@ struct AgentHostSessionCreateDraftParameters: Encodable, Equatable {
         self.profile = profile
         self.sessionId = sessionId
     }
+}
+
+struct AgentHostSessionPreviewParameters: Encodable, Equatable {
+    let path: String
+    let sessionDirectory: String?
+    let profile: AgentHostSessionProfile
 }
 
 struct AgentHostSessionOpenParameters: Encodable, Equatable {

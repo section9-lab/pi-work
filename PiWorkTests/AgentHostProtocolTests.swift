@@ -1351,6 +1351,33 @@ final class AgentHostProtocolTests: XCTestCase {
         XCTAssertEqual(params["cwd"] as? String, "/tmp/project")
     }
 
+    func testSessionPreviewEncodesPathAndProfileMetadata() throws {
+        let request = AgentHostRequest(
+            id: "preview-1",
+            method: "_piWork/session/preview",
+            params: AgentHostSessionPreviewParameters(
+                path: "/tmp/session-one.jsonl",
+                sessionDirectory: "/tmp/sessions",
+                profile: .work
+            )
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.encodedLine().dropLast()) as? [String: Any]
+        )
+        let params = try XCTUnwrap(object["params"] as? [String: Any])
+        XCTAssertEqual(params["path"] as? String, "/tmp/session-one.jsonl")
+        let metadata = try XCTUnwrap(params["_meta"] as? [String: Any])
+        XCTAssertEqual(
+            (metadata["piWork"] as? [String: Any])?["sessionDirectory"] as? String,
+            "/tmp/sessions"
+        )
+        XCTAssertEqual(
+            (metadata["piWork"] as? [String: Any])?["profile"] as? String,
+            "work"
+        )
+    }
+
     func testSessionResumeUsesOnlyACPV1Fields() throws {
         let request = AgentHostRequest(
             id: "load-1",

@@ -422,6 +422,7 @@
 "chat.steps.collapse" = "Contraer pasos";
 "chat.scroll_to_latest" = "Ir al mensaje más reciente";
 "chat.session_loading" = "Cargando conversación";
+"chat.session_attaching" = "Conectando con el agente…";
 "access.none.title" = "Sin acceso";
 "access.read_only.title" = "Solo lectura";
 "access.ask.title" = "Preguntar siempre";

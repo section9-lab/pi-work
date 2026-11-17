@@ -12,6 +12,7 @@ import {
   createPiSessionHandle,
   normalizeAgentMessages,
   normalizeAgentSessionEvent,
+  previewSessionSnapshot,
 } from "../src/pi-session-handle.ts";
 import { AccessController } from "../src/access-policy.ts";
 import {
@@ -313,6 +314,30 @@ describe("normalizeAgentSessionEvent", () => {
       rawOutput: { bytes: 15 },
       isError: false,
     });
+  });
+});
+
+describe("previewSessionSnapshot", () => {
+  test("projects a read-only transcript without an AgentSession", () => {
+    const manager = SessionManager.inMemory("/tmp/project");
+    manager.appendMessage({ role: "user", content: "first", timestamp: 1 });
+    manager.appendMessage({ role: "user", content: "second", timestamp: 2 });
+    manager.appendMessage({ role: "user", content: "third", timestamp: 3 });
+
+    const snapshot = previewSessionSnapshot(manager, {
+      messageLimit: 2,
+      profile: "work",
+    });
+
+    expect(snapshot.session.id).toBe(manager.getSessionId());
+    expect(snapshot.messages.map((message) => message.role)).toEqual(["user", "user"]);
+    expect(snapshot.messages.map((message) => message.content)).toEqual([
+      [{ type: "text", text: "second" }],
+      [{ type: "text", text: "third" }],
+    ]);
+    expect(snapshot.history?.hasMore).toBe(true);
+    expect(snapshot.model).toBeNull();
+    expect(snapshot.accessMode).toBe("full");
   });
 });
 

@@ -539,7 +539,7 @@ struct ContentView: View {
         sessionOpenTask = Task { @MainActor in
             await Task.yield()
             do {
-                try await sessionStore.openSession(
+                try await sessionStore.openSessionWithPreview(
                     session,
                     profile: profile,
                     sessionDirectory: nil,

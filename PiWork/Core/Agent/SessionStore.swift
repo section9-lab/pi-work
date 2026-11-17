@@ -126,6 +126,17 @@ struct SessionTranscriptMessage: Equatable, Identifiable {
     var compaction: AgentHostCompaction? = nil
 }
 
+enum SessionAttachmentState: Equatable {
+    case attached
+    case attaching
+    case failed(String)
+
+    var isAttaching: Bool {
+        if case .attaching = self { return true }
+        return false
+    }
+}
+
 struct SessionRecord: Equatable, Identifiable {
     var id: String { descriptor.id }
 
@@ -158,6 +169,7 @@ struct SessionRecord: Equatable, Identifiable {
     var queuedInputs: [AgentHostQueuedInput] = []
     var recoveredInputs: [AgentHostQueuedInput] = []
     var compaction: AgentHostCompaction? = nil
+    var attachmentState: SessionAttachmentState = .attached
 }
 
 enum SessionStoreEffect: Equatable {
@@ -1616,6 +1628,7 @@ enum SessionStoreConnectionState: Equatable {
 enum SessionStoreError: Error {
     case sessionNotOpen(String)
     case sessionBusy(String)
+    case sessionAttachmentFailed(String)
     case historyChanged(String)
     case downloadsDirectoryUnavailable
     case exportedReportMismatch(String)
@@ -1743,6 +1756,7 @@ final class SessionStore: ObservableObject {
         let task: Task<Int, Error>
     }
     private var historyLoads: [String: HistoryLoad] = [:]
+    private var attachTasks: [String: Task<Void, Never>] = [:]
     private var sessionRecency: [String] = []
 
     init(
@@ -1884,6 +1898,191 @@ final class SessionStore: ObservableObject {
         sessions.sorted { lhs, rhs in
             lhs.modifiedAt == rhs.modifiedAt ? lhs.id < rhs.id : lhs.modifiedAt > rhs.modifiedAt
         }
+    }
+
+    /// Show a historical session from a read-only transcript before the full
+    /// Agent runtime is attached. The expensive resource loader runs in the
+    /// background, so clicking a session does not wait for extensions or MCP.
+    func openSessionWithPreview(
+        _ summary: AgentHostSessionSummary,
+        profile: AgentHostSessionProfile,
+        sessionDirectory: String?,
+        selectSession: Bool = true,
+        performanceTraceID: UUID? = nil
+    ) async throws {
+        do {
+            try await start()
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .hostReady)
+            }
+            if let record = records[summary.id] {
+                touchSession(summary.id)
+                if let performanceTraceID {
+                    performanceTracer.mark(traceID: performanceTraceID, stage: .cacheHit)
+                }
+                if selectSession {
+                    select(summary.id, profile: record.profile, cwd: record.descriptor.cwd)
+                    if let performanceTraceID {
+                        performanceTracer.mark(traceID: performanceTraceID, stage: .selectionCommitted)
+                    }
+                }
+                return
+            }
+            guard summary.path.hasPrefix("/") else {
+                try await openSession(
+                    summary,
+                    profile: profile,
+                    sessionDirectory: sessionDirectory,
+                    selectSession: selectSession,
+                    performanceTraceID: performanceTraceID
+                )
+                return
+            }
+            let snapshot: AgentHostSessionSnapshotResult
+            do {
+                snapshot = try await service.previewSession(
+                    path: summary.path,
+                    sessionDirectory: sessionDirectory,
+                    profile: profile,
+                    requestID: UUID().uuidString
+                )
+            } catch where Self.isMethodNotFound(error) {
+                // Older hosts do not expose the preview RPC.
+                try await openSession(
+                    summary,
+                    profile: profile,
+                    sessionDirectory: sessionDirectory,
+                    selectSession: selectSession,
+                    performanceTraceID: performanceTraceID
+                )
+                return
+            }
+            if let performanceTraceID {
+                performanceTracer.mark(
+                    traceID: performanceTraceID,
+                    stage: .previewCompleted,
+                    messageCount: snapshot.messages.count,
+                    hasEarlierMessages: snapshot.history?.hasMore
+                )
+            }
+            var record = await project(
+                snapshot: snapshot,
+                profile: profile,
+                sessionDirectory: sessionDirectory
+            )
+            record.attachmentState = .attaching
+            if record.model == nil {
+                record.model = previewModelSeed()
+            }
+            reducer.apply(record)
+            if let performanceTraceID {
+                performanceTracer.mark(
+                    traceID: performanceTraceID,
+                    stage: .projectionCompleted,
+                    transcriptCount: record.transcript.count
+                )
+            }
+            touchSession(record.id)
+            if selectSession {
+                select(record.id, profile: profile, cwd: record.descriptor.cwd)
+                if let performanceTraceID {
+                    performanceTracer.mark(traceID: performanceTraceID, stage: .selectionCommitted)
+                }
+            }
+            publishReducerState()
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .storePublished)
+            }
+            startAttachment(
+                summary: summary,
+                profile: profile,
+                sessionDirectory: sessionDirectory
+            )
+            await trimSessionCache(protecting: [record.id])
+            if let performanceTraceID {
+                performanceTracer.mark(traceID: performanceTraceID, stage: .cacheTrimCompleted)
+            }
+        } catch {
+            if let performanceTraceID {
+                performanceTracer.fail(traceID: performanceTraceID)
+            }
+            throw error
+        }
+    }
+
+    private func previewModelSeed() -> AgentHostModel? {
+        if let model = selectedSessionIds.compactMap({ records[$0]?.model }).first {
+            return model
+        }
+        return availableModels.first
+    }
+
+    private func startAttachment(
+        summary: AgentHostSessionSummary,
+        profile: AgentHostSessionProfile,
+        sessionDirectory: String?
+    ) {
+        attachTasks[summary.id]?.cancel()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.attachTasks[summary.id] = nil }
+            do {
+                let openResult = try await self.service.openSession(
+                    sessionId: summary.id,
+                    cwd: summary.cwd,
+                    sessionDirectory: sessionDirectory,
+                    profile: profile,
+                    path: summary.path,
+                    requestID: UUID().uuidString
+                )
+                try Task.checkCancellation()
+                var snapshot: AgentHostSessionSnapshotResult?
+                if self.supportsPiWorkCapability(.sessionSnapshot) {
+                    do {
+                        snapshot = try await self.service.snapshot(
+                            sessionId: summary.id,
+                            requestID: UUID().uuidString
+                        )
+                    } catch where Self.isMethodNotFound(error) {
+                        snapshot = nil
+                    }
+                }
+                try Task.checkCancellation()
+                guard self.reducer.records[summary.id] != nil else { return }
+                if let snapshot {
+                    var record = await self.project(
+                        snapshot: snapshot,
+                        profile: profile,
+                        sessionDirectory: sessionDirectory
+                    )
+                    record.attachmentState = .attached
+                    self.reducer.apply(record)
+                } else {
+                    self.reducer.applyACPState(
+                        self.normalizedACPState(openResult.acpState),
+                        sessionId: summary.id
+                    )
+                    if var record = self.reducer.records[summary.id] {
+                        record.attachmentState = .attached
+                        self.reducer.apply(record)
+                    }
+                }
+                self.mergeAvailableModels(
+                    self.normalizedACPState(openResult.acpState).availableModels
+                )
+                self.publishReducerState()
+            } catch is CancellationError {
+                // The record was evicted or the store stopped.
+            } catch {
+                guard var record = self.reducer.records[summary.id] else { return }
+                let message = String(describing: error)
+                record.attachmentState = .failed(message)
+                record.errorMessage = message
+                self.reducer.apply(record)
+                self.publishReducerState()
+            }
+        }
+        attachTasks[summary.id] = task
     }
 
     func openSession(
@@ -2097,10 +2296,14 @@ final class SessionStore: ObservableObject {
 
     func loadEarlierMessages(sessionId: String) async throws -> Int {
         guard !isStopped else { throw AgentHostServiceError.stopped }
+        // The preview cursor belongs to the read-only projection. Wait for the
+        // live handle before paging so the host has a registered session.
+        if let attach = attachTasks[sessionId] { await attach.value }
         // A foreground wheel can join a prefetch. Share both the RPC and the
         // merge, rather than returning zero or prepending the same page twice.
         if let pending = historyLoads[sessionId] { return try await pending.task.value }
-        guard let record = reducer.records[sessionId] else {
+        guard let record = reducer.records[sessionId],
+              record.attachmentState == .attached else {
             throw SessionStoreError.sessionNotOpen(sessionId)
         }
         guard record.hasEarlierMessages, let cursor = record.historyCursor else { return 0 }
@@ -2133,6 +2336,10 @@ final class SessionStore: ObservableObject {
 
     private func cancelHistoryLoad(sessionID: String) {
         historyLoads.removeValue(forKey: sessionID)?.task.cancel()
+    }
+
+    private func cancelAttachment(sessionID: String) {
+        attachTasks.removeValue(forKey: sessionID)?.cancel()
     }
 
     /// Insert a local row before the host has created the session. The host is
@@ -2384,8 +2591,13 @@ final class SessionStore: ObservableObject {
         text: String,
         images: [AgentHostPromptImage] = []
     ) async throws -> String {
-        guard records[sessionId] != nil else {
-            throw SessionStoreError.sessionNotOpen(sessionId)
+        // A prompt entered while the preview is still attaching is queued
+        // here: the composer shows its submitting state until the live handle
+        // exists, then the optimistic message and RPC proceed in order.
+        if let attach = attachTasks[sessionId] { await attach.value }
+        guard let record = records[sessionId],
+              record.attachmentState == .attached else {
+            throw SessionStoreError.sessionAttachmentFailed(sessionId)
         }
         let turnId = UUID().uuidString
         let effects = reducer.submitPrompt(
@@ -2662,6 +2874,7 @@ final class SessionStore: ObservableObject {
             requestID: UUID().uuidString
         )
         cancelHistoryLoad(sessionID: sessionId)
+        cancelAttachment(sessionID: sessionId)
         reducer.remove(sessionId: sessionId)
         selectedSessionIds.remove(sessionId)
         if selectedChatSessionId == sessionId {
@@ -2686,6 +2899,7 @@ final class SessionStore: ObservableObject {
             requestID: UUID().uuidString
         )
         cancelHistoryLoad(sessionID: summary.id)
+        cancelAttachment(sessionID: summary.id)
         reducer.remove(sessionId: summary.id)
         selectedSessionIds.remove(summary.id)
         if profile == .chat {
@@ -2728,6 +2942,8 @@ final class SessionStore: ObservableObject {
         isStopped = true
         for load in historyLoads.values { load.task.cancel() }
         historyLoads.removeAll()
+        for task in attachTasks.values { task.cancel() }
+        attachTasks.removeAll()
         // Preserve the last received text, and leave no delayed UI work alive.
         publishReducerState()
         eventTask?.cancel()
@@ -3064,6 +3280,7 @@ final class SessionStore: ObservableObject {
 
         var didEvict = false
         for sessionId in candidates {
+            cancelAttachment(sessionID: sessionId)
             do {
                 _ = try await service.closeSession(
                     sessionId: sessionId,

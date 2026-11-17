@@ -7,6 +7,7 @@ enum SessionOpenPerformanceStage: String, Equatable {
     case hostReady = "host_ready"
     case cacheHit = "cache_hit"
     case openRPCCompleted = "open_rpc_completed"
+    case previewCompleted = "preview_completed"
     case draftRPCCompleted = "draft_rpc_completed"
     case snapshotCompleted = "snapshot_completed"
     case projectionCompleted = "projection_completed"

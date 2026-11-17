@@ -422,6 +422,7 @@
 "chat.steps.collapse" = "Collapse steps";
 "chat.scroll_to_latest" = "Jump to latest message";
 "chat.session_loading" = "Loading conversation";
+"chat.session_attaching" = "Connecting to agent…";
 "access.none.title" = "No Access";
 "access.read_only.title" = "Read Only";
 "access.ask.title" = "Ask Every Time";

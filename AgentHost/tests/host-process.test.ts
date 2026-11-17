@@ -119,6 +119,42 @@ describe("ACP agent host process", () => {
     }
   });
 
+  test("previews a persisted session without creating a handle", async () => {
+    const { child, lines, root } = await startHost();
+    try {
+      const cwd = join(root, "workspace");
+      mkdirSync(cwd);
+      const manager = SessionManager.create(cwd, join(root, "sessions"));
+      manager.appendMessage({ role: "user", content: "preview prompt", timestamp: 1 });
+      manager.appendMessage({ role: "user", content: "second prompt", timestamp: 2 });
+      child.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "preview-1",
+        method: "_piWork/session/preview",
+        params: {
+          path: manager.getSessionFile(),
+          _meta: { piWork: { profile: "work" } },
+        },
+      })}\n`);
+      await child.stdin.flush();
+      const preview = await lines.read();
+      expect(preview).toMatchObject({
+        id: "preview-1",
+        result: {
+          session: { id: manager.getSessionId(), cwd },
+        },
+      });
+      expect(preview.result.messages).toHaveLength(2);
+      expect(preview.result.messages.map((message: any) => message.content)).toEqual([
+        [{ type: "text", text: "preview prompt" }],
+        [{ type: "text", text: "second prompt" }],
+      ]);
+      expect(preview.result.model).toBeNull();
+    } finally {
+      await stopHost(child, root);
+    }
+  });
+
   test("accepts session/cancel as a notification without emitting a response", async () => {
     const { child, lines, root } = await startHost();
     try {

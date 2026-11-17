@@ -422,6 +422,7 @@
 "chat.steps.collapse" = "ステップを折りたたむ";
 "chat.scroll_to_latest" = "最新メッセージへ移動";
 "chat.session_loading" = "会話を読み込み中";
+"chat.session_attaching" = "エージェントに接続中…";
 "access.none.title" = "アクセスなし";
 "access.read_only.title" = "読み取り専用";
 "access.ask.title" = "毎回確認";
