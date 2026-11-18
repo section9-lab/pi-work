@@ -108,7 +108,13 @@ struct ChatView: View {
     }
 
     var body: some View {
-        let messagePresentation = messagePresentation
+        let transitioning = isSessionTransitioning
+        // While the mask is up the transcript is not mounted. Avoid projecting
+        // the outgoing record and building its prompt history in the same body
+        // pass that prepares the next session.
+        let messagePresentation = transitioning
+            ? TranscriptWindow(messages: [], hiddenCount: 0)
+            : self.messagePresentation
         let allMessages = messagePresentation.messages
         let draftKey = composerDraftKey
         VStack(spacing: 0) {
@@ -183,8 +189,11 @@ struct ChatView: View {
                     set: { composerDrafts.set($0, at: \.selectedCommand, for: draftKey) }
                 ),
                 slashCommands: availableSlashCommands,
-                promptHistory: presentedRecord.map { SessionComposerState.promptHistory(inTranscript: $0.transcript) }
-                    ?? SessionComposerState.promptHistory(in: allMessages),
+                promptHistory: transitioning
+                    ? []
+                    : (presentedRecord.map {
+                        SessionComposerState.promptHistory(inTranscript: $0.transcript)
+                    } ?? SessionComposerState.promptHistory(in: allMessages)),
                 imageAttachments: imageAttachments,
                 isProcessingImageAttachments: isProcessingImageAttachments,
                 selectedModelSupportsImages: selectedModelSupportsImages,
@@ -599,6 +608,7 @@ struct ChatView: View {
                     transcriptViewport.partFrames = frames
                 }
                 .onPreferenceChange(PromptRowFramesPreferenceKey.self) { frames in
+                    guard !isSessionTransitioning else { return }
                     let next = PromptRailPresentation.currentPromptID(
                         in: prompts,
                         frames: frames,

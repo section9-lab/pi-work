@@ -488,32 +488,63 @@ struct ContentView: View {
         project: PiProject? = nil
     ) -> Bool {
         guard sessionStore.records[session.id] != nil else { return false }
-        cancelSessionOpening()
+        // Clicking the already selected session is a no-op; do not flash the
+        // transition mask.
+        switch profile {
+        case .chat where sessionStore.selectedChatSessionId == session.id:
+            return true
+        case .work where sessionStore.selectedWorkSessionIdByProjectPath[session.cwd] == session.id:
+            return true
+        default:
+            break
+        }
+        sessionOpenTask?.cancel()
         let performanceTraceID = sessionStore.beginSessionOpenPerformanceTrace(
             sessionID: session.id,
             profile: profile
         )
-        do {
-            try sessionStore.selectOpenSession(
-                sessionId: session.id,
+        let request = sessionOpeningState.begin(
+            SessionOpeningTarget(
+                sessionID: session.id,
                 profile: profile,
-                cwd: session.cwd
+                cwd: session.cwd,
+                projectID: project?.id
             )
-            if let project {
-                workSession.selectSession(session.id, in: project)
+        )
+        // Let SwiftUI commit the loading mask and unmount the outgoing
+        // transcript before changing the selected id. The two phases keep a
+        // large outgoing transcript from being torn down in the same frame as
+        // the new one is prepared.
+        sessionOpenTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 16_000_000)
+            guard sessionOpeningState.isCurrent(request) else {
+                sessionStore.cancelSessionOpenPerformanceTrace(performanceTraceID)
+                return
             }
-            sessionStore.markSessionOpenPerformanceTrace(
-                performanceTraceID,
-                stage: .cacheHit
-            )
-            sessionStore.markSessionOpenPerformanceTrace(
-                performanceTraceID,
-                stage: .selectionCommitted
-            )
-            agentError = nil
-        } catch {
-            sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
-            agentError = AgentErrorPresentation(error)
+            do {
+                try sessionStore.selectOpenSession(
+                    sessionId: session.id,
+                    profile: profile,
+                    cwd: session.cwd
+                )
+                if let project {
+                    workSession.selectSession(session.id, in: project)
+                }
+                sessionStore.markSessionOpenPerformanceTrace(
+                    performanceTraceID,
+                    stage: .cacheHit
+                )
+                sessionStore.markSessionOpenPerformanceTrace(
+                    performanceTraceID,
+                    stage: .selectionCommitted
+                )
+                sessionOpeningState.complete(request)
+                agentError = nil
+            } catch {
+                sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
+                sessionOpeningState.complete(request)
+                agentError = AgentErrorPresentation(error)
+            }
         }
         return true
     }
