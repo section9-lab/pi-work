@@ -451,11 +451,11 @@ struct ChatView: View {
                             epoch: virtualizationEpoch
                         )
                         ForEach(rows) { row in
-                            if mountedRowIDs?.contains(row.id) ?? true {
-                                transcriptRow(row.message, isGrouped: sourceSpans[row.message.id]?.isGrouped == true)
-                            } else {
-                                virtualizedTranscriptRow(row)
-                            }
+                            transcriptRowContainer(
+                                row,
+                                isGrouped: sourceSpans[row.message.id]?.isGrouped == true,
+                                isMounted: mountedRowIDs?.contains(row.id) ?? true
+                            )
                         }
                         if hasNewerMessages {
                             Button(L10n.string("chat.history.load_newer")) {
@@ -684,6 +684,50 @@ struct ChatView: View {
         return false
     }
 
+    /// One identity for both the mounted and virtualized states. Geometry
+    /// preferences live on this container, so a row switching between real
+    /// content and a measured placeholder cannot report the same preference
+    /// twice in one layout pass.
+    private func transcriptRowContainer(
+        _ row: TranscriptVisibleRow,
+        isGrouped: Bool,
+        isMounted: Bool
+    ) -> some View {
+        Group {
+            if isMounted {
+                transcriptRow(row.message, isGrouped: isGrouped)
+            } else {
+                virtualizedTranscriptRow(row)
+            }
+        }
+        .background {
+            GeometryReader { rowFrame in
+                Color.clear.preference(
+                    key: TranscriptRowFramesPreferenceKey.self,
+                    value: [
+                        row.message.id: rowFrame.frame(
+                            in: .named(TranscriptLayout.documentCoordinateSpace)
+                        )
+                    ]
+                )
+            }
+        }
+        .background {
+            if row.message.role == .user {
+                GeometryReader { rowFrame in
+                    Color.clear.preference(
+                        key: PromptRowFramesPreferenceKey.self,
+                        value: [
+                            row.message.id: rowFrame.frame(
+                                in: .named(TranscriptLayout.coordinateSpace)
+                            )
+                        ]
+                    )
+                }
+            }
+        }
+    }
+
     /// Keeps the row/prompt geometry contract identical to a mounted row so the
     /// scroll anchor, history compensation and prompt rail keep working.
     private func virtualizedTranscriptRow(_ row: TranscriptVisibleRow) -> some View {
@@ -691,32 +735,6 @@ struct ChatView: View {
         return Color.clear
             .frame(maxWidth: .infinity)
             .frame(height: height)
-            .background {
-                GeometryReader { rowFrame in
-                    Color.clear.preference(
-                        key: TranscriptRowFramesPreferenceKey.self,
-                        value: [
-                            row.message.id: rowFrame.frame(
-                                in: .named(TranscriptLayout.documentCoordinateSpace)
-                            )
-                        ]
-                    )
-                }
-            }
-            .background {
-                if row.message.role == .user {
-                    GeometryReader { rowFrame in
-                        Color.clear.preference(
-                            key: PromptRowFramesPreferenceKey.self,
-                            value: [
-                                row.message.id: rowFrame.frame(
-                                    in: .named(TranscriptLayout.coordinateSpace)
-                                )
-                            ]
-                        )
-                    }
-                }
-            }
             // Keep ScrollViewReader anchors available even while virtualized.
             .background {
                 Color.clear
@@ -741,26 +759,6 @@ struct ChatView: View {
             resolve(approval: approval, decision: decision)
         }
         .equatable()
-        }
-        .background {
-            GeometryReader { row in
-                Color.clear.preference(
-                    key: TranscriptRowFramesPreferenceKey.self,
-                    value: [message.id: row.frame(in: .named(TranscriptLayout.documentCoordinateSpace))]
-                )
-            }
-        }
-        .background {
-            if message.role == .user {
-                GeometryReader { row in
-                    Color.clear.preference(
-                        key: PromptRowFramesPreferenceKey.self,
-                        value: [
-                            message.id: row.frame(in: .named(TranscriptLayout.coordinateSpace))
-                        ]
-                    )
-                }
-            }
         }
         .background {
             if highlightedPromptID == message.id {
