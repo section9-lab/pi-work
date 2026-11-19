@@ -76,6 +76,11 @@ struct ChatView: View {
     @State private var readySessionPresentationID: String?
     @State private var presentedMessageLimit = TranscriptWindow.batchSize
     @State private var isPreparingSessionPresentation = false
+    // Monotonic attempt counter. `sessionPresentationID` is only
+    // "mode:session", so switching A → B → A reuses the same string. A
+    // cancelled task for the first A (including its 2s backstop) must not be
+    // able to mark the second A as ready.
+    @State private var presentationAttempt = 0
     @State private var loadedToolOutputs: [String: String] = [:]
     @State private var loadedToolOutputOrder: [String] = []
     @State private var loadedToolOutputBytes = 0
@@ -131,7 +136,7 @@ struct ChatView: View {
                     Group {
                         if allMessages.isEmpty {
                             emptySession
-                                .transition(.opacity)
+                                .transition(.asymmetric(insertion: .opacity, removal: .identity))
                         } else {
                             transcript(
                                 messages: allMessages,
@@ -140,10 +145,17 @@ struct ChatView: View {
                                 sourceSpans: messagePresentation.sourceSpans
                             )
                                 .id(sessionPresentationID)
-                                .transition(.opacity)
+                                // Removing the outgoing transcript must be
+                                // instant. A symmetric fade keeps the old and
+                                // the new transcript mounted for the 0.18s
+                                // animation window, so both report
+                                // PromptRowFramesPreferenceKey and SwiftUI
+                                // logs "tried to update multiple times per
+                                // frame" again. Only the incoming transcript
+                                // fades in.
+                                .transition(.asymmetric(insertion: .opacity, removal: .identity))
                         }
                     }
-                    .transition(.opacity)
                 }
             }
             .animation(
@@ -317,6 +329,8 @@ struct ChatView: View {
                 return
             }
             let presentationID = sessionPresentationID
+            presentationAttempt &+= 1
+            let attempt = presentationAttempt
             if let activeSessionId {
                 sessionStore.markActiveSessionOpenPerformance(
                     sessionID: activeSessionId,
@@ -330,11 +344,11 @@ struct ChatView: View {
             // close it, so the cleanup lives in one place instead of at each
             // `return`. Without this a cancelled presentation leaves the chat
             // permanently masked and unresponsive.
-            defer { finishSessionPresentation(presentationID) }
+            defer { finishSessionPresentation(attempt) }
             // Backstop for a presentation task that never gets to resume (a
             // main thread busy with layout can starve the continuation above).
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                finishSessionPresentation(presentationID)
+                finishSessionPresentation(attempt)
             }
             await Task.yield()
 
@@ -364,9 +378,10 @@ struct ChatView: View {
             // The whole window renders in one pass; a single frame is enough for
             // layout to settle before pinning the scroll view to the tail.
             try? await Task.sleep(nanoseconds: 16_000_000)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, attempt == presentationAttempt else { return }
             transcriptScrollRequest &+= 1
             await Task.yield()
+            guard attempt == presentationAttempt else { return }
             readySessionPresentationID = presentationID
             isPreparingSessionPresentation = false
             if let activeSessionId {
@@ -1701,12 +1716,16 @@ struct ChatView: View {
             || (activeSessionId != nil && readySessionPresentationID != sessionPresentationID)
     }
 
-    /// Commits `presentationID` as presented and clears the in-flight marker.
+    /// Commits the attempt's session as presented and clears the in-flight
+    /// marker.
     ///
-    /// Idempotent, and a no-op once a newer presentation has taken ownership, so
-    /// overlapping swaps cannot clear each other's state.
-    private func finishSessionPresentation(_ presentationID: String) {
-        guard sessionPresentationID == presentationID else { return }
+    /// Idempotent, and a no-op once a newer attempt has taken ownership, so
+    /// overlapping swaps cannot clear each other's state. Comparing attempts
+    /// instead of the id string also covers A → B → A, where the string alone
+    /// would let the cancelled first A finish the second A.
+    private func finishSessionPresentation(_ attempt: Int) {
+        guard attempt == presentationAttempt else { return }
+        let presentationID = sessionPresentationID
         if readySessionPresentationID != presentationID {
             readySessionPresentationID = presentationID
         }

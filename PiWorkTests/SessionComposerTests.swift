@@ -1624,7 +1624,80 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertFalse(source.contains("SessionComposerLoadingMask"))
     }
 
-    func testSessionPresentationCleanupIsDeferredAndIdentityGuarded() throws {
+    func testCachedWorkSessionClickOnlyNoOpsWhenItsProjectIsDisplayed() {
+        // Regression: 0.1.52 compared only the remembered per-project session
+        // id. With chat-bridge displayed, clicking the remembered pi-work
+        // session was treated as "already selected", so no session_open ran and
+        // the old transcript stayed on screen.
+        XCTAssertTrue(CachedSessionSelection.isDisplayed(
+            profile: .work,
+            clickedSessionID: "pi-session",
+            clickedSessionCWD: "/repo/pi-work",
+            clickedProjectPath: "/repo/pi-work",
+            selectedChatSessionID: nil,
+            selectedWorkSessionID: "pi-session",
+            selectedProjectPath: "/repo/pi-work"
+        ))
+        XCTAssertFalse(CachedSessionSelection.isDisplayed(
+            profile: .work,
+            clickedSessionID: "pi-session",
+            clickedSessionCWD: "/repo/pi-work",
+            clickedProjectPath: "/repo/pi-work",
+            selectedChatSessionID: nil,
+            selectedWorkSessionID: "pi-session",
+            selectedProjectPath: "/repo/chat-bridge"
+        ))
+        XCTAssertFalse(CachedSessionSelection.isDisplayed(
+            profile: .work,
+            clickedSessionID: "pi-session",
+            clickedSessionCWD: "/repo/pi-work",
+            clickedProjectPath: "/repo/pi-work",
+            selectedChatSessionID: nil,
+            selectedWorkSessionID: "other-session",
+            selectedProjectPath: "/repo/pi-work"
+        ))
+        XCTAssertFalse(CachedSessionSelection.isDisplayed(
+            profile: .work,
+            clickedSessionID: "pi-session",
+            clickedSessionCWD: "/repo/pi-work",
+            clickedProjectPath: "/repo/pi-work",
+            selectedChatSessionID: nil,
+            selectedWorkSessionID: "pi-session",
+            selectedProjectPath: nil
+        ))
+        XCTAssertTrue(CachedSessionSelection.isDisplayed(
+            profile: .chat,
+            clickedSessionID: "chat-session",
+            clickedSessionCWD: "/tmp/chat",
+            clickedProjectPath: nil,
+            selectedChatSessionID: "chat-session",
+            selectedWorkSessionID: nil,
+            selectedProjectPath: nil
+        ))
+        XCTAssertFalse(CachedSessionSelection.isDisplayed(
+            profile: .chat,
+            clickedSessionID: "chat-session",
+            clickedSessionCWD: "/tmp/chat",
+            clickedProjectPath: nil,
+            selectedChatSessionID: "another-chat-session",
+            selectedWorkSessionID: nil,
+            selectedProjectPath: nil
+        ))
+    }
+
+    func testSessionSelectionChecksTheDisplayedProjectBeforeSkipping() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/App/Root/ContentView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("CachedSessionSelection.isDisplayed("))
+        XCTAssertFalse(source.contains("case .work where sessionStore.selectedWorkSessionIdByProjectPath[session.cwd] == session.id"))
+    }
+
+    func testSessionPresentationCleanupIsDeferredAndAttemptGuarded() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1636,19 +1709,41 @@ final class SessionComposerTests: XCTestCase {
             source.components(separatedBy: ".task(id: sessionPresentationID) {").last?
                 .components(separatedBy: "\n        }").first
         )
-        let cleanup = try XCTUnwrap(task.range(of: "defer { finishSessionPresentation(presentationID) }"))
+        let cleanup = try XCTUnwrap(task.range(of: "defer { finishSessionPresentation(attempt) }"))
         let suspension = try XCTUnwrap(task.range(of: "await Task.yield()"))
         XCTAssertLessThan(cleanup.lowerBound, suspension.lowerBound)
-        XCTAssertTrue(task.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 2) {\n                finishSessionPresentation(presentationID)"))
+        XCTAssertTrue(task.contains("presentationAttempt &+= 1"))
+        XCTAssertTrue(task.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 2) {\n                finishSessionPresentation(attempt)"))
 
         let finish = try XCTUnwrap(
-            source.components(separatedBy: "private func finishSessionPresentation(_ presentationID: String) {").last?
+            source.components(separatedBy: "private func finishSessionPresentation(_ attempt: Int) {").last?
                 .components(separatedBy: "\n    }").first
         )
-        let identityGuard = try XCTUnwrap(finish.range(of: "guard sessionPresentationID == presentationID else { return }"))
+        // The attempt guard, not the id string, is what makes A → B → A safe:
+        // the cancelled first A must not complete the second A.
+        let identityGuard = try XCTUnwrap(finish.range(of: "guard attempt == presentationAttempt else { return }"))
         let stateWrite = try XCTUnwrap(finish.range(of: "readySessionPresentationID = presentationID"))
         XCTAssertLessThan(identityGuard.lowerBound, stateWrite.lowerBound)
         XCTAssertTrue(finish.contains("isPreparingSessionPresentation = false"))
+    }
+
+    func testSessionTransitionDoesNotKeepOutgoingTranscriptMounted() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("PiWork/Features/Chat/Views/ChatView.swift"),
+            encoding: .utf8
+        )
+        let transcript = try XCTUnwrap(
+            source.components(separatedBy: "transcript(\n                                messages: allMessages").last?
+                .components(separatedBy: "\n                        }\n                    }").first
+        )
+        // A symmetric fade leaves the outgoing transcript mounted for the
+        // animation window, so both transcripts report prompt-row geometry in
+        // the same frame (SwiftUI: "tried to update multiple times per frame").
+        XCTAssertTrue(source.contains(".transition(.asymmetric(insertion: .opacity, removal: .identity))"))
+        XCTAssertFalse(transcript.contains(".transition(.opacity)"))
     }
 
     func testSessionLoadingMaskStopsShimmerAfterBoundedTime() throws {

@@ -72,6 +72,39 @@ struct SessionOpeningTarget: Equatable {
     }
 }
 
+/// Decides whether clicking a session row can be a no-op.
+///
+/// `selectedWorkSessionIdByProjectPath` deliberately remembers one session per
+/// project. That id alone is not proof the session is on screen: after the user
+/// moves to another project, the remembered id for the previous project stays
+/// behind. Comparing only the id swallowed the click, so the visible transcript
+/// never changed and the session appeared unresponsive.
+enum CachedSessionSelection {
+    static func isDisplayed(
+        profile: AgentHostSessionProfile,
+        clickedSessionID: String,
+        clickedSessionCWD: String,
+        clickedProjectPath: String?,
+        selectedChatSessionID: String?,
+        selectedWorkSessionID: String?,
+        selectedProjectPath: String?
+    ) -> Bool {
+        switch profile {
+        case .chat:
+            return selectedChatSessionID == clickedSessionID
+        case .work:
+            // The composer can be on another project while this project still
+            // remembers the clicked session. Require both the project and the
+            // session to match what is displayed.
+            guard let clickedProjectPath, clickedProjectPath == selectedProjectPath else {
+                return false
+            }
+            return selectedWorkSessionID == clickedSessionID
+                && clickedSessionCWD == clickedProjectPath
+        }
+    }
+}
+
 struct SessionOpeningRequest: Equatable {
     let id: UUID
     let target: SessionOpeningTarget

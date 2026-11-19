@@ -488,15 +488,21 @@ struct ContentView: View {
         project: PiProject? = nil
     ) -> Bool {
         guard sessionStore.records[session.id] != nil else { return false }
-        // Clicking the already selected session is a no-op; do not flash the
-        // transition mask.
-        switch profile {
-        case .chat where sessionStore.selectedChatSessionId == session.id:
+        // Clicking the already displayed session is a no-op; do not flash the
+        // transition mask. A work session can be remembered as its project's
+        // selection while another project is displayed, so both the project and
+        // the session have to match. Otherwise the click was swallowed and the
+        // old transcript stayed on screen.
+        if CachedSessionSelection.isDisplayed(
+            profile: profile,
+            clickedSessionID: session.id,
+            clickedSessionCWD: session.cwd,
+            clickedProjectPath: project?.path,
+            selectedChatSessionID: sessionStore.selectedChatSessionId,
+            selectedWorkSessionID: sessionStore.selectedWorkSessionIdByProjectPath[session.cwd],
+            selectedProjectPath: workSession.selectedProject?.path
+        ) {
             return true
-        case .work where sessionStore.selectedWorkSessionIdByProjectPath[session.cwd] == session.id:
-            return true
-        default:
-            break
         }
         sessionOpenTask?.cancel()
         let performanceTraceID = sessionStore.beginSessionOpenPerformanceTrace(
