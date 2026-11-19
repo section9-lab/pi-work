@@ -59,6 +59,7 @@ struct ChatView: View {
     @State private var transcriptScrollTask: Task<Void, Never>?
     @State private var transcriptScrollTaskID: UUID?
     @StateObject private var transcriptPresentation = TranscriptPresentationCache()
+    @StateObject private var promptRailCache = PromptRailPresentationCache()
     @StateObject private var transcriptToolExpansion = TranscriptToolExpansionState()
     @State private var transcriptMessageLimit = TranscriptWindow.batchSize
     @State private var transcriptNavigation = TranscriptWindowNavigation()
@@ -413,10 +414,13 @@ struct ChatView: View {
     ) -> some View {
         // The rail indexes every loaded user turn. Selecting a mark moves the
         // bounded render window around that turn before scrolling.
-        let promptMessages = presentedRecord?.transcript
-            .filter { $0.role == .user }
-            .map { PiChatMessage(message: $0, isStreaming: false) } ?? messages
-        let prompts = PromptRailPresentation.entries(from: promptMessages)
+        let prompts = promptRailCache.entries(
+            record: presentedRecord,
+            fallbackMessages: messages,
+            structuralRevision: presentedRecord.map {
+                sessionStore.transcriptStructureRevision(sessionID: $0.id)
+            } ?? 0
+        )
         let rows = transcriptToolExpansion.rows(for: messages)
         return GeometryReader { viewport in
             ScrollViewReader { proxy in
@@ -1834,6 +1838,51 @@ private struct SessionOpenFirstFrameReporter: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .onAppear(perform: report)
+    }
+}
+
+/// Prompt-rail entries are derived from every user turn and require whitespace
+/// normalization. SwiftUI evaluates `ChatView.body` repeatedly during layout,
+/// so cache the result until the presented session's transcript structure or
+/// message identity changes.
+@MainActor
+final class PromptRailPresentationCache: ObservableObject {
+    private struct Key: Equatable {
+        let sessionID: String?
+        let count: Int
+        let structuralRevision: UInt64
+        let firstID: String?
+        let lastID: String?
+    }
+
+    private var key: Key?
+    private var cached: [PromptRailEntry] = []
+
+    func entries(
+        record: SessionRecord?,
+        fallbackMessages: [PiChatMessage],
+        structuralRevision: UInt64
+    ) -> [PromptRailEntry] {
+        let sourceMessages: [PiChatMessage]
+        if let record {
+            sourceMessages = record.transcript
+                .filter { $0.role == .user }
+                .map { PiChatMessage(message: $0, isStreaming: false) }
+        } else {
+            sourceMessages = fallbackMessages
+        }
+        let nextKey = Key(
+            sessionID: record?.id,
+            count: sourceMessages.count,
+            structuralRevision: structuralRevision,
+            firstID: sourceMessages.first?.id,
+            lastID: sourceMessages.last?.id
+        )
+        if nextKey == key { return cached }
+        let entries = PromptRailPresentation.entries(from: sourceMessages)
+        key = nextKey
+        cached = entries
+        return entries
     }
 }
 
