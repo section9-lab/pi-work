@@ -38,8 +38,9 @@ python3 -m unittest scripts/test_release_workflow.py scripts/test_ci_dependencie
 
 The preparation-script checks use a fake `xcodebuild` to verify shared paths, strict resolution, lockfile drift rejection and exit-code propagation; they do not replace an actual Xcode release run.
 
-## Release job layout and diagnostics
+The test matrices run with `-retry-tests-on-failure -test-iterations 3`. The AppKit layout tests wait on main-actor work that a cold Intel runner can starve for several seconds; a retried test that fails all three iterations still fails the release, so this absorbs timing noise without weakening an assertion.
 
+## Release job layout and diagnostics
 Architecture-independent validation runs once on the faster ARM runner: Agent Host type-checking, Bun tests, packaging checks, app-update checks, project-change checks and runtime-recovery checks remain individually timed. Native XCTest and Release packaging each retain ARM64 and Intel matrix coverage.
 
 The test and package matrices run independently, so Debug XCTest compilation no longer blocks the unrelated Release archive. Publishing waits for validation plus every test and package matrix job. This keeps the same release gates while placing the two clean Xcode builds on parallel critical paths.
@@ -49,4 +50,8 @@ Both Xcode invocations enable `-showBuildTimingSummary`. Their complete stdout/s
 - `PiWorkTestDiagnostics-*` contains `application-tests.log`: dependency preparation/build, test execution and Xcode's build timing summary.
 - `PiWorkBuildDiagnostics-*` contains `archive.log`: Release archive build and its timing summary.
 
+The test matrices run with `-retry-tests-on-failure -test-iterations 3`. The AppKit layout tests wait on main-actor work that a cold Intel runner can starve for several seconds; a retried test that fails all three iterations still fails the release, so this absorbs timing noise without weakening an assertion.
+
 The existing `PiWorkTests-*` XCTest result bundles remain available separately. Diagnostic artifacts do not match the release job's `PiWork-*` installer download pattern. Shell pipelines use `pipefail`, so capturing logs with `tee` cannot turn an Xcode failure into a successful release.
+
+## Release job layout and diagnostics

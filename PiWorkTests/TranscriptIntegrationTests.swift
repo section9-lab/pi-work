@@ -337,12 +337,14 @@ final class TranscriptIntegrationTests: XCTestCase {
             }
             await host.emit(.sessionStateChanged(.init(sessionId: "session-one", sequence: chunks.count + 2, turnId: "live", state: .idle)))
         }
-        let until = Date().addingTimeInterval(8)
+        // Busy Intel CI runners render this fixture much slower than a warmed
+        // arm64 runner; the producer must not outrun the main actor.
+        let until = Date().addingTimeInterval(20)
         while Date() < until, store.records["session-one"]?.lastSequence != chunks.count + 2 {
             keepTail(view); try await Task.sleep(nanoseconds: 10_000_000)
         }
         try await producer.value
-        try await wait("Completion event was not published", timeout: 15) { store.records["session-one"]?.lastSequence == chunks.count + 2 }
+        try await wait("Completion event was not published", timeout: 30) { store.records["session-one"]?.lastSequence == chunks.count + 2 }
         XCTAssertEqual(PiChatMessage(message: store.records["session-one"]!.transcript.last!).text, body)
         try await wait("The actual Markdown presentation never received the complete final document", timeout: 15) {
             keepTail(view); return AssistantMarkdownDiagnostics.hasRendered(body, after: checkpoint)

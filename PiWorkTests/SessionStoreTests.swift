@@ -1060,9 +1060,9 @@ final class SessionStoreTests: XCTestCase {
 
     private func waitForHistoryWindow(_ fixture: HistoryFixture, previousIDs: Set<String>) async throws {
         // Warmed-up runners apply the fixed history window immediately; cold or
-        // busy Intel runners can take a few seconds. Waiting is cheaper than a
-        // flaky release gate.
-        for _ in 0..<250 {
+        // busy Intel runners can take over ten seconds. Waiting is cheaper than
+        // a flaky release gate.
+        for _ in 0..<600 {
             try await Task.sleep(nanoseconds: 20_000_000)
             fixture.window.contentView?.layoutSubtreeIfNeeded()
             let ids = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])

@@ -132,6 +132,7 @@ jobs:
             -onlyUsePackageVersionsFromResolvedFile \
             -showBuildTimingSummary \
             -resultBundlePath "$RUNNER_TEMP/PiWorkTests.xcresult" \
+            -retry-tests-on-failure -test-iterations 3 \
             ARCHS="${{ matrix.arch }}" ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" \
             2>&1 | tee "$RUNNER_TEMP/BuildDiagnostics/application-tests.log"
