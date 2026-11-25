@@ -720,16 +720,14 @@ final class SessionStoreTests: XCTestCase {
         let previousIDs = Set(viewport.frames.keys)
         scrollHistoryToTop(fixture)
         try await waitForHistoryWindow(fixture, previousIDs: previousIDs)
-        var visible: [String: CGRect] = [:]
-        for _ in 0..<150 {
-            fixture.window.contentView?.layoutSubtreeIfNeeded()
-            visible = viewport.frames.filter {
-                $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height
-            }
-            if !visible.isEmpty { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
+        // Capture from a resting viewport: the history window swap and AppKit's
+        // top-edge clamping both settle one or more layout passes later.
+        let settledBefore = try await settledViewportFrames(fixture, viewport: viewport)
+        let visible = settledBefore.filter {
+            $0.value.maxY > 0 && $0.value.minY < fixture.scroll.contentView.bounds.height
         }
         let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
+        let offsetBefore = fixture.scroll.contentView.bounds.minY
         await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
             sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
             phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
@@ -743,7 +741,11 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 180)
         let settled = try await settledViewportFrames(fixture, viewport: viewport)
         let after = try XCTUnwrap(settled[anchor.key])
-        XCTAssertEqual(after.minY, anchor.value.minY, accuracy: 2, "Streaming must not shift the reading position")
+        let offsetAfter = fixture.scroll.contentView.bounds.minY
+        XCTAssertEqual(
+            after.minY, anchor.value.minY, accuracy: 2,
+            "Streaming must not shift the reading position (anchor \(anchor.key) \(anchor.value.minY) → \(after.minY), offset \(offsetBefore) → \(offsetAfter))"
+        )
         XCTAssertFalse(settled.keys.contains { $0.contains("new-turn") })
         await fixture.store.stop()
     }
