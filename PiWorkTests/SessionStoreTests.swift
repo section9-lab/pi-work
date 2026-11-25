@@ -713,7 +713,13 @@ final class SessionStoreTests: XCTestCase {
         let fixture = try await historyConversation(host: host)
         defer { fixture.window.close() }
         let viewport = try XCTUnwrap(fixture.observer.viewport)
+        // The history window is applied asynchronously after the scroll. Capture
+        // the anchor only once that transition has landed, otherwise a slow
+        // runner can record frames from the window that is about to be replaced
+        // and then read a one-window jump as a streaming shift.
+        let previousIDs = Set(viewport.frames.keys)
         scrollHistoryToTop(fixture)
+        try await waitForHistoryWindow(fixture, previousIDs: previousIDs)
         var visible: [String: CGRect] = [:]
         for _ in 0..<150 {
             fixture.window.contentView?.layoutSubtreeIfNeeded()
@@ -724,7 +730,6 @@ final class SessionStoreTests: XCTestCase {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         let anchor = try XCTUnwrap(visible.min { $0.value.minY < $1.value.minY })
-        let expectedOffset = anchor.value.minY
         await host.emit(.sessionAssistantContent(AgentHostSessionAssistantContentPayload(
             sessionId: "session-one", sequence: 1, turnId: "new-turn", generationIndex: 0,
             phase: .delta, contentType: .text, contentIndex: 0, delta: "New streaming response",
@@ -736,9 +741,10 @@ final class SessionStoreTests: XCTestCase {
         }
         try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertGreaterThan(fixture.store.records["session-one"]?.transcript.count ?? 0, 180)
-        let after = try XCTUnwrap(viewport.frames[anchor.key])
+        let settled = try await settledViewportFrames(fixture, viewport: viewport)
+        let after = try XCTUnwrap(settled[anchor.key])
         XCTAssertEqual(after.minY, anchor.value.minY, accuracy: 2, "Streaming must not shift the reading position")
-        XCTAssertFalse(viewport.frames.keys.contains { $0.contains("new-turn") })
+        XCTAssertFalse(settled.keys.contains { $0.contains("new-turn") })
         await fixture.store.stop()
     }
 
@@ -1051,7 +1057,10 @@ final class SessionStoreTests: XCTestCase {
     }
 
     private func waitForHistoryWindow(_ fixture: HistoryFixture, previousIDs: Set<String>) async throws {
-        for _ in 0..<100 {
+        // Warmed-up runners apply the fixed history window immediately; cold or
+        // busy Intel runners can take a few seconds. Waiting is cheaper than a
+        // flaky release gate.
+        for _ in 0..<250 {
             try await Task.sleep(nanoseconds: 20_000_000)
             fixture.window.contentView?.layoutSubtreeIfNeeded()
             let ids = Set(fixture.observer.viewport?.frames.keys.map { $0 } ?? [])
@@ -1062,6 +1071,24 @@ final class SessionStoreTests: XCTestCase {
             }
         }
         XCTFail("Scrolling to the top did not change the historical window")
+    }
+
+    /// Waits until two consecutive layout passes report identical frames, so
+    /// tests assert against a resting viewport instead of a transition frame.
+    private func settledViewportFrames(
+        _ fixture: HistoryFixture,
+        viewport: TranscriptViewport,
+        attempts: Int = 150
+    ) async throws -> [String: CGRect] {
+        var previous: [String: CGRect] = [:]
+        for _ in 0..<attempts {
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            let current = viewport.frames
+            if !current.isEmpty, current == previous { return current }
+            previous = current
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return previous
     }
 
     func testLoadsEarlierTranscriptPageIntoTheOpenSession() async throws {
