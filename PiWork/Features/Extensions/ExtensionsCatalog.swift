@@ -173,8 +173,15 @@ struct ExtensionsCatalogRequest: Hashable {
     var isDefault: Bool { query.isEmpty }
 }
 
+struct ExtensionsCatalogPage: Equatable {
+    let items: [PiPackageItem]
+    /// Size of the current result set across all pages, as reported by pi.dev.
+    /// `nil` when the response did not expose a count.
+    let totalCount: Int?
+}
+
 struct ExtensionsCatalogPageParser {
-    func parse(_ data: Data) throws -> [PiPackageItem] {
+    func parsePage(_ data: Data) throws -> ExtensionsCatalogPage {
         guard let html = String(data: data, encoding: .utf8) else {
             throw ExtensionsCatalogParsingError.invalidEncoding
         }
@@ -186,9 +193,11 @@ struct ExtensionsCatalogPageParser {
         let range = NSRange(html.startIndex..<html.endIndex, in: html)
         var seenNames: Set<String> = []
         var items: [PiPackageItem] = []
+        var packageCardCount = 0
 
         for match in articleExpression.matches(in: html, range: range) {
             guard let articleRange = Range(match.range, in: html) else { continue }
+            packageCardCount += 1
             let article = String(html[articleRange])
             guard
                 let openingTagEnd = article.firstIndex(of: ">"),
@@ -205,7 +214,12 @@ struct ExtensionsCatalogPageParser {
             let types = rawTypes
                 .split(whereSeparator: \Character.isWhitespace)
                 .compactMap { PiPackageType(rawValue: String($0)) }
-            guard types.contains(.extensionPackage) else { continue }
+            // `data-package-types` only lists the package kinds a publisher
+            // declared for pi. Many installable extensions ship without that
+            // metadata (for example `@justjoshn/pi-pstack-v2` publishes an empty
+            // type list), so an empty type list means "unknown", not "not an
+            // extension". Only drop packages explicitly typed as something else.
+            guard types.isEmpty || types.contains(.extensionPackage) else { continue }
             let metadata = metaValues(in: article)
             let decodedName = decodeHTML(name)
             guard seenNames.insert(decodedName).inserted else { continue }
@@ -239,8 +253,66 @@ struct ExtensionsCatalogPageParser {
             )
         }
 
-        guard !items.isEmpty else { throw ExtensionsCatalogParsingError.noPackages }
-        return items
+        if items.isEmpty {
+            // Cards without a qualifying type are a valid empty slice of the
+            // catalog. No cards at all is only valid when pi.dev itself reports
+            // zero matches; otherwise the markup changed and this response
+            // cannot be read at all.
+            guard packageCardCount == 0 else {
+                return ExtensionsCatalogPage(items: [], totalCount: 0)
+            }
+            guard !catalogReportsNoMatches(html) else {
+                return ExtensionsCatalogPage(items: [], totalCount: 0)
+            }
+            throw ExtensionsCatalogParsingError.noPackages
+        }
+        return ExtensionsCatalogPage(
+            items: items,
+            totalCount: catalogTotalCount(in: html)
+        )
+    }
+
+    /// pi.dev reports the current result-set size as `1-50 / 3174 (of 5683)`,
+    /// or `0 / 5683` when nothing matches. Only the number right after the
+    /// slash is the size of the filtered result set; the parenthetical is the
+    /// global package count.
+    private func catalogTotalCount(in html: String) -> Int? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"class="[^"]*\bpackages-count\b[^"]*"[^>]*>\s*(\d+)(?:\s*-\s*(\d+))?\s*/\s*(\d+)"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        guard let match = expression.firstMatch(in: html, range: range) else { return nil }
+
+        func value(at index: Int) -> Int? {
+            let matchRange = match.range(at: index)
+            guard
+                matchRange.location != NSNotFound,
+                let swiftRange = Range(matchRange, in: html)
+            else { return nil }
+            return Int(html[swiftRange])
+        }
+
+        // Without a `first-last` range the only number before the slash is the
+        // match count itself: `0 / 5683` means zero of 5683 global packages.
+        guard value(at: 2) != nil else { return value(at: 1) }
+        return value(at: 3)
+    }
+
+    /// pi.dev renders an explicit empty state (`packages-empty` plus a
+    /// `packages-count` of `0 / <total>`) when a filter matches nothing. That is
+    /// a successful response with zero results, not a parsing failure.
+    private func catalogReportsNoMatches(_ html: String) -> Bool {
+        if html.range(of: "packages-empty", options: .caseInsensitive) != nil {
+            return true
+        }
+        let pattern = #"class="[^"]*\bpackages-count\b[^"]*"\s*>\s*0\s*/\s*\d+"#
+        guard let expression = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else { return false }
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        return expression.firstMatch(in: html, range: range) != nil
     }
 
     private func attribute(_ name: String, in html: String) -> String? {
@@ -395,6 +467,14 @@ struct ExtensionsCatalogCachePolicy {
 struct ExtensionsCatalogSnapshot: Codable, Equatable {
     let items: [PiPackageItem]
     let fetchedAt: Date
+    /// `nil` for caches written before pagination was supported.
+    let totalCount: Int?
+
+    init(items: [PiPackageItem], fetchedAt: Date, totalCount: Int? = nil) {
+        self.items = items
+        self.fetchedAt = fetchedAt
+        self.totalCount = totalCount
+    }
 }
 
 enum ExtensionsCatalogParsingError: LocalizedError {
@@ -414,8 +494,9 @@ enum ExtensionsCatalogParsingError: LocalizedError {
 protocol ExtensionsCatalogFetching {
     func fetchPackages(
         for request: ExtensionsCatalogRequest,
+        page: Int,
         ignoringCache: Bool
-    ) async throws -> [PiPackageItem]
+    ) async throws -> ExtensionsCatalogPage
 }
 
 protocol ExtensionsCatalogCaching {
@@ -437,9 +518,10 @@ struct RemoteExtensionsCatalogClient: ExtensionsCatalogFetching {
 
     func fetchPackages(
         for request: ExtensionsCatalogRequest,
+        page: Int,
         ignoringCache: Bool
-    ) async throws -> [PiPackageItem] {
-        guard let url = Self.catalogURL(for: request) else {
+    ) async throws -> ExtensionsCatalogPage {
+        guard let url = Self.catalogURL(for: request, page: page) else {
             throw ExtensionsCatalogNetworkError.invalidURL
         }
         var urlRequest = URLRequest(
@@ -456,17 +538,30 @@ struct RemoteExtensionsCatalogClient: ExtensionsCatalogFetching {
         else {
             throw ExtensionsCatalogNetworkError.invalidResponse
         }
-        return try parser.parse(data)
+        return try parser.parsePage(data)
     }
 
-    static func catalogURL(for request: ExtensionsCatalogRequest) -> URL? {
+    static func catalogURL(for request: ExtensionsCatalogRequest, page: Int = 1) -> URL? {
         var components = URLComponents(string: "https://pi.dev/packages")
         var queryItems: [URLQueryItem] = []
-        if !request.query.isEmpty {
+        if request.query.isEmpty {
+            // Browsing keeps pi.dev's curated, typed extension listing.
+            queryItems.append(URLQueryItem(
+                name: "type",
+                value: PiPackageType.extensionPackage.rawValue
+            ))
+        } else {
+            // Searching must not constrain the server-side type filter: pi.dev
+            // excludes packages without declared type metadata from
+            // `type=extension`, which made searches such as `pi-pstack-v2`
+            // return nothing even though the package exists. Types are filtered
+            // locally in `ExtensionsCatalogPageParser` instead.
             queryItems.append(URLQueryItem(name: "name", value: request.query))
         }
-        queryItems.append(URLQueryItem(name: "type", value: PiPackageType.extensionPackage.rawValue))
         queryItems.append(URLQueryItem(name: "sort", value: "downloads"))
+        if page > 1 {
+            queryItems.append(URLQueryItem(name: "page", value: String(page)))
+        }
         components?.queryItems = queryItems
         return components?.url
     }
@@ -508,15 +603,33 @@ final class ExtensionsCatalogStore: ObservableObject {
     @Published private(set) var activeRequest = ExtensionsCatalogRequest()
     @Published private(set) var isLoading = false
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isLoadingMore = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var totalCount: Int?
+
+    /// True while pi.dev reports more results than are loaded for the active
+    /// request. The catalog loads one 50-item page at a time, so browsing the
+    /// full extension list does not depend on the single page the site returns
+    /// by default.
+    var hasMore: Bool {
+        guard let totalCount else { return false }
+        return items.count < totalCount
+    }
 
     private let client: ExtensionsCatalogFetching
     private let cache: ExtensionsCatalogCaching
     private let cachePolicy: ExtensionsCatalogCachePolicy
     private var snapshots: [ExtensionsCatalogRequest: ExtensionsCatalogSnapshot] = [:]
+    private var loadedPages: [ExtensionsCatalogRequest: Int] = [:]
     private var didReadDiskCache = false
     private var activeLoadID: UUID?
+
+    private enum FetchKind {
+        case load
+        case refresh
+        case more
+    }
 
     init(
         client: ExtensionsCatalogFetching = RemoteExtensionsCatalogClient(),
@@ -536,6 +649,7 @@ final class ExtensionsCatalogStore: ObservableObject {
             didReadDiskCache = true
             if let snapshot = try? cache.load() {
                 snapshots[request] = snapshot
+                loadedPages[request] = 1
                 apply(snapshot, for: request)
                 guard cachePolicy.shouldRefresh(snapshot, now: now) else { return }
             }
@@ -546,9 +660,10 @@ final class ExtensionsCatalogStore: ObservableObject {
 
         if snapshots[request] == nil {
             items = []
+            totalCount = nil
             lastUpdated = nil
         }
-        await fetch(request, ignoringCache: false, now: now, isRefresh: false)
+        await fetch(request, page: 1, kind: .load, ignoringCache: false, now: now)
     }
 
     func refresh(
@@ -557,40 +672,88 @@ final class ExtensionsCatalogStore: ObservableObject {
     ) async {
         activeRequest = request
         errorMessage = nil
-        await fetch(request, ignoringCache: true, now: now, isRefresh: true)
+        await fetch(request, page: 1, kind: .refresh, ignoringCache: true, now: now)
+    }
+
+    /// Appends the next page of the active request. Only browsing pages; search
+    /// results keep the single page pi.dev returns for a query.
+    func loadMore(now: Date = Date()) async {
+        let request = activeRequest
+        guard !isLoading, !isRefreshing, !isLoadingMore, hasMore else { return }
+        let nextPage = (loadedPages[request] ?? 1) + 1
+        await fetch(request, page: nextPage, kind: .more, ignoringCache: false, now: now)
     }
 
     private func fetch(
         _ request: ExtensionsCatalogRequest,
+        page: Int,
+        kind: FetchKind,
         ignoringCache: Bool,
-        now: Date,
-        isRefresh: Bool
+        now: Date
     ) async {
         let loadID = UUID()
         activeLoadID = loadID
-        isLoading = !isRefresh
-        isRefreshing = isRefresh
+        switch kind {
+        case .load: isLoading = true
+        case .refresh: isRefreshing = true
+        case .more: isLoadingMore = true
+        }
         defer {
             if activeLoadID == loadID {
                 isLoading = false
                 isRefreshing = false
+                isLoadingMore = false
             }
         }
 
         do {
-            let fetchedItems = try await client.fetchPackages(
+            let fetchedPage = try await client.fetchPackages(
                 for: request,
+                page: page,
                 ignoringCache: ignoringCache
             )
-            guard activeLoadID == loadID else { return }
-            guard !fetchedItems.isEmpty else {
-                throw ExtensionsCatalogParsingError.noPackages
-            }
+            guard activeLoadID == loadID, activeRequest == request else { return }
 
-            let snapshot = ExtensionsCatalogSnapshot(items: fetchedItems, fetchedAt: now)
-            snapshots[request] = snapshot
-            if request.isDefault { try? cache.save(snapshot) }
-            apply(snapshot, for: request)
+            switch kind {
+            case .load, .refresh:
+                // A browse response is never legitimately empty: pi.dev
+                // publishes thousands of typed extensions. An empty list there
+                // means the page could not be read, so surface it as a failure
+                // and keep the last good catalog instead of replacing it.
+                // Searches may legitimately return nothing, which is an empty
+                // result and not an error.
+                guard !fetchedPage.items.isEmpty || !request.isDefault else {
+                    throw ExtensionsCatalogParsingError.noPackages
+                }
+                let snapshot = ExtensionsCatalogSnapshot(
+                    items: fetchedPage.items,
+                    fetchedAt: now,
+                    totalCount: fetchedPage.totalCount
+                )
+                snapshots[request] = snapshot
+                loadedPages[request] = page
+                if request.isDefault { try? cache.save(snapshot) }
+                apply(snapshot, for: request)
+            case .more:
+                let existing = snapshots[request]?.items ?? items
+                let previousTotal = snapshots[request]?.totalCount ?? totalCount
+                var seenNames = Set(existing.map(\.name))
+                let appended = fetchedPage.items.filter { seenNames.insert($0.name).inserted }
+                let madeProgress = !appended.isEmpty
+                let snapshot = ExtensionsCatalogSnapshot(
+                    items: existing + appended,
+                    fetchedAt: now,
+                    // If pi.dev runs out of pages, or repeats a page we already
+                    // have, clamp the total so the footer cannot offer a dead
+                    // page that keeps returning the same results.
+                    totalCount: madeProgress
+                        ? fetchedPage.totalCount ?? previousTotal
+                        : existing.count
+                )
+                snapshots[request] = snapshot
+                loadedPages[request] = page
+                apply(snapshot, for: request)
+            }
             errorMessage = nil
         } catch is CancellationError {
             return
@@ -606,6 +769,7 @@ final class ExtensionsCatalogStore: ObservableObject {
     ) {
         guard activeRequest == request else { return }
         items = snapshot.items
+        totalCount = snapshot.totalCount
         lastUpdated = snapshot.fetchedAt
     }
 }

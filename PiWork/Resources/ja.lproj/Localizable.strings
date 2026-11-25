@@ -529,6 +529,10 @@
 "extensions.search_results" = "検索結果";
 "extensions.source" = "pi.dev より";
 "extensions.visible_limit" = "pi.dev が返した先頭の %ld 件を表示しています。検索を使うと他の拡張機能をすばやく探せます。";
+"extensions.loaded_count" = "%ld / %ld 件の拡張機能を読み込み済み";
+"extensions.load_more" = "さらに読み込む";
+"extensions.loading_more" = "さらに読み込み中";
+"extensions.load_more_help" = "pi.dev から次のページの拡張機能を読み込みます";
 "extensions.popular" = "人気の拡張機能";
 "extensions.loading" = "pi.dev を読み込み中";
 "extensions.load_failed" = "拡張機能カタログを読み込めません";

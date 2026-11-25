@@ -32,9 +32,10 @@ import PackageDescription
 let package = Package(name: "PiWorkNativeChecks", platforms: [.macOS(.v13)], dependencies: [
  .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
  .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", exact: "2.4.1"),
- .package(url: "https://github.com/mixpanel/mixpanel-swift", revision: "3ad0fb82216978c124b04accac6c9f9eaf848187")
+ .package(url: "https://github.com/mixpanel/mixpanel-swift", revision: "3ad0fb82216978c124b04accac6c9f9eaf848187"),
+ .package(url: "https://github.com/section9-lab/MermaidKit", revision: "0572d98d60430842705adb0469ec5fe55aa9b47f")
 ], targets: [
- .executableTarget(name: "PiWork", dependencies: [.product(name: "Sparkle", package: "Sparkle"), .product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Mixpanel", package: "mixpanel-swift")]),
+ .executableTarget(name: "PiWork", dependencies: [.product(name: "Sparkle", package: "Sparkle"), .product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Mixpanel", package: "mixpanel-swift"), .product(name: "MermaidRender", package: "MermaidKit"), .product(name: "MermaidLayout", package: "MermaidKit")]),
  .testTarget(name: "PiWorkTests", dependencies: ["PiWork"])
 ])
 ''')

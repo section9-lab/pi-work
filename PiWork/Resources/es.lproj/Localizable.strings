@@ -529,6 +529,10 @@
 "extensions.search_results" = "Resultados de búsqueda";
 "extensions.source" = "De pi.dev";
 "extensions.visible_limit" = "Se muestran los primeros %ld resultados devueltos por pi.dev. Usa la búsqueda para encontrar otras extensiones rápidamente.";
+"extensions.loaded_count" = "Cargadas %ld de %ld extensiones";
+"extensions.load_more" = "Cargar más";
+"extensions.loading_more" = "Cargando más";
+"extensions.load_more_help" = "Cargar la siguiente página de extensiones desde pi.dev";
 "extensions.popular" = "Extensiones populares";
 "extensions.loading" = "Cargando pi.dev";
 "extensions.load_failed" = "No se puede cargar el catálogo de extensiones";

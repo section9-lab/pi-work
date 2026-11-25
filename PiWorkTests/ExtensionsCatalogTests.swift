@@ -162,6 +162,10 @@ final class ExtensionsCatalogTests: XCTestCase {
         XCTAssertTrue(source.contains("NSWorkspace.shared.open"))
         XCTAssertTrue(source.contains("L10n.string(\"extensions.source\")"))
         XCTAssertTrue(source.contains("L10n.string(\"extensions.no_matches\")"))
+        // Browsing pages through pi.dev instead of stopping at its first page.
+        XCTAssertTrue(source.contains("await store.loadMore()"))
+        XCTAssertTrue(source.contains("store.hasMore"))
+        XCTAssertTrue(source.contains("L10n.string(\"extensions.load_more\")"))
         XCTAssertFalse(source.contains("ExtensionsCatalogCategory"))
         XCTAssertFalse(source.contains("extensions.category.skills"))
         XCTAssertFalse(source.contains("extensions.category.prompts"))
@@ -265,7 +269,7 @@ final class ExtensionsCatalogTests: XCTestCase {
     }
 
     func testPageParserKeepsOnlyExtensionsExtractsKeywordsAndDeduplicatesNames() throws {
-        let packages = try ExtensionsCatalogPageParser().parse(Data(packagePageHTML.utf8))
+        let packages = try ExtensionsCatalogPageParser().parsePage(Data(packagePageHTML.utf8)).items
 
         XCTAssertEqual(packages.count, 1)
         XCTAssertEqual(
@@ -283,7 +287,7 @@ final class ExtensionsCatalogTests: XCTestCase {
     }
 
     func testFilterMatchesDescriptionAndAuthorWithinSelectedExtensionCategory() throws {
-        let packages = try ExtensionsCatalogPageParser().parse(Data(packagePageHTML.utf8))
+        let packages = try ExtensionsCatalogPageParser().parsePage(Data(packagePageHTML.utf8)).items
 
         let matches = ExtensionsCatalogFilter(
             query: "ALICE tools",
@@ -343,7 +347,7 @@ final class ExtensionsCatalogTests: XCTestCase {
         XCTAssertEqual(item.installCommand, "pi install npm:@scope/agent-tools")
     }
 
-    func testCatalogURLPercentEncodesSearchAndAlwaysRequestsExtensions() throws {
+    func testCatalogURLPercentEncodesSearchAndKeepsCuratedBrowseFilter() throws {
         let request = ExtensionsCatalogRequest(query: "agent tools & ui")
         let url = try XCTUnwrap(RemoteExtensionsCatalogClient.catalogURL(for: request))
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
@@ -353,10 +357,10 @@ final class ExtensionsCatalogTests: XCTestCase {
             components.queryItems?.first(where: { $0.name == "name" })?.value,
             "agent tools & ui"
         )
-        XCTAssertEqual(
-            components.queryItems?.first(where: { $0.name == "type" })?.value,
-            "extension"
-        )
+        // pi.dev drops packages without declared type metadata from
+        // `type=extension`, so searches must not send that filter. Regression
+        // guard for `pi-pstack-v2` returning an empty result set.
+        XCTAssertNil(components.queryItems?.first(where: { $0.name == "type" }))
         XCTAssertEqual(
             components.queryItems?.first(where: { $0.name == "sort" })?.value,
             "downloads"
@@ -370,6 +374,68 @@ final class ExtensionsCatalogTests: XCTestCase {
                 .queryItems?.first(where: { $0.name == "type" })?.value,
             "extension"
         )
+    }
+
+    func testCatalogURLAddsThePageParameterOnlyAfterTheFirstPage() throws {
+        let request = ExtensionsCatalogRequest()
+        let firstPage = try XCTUnwrap(
+            RemoteExtensionsCatalogClient.catalogURL(for: request)
+        )
+        XCTAssertNil(
+            URLComponents(url: firstPage, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })
+        )
+
+        let thirdPage = try XCTUnwrap(
+            RemoteExtensionsCatalogClient.catalogURL(for: request, page: 3)
+        )
+        XCTAssertEqual(
+            URLComponents(url: thirdPage, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })?.value,
+            "3"
+        )
+    }
+
+    func testPageParserKeepsPackagesWithoutDeclaredTypes() throws {
+        let packages = try ExtensionsCatalogPageParser().parsePage(
+            Data(untypedPackagePageHTML.utf8)
+        ).items
+
+        XCTAssertEqual(packages.map(\.name), ["@justjoshn/pi-pstack-v2"])
+        XCTAssertEqual(packages.first?.types, [])
+        XCTAssertEqual(packages.first?.summary, "Pstack skills for pi.")
+    }
+
+    func testPageParserReturnsNoMatchesInsteadOfFailingWhenPiDevReportsZeroResults() throws {
+        // A zero-result catalog page is a successful response, not a parsing
+        // failure. Throwing here produced the bogus "Unable to search pi.dev"
+        // state whenever a search simply had no matches.
+        let page = try ExtensionsCatalogPageParser().parsePage(
+            Data(noMatchesPageHTML.utf8)
+        )
+
+        XCTAssertEqual(page.items, [])
+        XCTAssertEqual(page.totalCount, 0)
+    }
+
+    func testPageParserReadsTheFilteredResultTotalFromTheCountHeader() throws {
+        let page = try ExtensionsCatalogPageParser().parsePage(
+            Data(pagedPackagePageHTML.utf8)
+        )
+
+        XCTAssertEqual(page.items.map(\.name), ["@scope/agent-tools"])
+        // `1-50 / 3174 (of 5683)` → 3174 matching typed extensions.
+        XCTAssertEqual(page.totalCount, 3174)
+    }
+
+    func testPageParserStillFailsWhenTheCatalogMarkupDisappears() {
+        let html = #"<html><body><span class="packages-count">1-50 / 3174</span></body></html>"#
+
+        XCTAssertThrowsError(try ExtensionsCatalogPageParser().parsePage(Data(html.utf8))) { error in
+            guard case ExtensionsCatalogParsingError.noPackages = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
     }
 
     func testCachePolicyKeepsFreshSnapshotAndRefreshesExpiredSnapshot() {
@@ -423,6 +489,145 @@ final class ExtensionsCatalogTests: XCTestCase {
         XCTAssertEqual(store.items, snapshot.items)
         XCTAssertEqual(store.lastUpdated, snapshot.fetchedAt)
         XCTAssertTrue(client.requests.isEmpty)
+    }
+
+    @MainActor
+    func testEmptySearchResultIsAnEmptyCatalogNotAParseFailure() async {
+        let request = ExtensionsCatalogRequest(query: "no-such-package")
+        let client = StubExtensionsCatalogFetcher(results: [.success([])])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load(request)
+
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.isLoading)
+    }
+
+    @MainActor
+    func testEmptyBrowseResponseKeepsPreviousCatalogAndReportsFailure() async {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let stale = ExtensionsCatalogSnapshot(
+            items: fixtureItems(),
+            fetchedAt: now.addingTimeInterval(-(7 * 60 * 60))
+        )
+        let client = StubExtensionsCatalogFetcher(results: [.success([])])
+        let cache = MemoryExtensionsCatalogCache(snapshot: stale)
+        let store = ExtensionsCatalogStore(client: client, cache: cache)
+
+        await store.load(.init(), now: now)
+
+        XCTAssertEqual(store.items, stale.items)
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertTrue(cache.savedSnapshots.isEmpty)
+    }
+
+    @MainActor
+    func testLoadMoreAppendsTheNextPageUntilTheReportedTotalIsReached() async {
+        let firstPage = (0..<3).map { fixtureItem(named: "pi-a\($0)") }
+        let secondPage = (0..<2).map { fixtureItem(named: "pi-b\($0)") }
+        let client = StubExtensionsCatalogFetcher(pages: [
+            .success(ExtensionsCatalogPage(items: firstPage, totalCount: 5)),
+            .success(ExtensionsCatalogPage(items: secondPage, totalCount: 5))
+        ])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load()
+        XCTAssertEqual(store.items.count, 3)
+        XCTAssertEqual(store.totalCount, 5)
+        XCTAssertTrue(store.hasMore)
+
+        await store.loadMore()
+
+        XCTAssertEqual(store.items.map(\.name), (firstPage + secondPage).map(\.name))
+        XCTAssertEqual(client.requests.map(\.page), [1, 2])
+        XCTAssertFalse(store.hasMore)
+        XCTAssertFalse(store.isLoadingMore)
+    }
+
+    @MainActor
+    func testLoadMoreSkipsDuplicatePackagesAcrossPages() async {
+        let firstPage = [fixtureItem(named: "pi-a"), fixtureItem(named: "pi-b")]
+        let secondPage = [fixtureItem(named: "pi-b"), fixtureItem(named: "pi-c")]
+        let client = StubExtensionsCatalogFetcher(pages: [
+            .success(ExtensionsCatalogPage(items: firstPage, totalCount: 4)),
+            .success(ExtensionsCatalogPage(items: secondPage, totalCount: 4))
+        ])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load()
+        await store.loadMore()
+
+        XCTAssertEqual(store.items.map(\.name), ["pi-a", "pi-b", "pi-c"])
+        XCTAssertTrue(store.hasMore)
+    }
+
+    @MainActor
+    func testLoadMoreStopsWhenPiDevRunsOutOfPagesBeforeItsReportedTotal() async {
+        let firstPage = [fixtureItem(named: "pi-a")]
+        let client = StubExtensionsCatalogFetcher(pages: [
+            .success(ExtensionsCatalogPage(items: firstPage, totalCount: 10)),
+            .success(ExtensionsCatalogPage(items: [], totalCount: 10))
+        ])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load()
+        XCTAssertTrue(store.hasMore)
+
+        await store.loadMore()
+
+        XCTAssertEqual(store.items.map(\.name), ["pi-a"])
+        XCTAssertFalse(store.hasMore)
+        XCTAssertNil(store.errorMessage)
+    }
+
+    @MainActor
+    func testLoadMoreStopsWhenPiDevRepeatsAPageItAlreadySent() async {
+        let firstPage = [fixtureItem(named: "pi-a"), fixtureItem(named: "pi-b")]
+        let client = StubExtensionsCatalogFetcher(pages: [
+            .success(ExtensionsCatalogPage(items: firstPage, totalCount: 100)),
+            .success(ExtensionsCatalogPage(items: firstPage, totalCount: 100))
+        ])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load()
+        XCTAssertTrue(store.hasMore)
+
+        await store.loadMore()
+
+        XCTAssertEqual(store.items.count, 2)
+        XCTAssertFalse(store.hasMore)
+    }
+
+    @MainActor
+    func testLoadMoreIsANoOpWithoutAReportedTotal() async {
+        let client = StubExtensionsCatalogFetcher(results: [.success(fixtureItems())])
+        let store = ExtensionsCatalogStore(
+            client: client,
+            cache: MemoryExtensionsCatalogCache(snapshot: nil)
+        )
+
+        await store.load()
+        XCTAssertFalse(store.hasMore)
+
+        await store.loadMore()
+
+        XCTAssertEqual(client.requests.map(\.page), [1])
     }
 
     @MainActor
@@ -639,6 +844,67 @@ final class ExtensionsCatalogTests: XCTestCase {
         """#
     }
 
+    private var untypedPackagePageHTML: String {
+        #"""
+        <html><body><div class="packages-grid">
+          <article class="surface-panel content-card" data-package-card="true"
+            data-package-name="@justjoshn/pi-pstack-v2" data-package-types=""
+            data-package-search="@justjoshn/pi-pstack-v2 pstack skills and workflow. justjoshn pstack poteto-mode"
+            data-package-downloads="42">
+            <div class="packages-card-body">
+              <h3 class="packages-name"><a href="/packages/@justjoshn/pi-pstack-v2">@justjoshn/pi-pstack-v2</a></h3>
+              <p class="packages-desc">Pstack skills for pi.</p>
+              <div class="packages-meta"><span>justjoshn</span><span>42/mo</span><span>3d ago</span></div>
+            </div>
+          </article>
+          <article data-package-card="true" data-package-name="@casualjim/pi-pstack"
+            data-package-types="skill"
+            data-package-search="@casualjim/pi-pstack pstack skills. casualjim skill pstack"
+            data-package-downloads="7">
+            <p class="packages-desc">Pstack skills only.</p>
+            <div class="packages-meta"><span>casualjim</span><span>7/mo</span><span>5d ago</span></div>
+          </article>
+        </div></body></html>
+        """#
+    }
+
+    private var noMatchesPageHTML: String {
+        #"""
+        <html><body><main><section class="surface-panel content-card packages-index-card">
+          <header><span class="packages-count">0 / 5683</span></header>
+          <p class="packages-empty">No packages match this filter.</p>
+        </section></main></body></html>
+        """#
+    }
+
+    private var pagedPackagePageHTML: String {
+        #"""
+        <html><body><section class="packages-index-card">
+          <header><span class="packages-count">1-50 / 3174 (of 5683)</span></header>
+          <div class="packages-grid">
+            <article data-package-card="true" data-package-name="@scope/agent-tools"
+              data-package-types="extension"
+              data-package-search="@scope/agent-tools build and run focused agent tools. alice extension subagent"
+              data-package-downloads="12345">
+              <p class="packages-desc">Build &amp; run focused agent tools.</p>
+              <div class="packages-meta"><span>alice</span><span>12.3K/mo</span><span>2d ago</span></div>
+            </article>
+          </div>
+        </section></body></html>
+        """#
+    }
+
+    private func fixtureItem(named name: String) -> PiPackageItem {
+        PiPackageItem(
+            name: name,
+            summary: "Summary for \(name)",
+            author: "alice",
+            monthlyDownloads: 1,
+            published: nil,
+            types: []
+        )
+    }
+
     private func fixtureItems() -> [PiPackageItem] {
         [
             PiPackageItem(
@@ -817,22 +1083,37 @@ private actor StubInstalledExtensionsService: InstalledExtensionsServicing {
 private final class StubExtensionsCatalogFetcher: ExtensionsCatalogFetching {
     struct Request: Equatable {
         let request: ExtensionsCatalogRequest
+        let page: Int
         let ignoringCache: Bool
     }
 
-    private var results: [Result<[PiPackageItem], Error>]
+    private var pages: [Result<ExtensionsCatalogPage, Error>]
     private(set) var requests: [Request] = []
 
-    init(results: [Result<[PiPackageItem], Error>]) {
-        self.results = results
+    init(pages: [Result<ExtensionsCatalogPage, Error>]) {
+        self.pages = pages
+    }
+
+    convenience init(
+        results: [Result<[PiPackageItem], Error>],
+        totalCount: Int? = nil
+    ) {
+        self.init(pages: results.map { result in
+            result.map { ExtensionsCatalogPage(items: $0, totalCount: totalCount) }
+        })
     }
 
     func fetchPackages(
         for request: ExtensionsCatalogRequest,
+        page: Int,
         ignoringCache: Bool
-    ) async throws -> [PiPackageItem] {
-        requests.append(Request(request: request, ignoringCache: ignoringCache))
-        return try results.removeFirst().get()
+    ) async throws -> ExtensionsCatalogPage {
+        requests.append(Request(
+            request: request,
+            page: page,
+            ignoringCache: ignoringCache
+        ))
+        return try pages.removeFirst().get()
     }
 }
 

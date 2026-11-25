@@ -47,6 +47,8 @@ struct ExtensionsCatalogView: View {
                 }
 
                 content
+
+                catalogFooter
             }
             .frame(maxWidth: 1_220, alignment: .leading)
             .padding(.horizontal, 28)
@@ -243,13 +245,60 @@ struct ExtensionsCatalogView: View {
                     )
                 }
             }
-
-            Text(L10n.format("extensions.visible_limit", displayedItems.count))
-                .font(.system(size: 12))
-                .foregroundStyle(Color.primary.opacity(0.46))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
         }
+    }
+
+    @ViewBuilder
+    private var catalogFooter: some View {
+        if !store.items.isEmpty {
+            VStack(spacing: 12) {
+                Text(footerSummary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary.opacity(0.46))
+
+                if request.query.isEmpty, store.hasMore {
+                    Button {
+                        Task { await store.loadMore() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if store.isLoadingMore {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            Text(store.isLoadingMore
+                                ? L10n.string("extensions.loading_more")
+                                : L10n.string("extensions.load_more"))
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(Color.primary.opacity(0.78))
+                        .padding(.horizontal, 14)
+                        .frame(height: 34)
+                    }
+                    .buttonStyle(
+                        RoundedInteractionButtonStyle(
+                            cornerRadius: 10,
+                            baseFill: AppPalette.translucentSurface
+                        )
+                    )
+                    .disabled(store.isLoadingMore)
+                    .help(L10n.string("extensions.load_more_help"))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 12)
+        }
+    }
+
+    private var footerSummary: String {
+        if request.query.isEmpty,
+           let totalCount = store.totalCount,
+           totalCount > 0 {
+            return L10n.format("extensions.loaded_count", store.items.count, totalCount)
+        }
+        return L10n.format("extensions.visible_limit", displayedItems.count)
     }
 
     private var catalogTitle: String {

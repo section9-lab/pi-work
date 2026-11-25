@@ -529,6 +529,10 @@
 "extensions.search_results" = "Search Results";
 "extensions.source" = "From pi.dev";
 "extensions.visible_limit" = "Showing the first %ld results returned by pi.dev. Use search to find other extensions quickly.";
+"extensions.loaded_count" = "Loaded %ld of %ld extensions";
+"extensions.load_more" = "Load More";
+"extensions.loading_more" = "Loading More";
+"extensions.load_more_help" = "Load the next page of extensions from pi.dev";
 "extensions.popular" = "Popular Extensions";
 "extensions.loading" = "Loading pi.dev";
 "extensions.load_failed" = "Unable to load extensions catalog";

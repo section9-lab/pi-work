@@ -529,6 +529,10 @@
 "extensions.search_results" = "搜尋結果";
 "extensions.source" = "來自 pi.dev";
 "extensions.visible_limit" = "目前顯示 pi.dev 傳回的前 %ld 項，可使用搜尋快速找到其他擴充功能。";
+"extensions.loaded_count" = "已載入 %ld / %ld 個擴充功能";
+"extensions.load_more" = "載入更多";
+"extensions.loading_more" = "正在載入更多";
+"extensions.load_more_help" = "從 pi.dev 載入下一頁擴充功能";
 "extensions.popular" = "熱門擴充功能";
 "extensions.loading" = "正在讀取 pi.dev";
 "extensions.load_failed" = "無法載入擴充功能目錄";

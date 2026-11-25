@@ -529,6 +529,10 @@
 "extensions.search_results" = "검색 결과";
 "extensions.source" = "pi.dev 제공";
 "extensions.visible_limit" = "pi.dev가 반환한 처음 %ld개 결과를 표시합니다. 검색을 사용하면 다른 확장 기능을 빠르게 찾을 수 있습니다.";
+"extensions.loaded_count" = "%ld / %ld개 확장 기능 로드됨";
+"extensions.load_more" = "더 불러오기";
+"extensions.loading_more" = "더 불러오는 중";
+"extensions.load_more_help" = "pi.dev에서 다음 페이지 확장 기능을 불러옵니다";
 "extensions.popular" = "인기 확장 기능";
 "extensions.loading" = "pi.dev 불러오는 중";
 "extensions.load_failed" = "확장 기능 카탈로그를 불러올 수 없습니다";

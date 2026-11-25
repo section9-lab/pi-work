@@ -529,6 +529,10 @@
 "extensions.search_results" = "搜索结果";
 "extensions.source" = "来自 pi.dev";
 "extensions.visible_limit" = "当前显示 pi.dev 返回的前 %ld 项，可使用搜索快速定位其他扩展。";
+"extensions.loaded_count" = "已加载 %ld / %ld 个扩展";
+"extensions.load_more" = "加载更多";
+"extensions.loading_more" = "正在加载更多";
+"extensions.load_more_help" = "从 pi.dev 加载下一页扩展";
 "extensions.popular" = "热门扩展";
 "extensions.loading" = "正在读取 pi.dev";
 "extensions.load_failed" = "无法加载扩展目录";
