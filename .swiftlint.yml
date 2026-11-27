@@ -1,0 +1,116 @@
+# SwiftLint configuration for PiWork.
+#
+# `.swiftlint.baseline.json` records the violations that already existed when
+# these rules were introduced. `scripts/lint.sh` passes it, so only new code has
+# to comply. Regenerate it after paying down debt with:
+#
+#   scripts/lint.sh baseline
+#
+# SwiftLint's default rule set is kept on purpose: the point is to describe the
+# house style, not to pick a fashionable subset. The rules that are disabled or
+# re-tuned below are the ones whose defaults fight this codebase (very large
+# SwiftUI views, explicit returns in async code, protocol-heavy files).
+
+included:
+  - PiWork
+  - PiWorkTests
+
+excluded:
+  - build
+  - DerivedData
+  - .build
+
+disabled_rules:
+  - trailing_comma        # formatting is not enforced by SwiftLint here
+  - implicit_return       # async/await code uses explicit returns deliberately
+  - todo                  # replaced by no_todo_comment below (so it can be an error)
+
+opt_in_rules:
+  - first_where
+  - last_where
+  - empty_count
+  - explicit_init
+
+line_length:
+  warning: 160
+  error: 400
+  ignores_comments: false
+  ignores_urls: true
+
+file_length:
+  warning: 1200
+  error: 2500
+
+type_body_length:
+  warning: 900
+  error: 1500
+
+function_body_length:
+  warning: 180
+  error: 400
+
+function_parameter_count:
+  warning: 8
+  error: 12
+
+cyclomatic_complexity:
+  warning: 30
+  error: 60
+
+identifier_name:
+  min_length: 1
+  max_length: 100
+
+type_name:
+  min_length: 2
+  max_length: 80
+
+trailing_whitespace:
+  ignores_empty_lines: true
+
+custom_rules:
+  no_print:
+    name: "No print() outside tests"
+    regex: '\bprint\('
+    message: "用 os.Logger / Logger 记录日志，不要用 print()。"
+    severity: error
+    included: "PiWork/.*"
+
+  no_force_try:
+    name: "No try!"
+    regex: '\btry!'
+    message: "禁止 try!；用 do/catch 或 try? 并处理失败。"
+    severity: error
+
+  no_force_cast:
+    name: "No as!"
+    regex: '\bas!'
+    message: "禁止 as!；用 as? 加 guard/cast 处理。"
+    severity: error
+
+  no_anyview:
+    name: "No AnyView"
+    regex: 'AnyView\('
+    message: "禁止 AnyView 擦除类型：用 @ViewBuilder、泛型或具体返回类型。"
+    severity: warning
+
+  no_dispatch_main_async:
+    name: "No DispatchQueue.main.async"
+    regex: 'DispatchQueue\.main\.async'
+    message: "用 @MainActor / await MainActor.run，不要手写 DispatchQueue.main.async。"
+    severity: warning
+
+  no_todo_comment:
+    name: "No TODO/FIXME"
+    regex: '(TODO|FIXME)(\(|:)'
+    message: "合入前清掉 TODO/FIXME，或改成带 issue 链接的注释。"
+    severity: warning
+    match_kinds:
+      - comment
+
+  no_literal_user_facing_text:
+    name: "Localize user-facing text"
+    regex: 'Text\("[^"\\]+"\)'
+    message: "UI 文案要走 L10n.string(...)，不要写死字面量。"
+    severity: warning
+    included: "PiWork/Features/.*"

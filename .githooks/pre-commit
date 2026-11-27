@@ -1,0 +1,6 @@
+#!/bin/bash
+# Fast gate: lint the Swift files staged for this commit only.
+# Bypass with `git commit --no-verify` (the pre-push gate still applies).
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+exec "$ROOT/scripts/lint.sh" staged

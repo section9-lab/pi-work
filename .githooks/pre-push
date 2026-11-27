@@ -1,0 +1,36 @@
+#!/bin/bash
+# Tag pushes run the same checks the release workflow runs. Branch pushes only
+# lint the Swift files the branch touches, so pushing stays fast.
+#
+# Git has no pre-tag hook: this is the only place that can stop a bad `v*` tag
+# before the runner spends 13 minutes discovering it.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+
+tag=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/tags/v*) tag="${remote_ref#refs/tags/}" ;;
+  esac
+done
+
+if [ -n "$tag" ]; then
+  echo "pre-push: 检测到 tag $tag，先跑本地 CI（脚本、host 测试、lint；设 WITH_TESTS=1 可加原生测试）"
+  exec "$ROOT/scripts/check-local.sh" "$tag"
+fi
+
+base_ref=""
+if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  base_ref="origin/main"
+fi
+if [ -n "$base_ref" ]; then
+  files=()
+  while IFS= read -r file; do
+    if [ -f "$file" ]; then
+      files+=("$file")
+    fi
+  done < <(git diff --name-only --diff-filter=ACMR "$base_ref"...HEAD -- '*.swift')
+  if [ "${#files[@]}" -gt 0 ]; then
+    exec "$ROOT/scripts/lint.sh" files "${files[@]}"
+  fi
+fi
