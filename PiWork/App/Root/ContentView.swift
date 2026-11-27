@@ -76,6 +76,13 @@ struct ContentView: View {
             .onChange(of: visibleSessionID) { sessionID in
                 if let sessionID { unreadState.markViewed(sessionID) }
             }
+            .onChange(of: workSession.selectedProject?.path) { path in
+                guard let path else { return }
+                // Switching projects is the moment the sidebar has to become truth
+                // again: re-read the host catalog so rows that were deleted (here, in
+                // another window, or moved to the Trash) stop being listed.
+                Task { await sessionStore.reconcileSessions(cwd: path, profile: .work) }
+            }
             .onAppear {
                 unreadState.update(
                     activeSessionIDs: runningSessionIDs,
@@ -549,7 +556,9 @@ struct ContentView: View {
             } catch {
                 sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
                 sessionOpeningState.complete(request)
-                agentError = AgentErrorPresentation(error)
+                if !dropRowIfSessionMissing(error, session: session, profile: profile) {
+                    agentError = AgentErrorPresentation(error)
+                }
             }
         }
         return true
@@ -601,7 +610,9 @@ struct ContentView: View {
             } catch {
                 sessionStore.failSessionOpenPerformanceTrace(performanceTraceID)
                 guard sessionOpeningState.complete(request) else { return }
-                agentError = AgentErrorPresentation(error)
+                if !dropRowIfSessionMissing(error, session: session, profile: profile) {
+                    agentError = AgentErrorPresentation(error)
+                }
             }
         }
     }
@@ -630,6 +641,25 @@ struct ContentView: View {
         cancelDraftPreparation()
     }
 
+    /// The host reports a row it no longer knows about. Such a row has no file to
+    /// reopen, so it must leave the sidebar instead of staying as a control that
+    /// can only fail with `Session not found`.
+    @discardableResult
+    private func dropRowIfSessionMissing(
+        _ error: Error,
+        session: AgentHostSessionSummary,
+        profile: AgentHostSessionProfile
+    ) -> Bool {
+        guard case AgentHostClientError.requestFailed(let code, _) = error,
+              code == "session_not_found" else { return false }
+        sessionStore.dropMissingSession(
+            sessionId: session.id,
+            cwd: session.cwd,
+            profile: profile
+        )
+        return true
+    }
+
     private func deleteChatSession(_ session: AgentHostSessionSummary) {
         Task {
             do {
@@ -641,6 +671,7 @@ struct ContentView: View {
                 composerDrafts.removeSession(session.id)
                 unreadState.remove(session.id)
                 agentError = nil
+                await sessionStore.reconcileSessions(cwd: session.cwd, profile: .chat)
             } catch {
                 agentError = AgentErrorPresentation(error)
             }
@@ -662,6 +693,9 @@ struct ContentView: View {
                 composerDrafts.removeSession(session.id)
                 unreadState.remove(session.id)
                 agentError = nil
+                // The row is already gone locally; reconciling also drops rows
+                // deleted outside this window at the same moment.
+                await sessionStore.reconcileSessions(cwd: project.path, profile: .work)
             } catch {
                 agentError = AgentErrorPresentation(error)
             }

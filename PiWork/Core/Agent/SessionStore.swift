@@ -1678,17 +1678,25 @@ enum SessionHTMLReportDestination {
 }
 
 enum SessionCachePolicy {
+    /// Sessions whose first message was never written have no file to reopen
+    /// from. Closing one drops it from the host registry for good, so they are
+    /// never eviction candidates no matter how old they look.
     static func evictionCandidates(
         recency: [String],
         protectedSessionIDs: Set<String>,
         runningSessionIDs: Set<String>,
+        unpersistedSessionIDs: Set<String> = [],
         maximumCount: Int
     ) -> [String] {
         let removalCount = max(0, recency.count - maximumCount)
         guard removalCount > 0 else { return [] }
         return Array(
             recency.lazy
-                .filter { !protectedSessionIDs.contains($0) && !runningSessionIDs.contains($0) }
+                .filter {
+                    !protectedSessionIDs.contains($0)
+                        && !runningSessionIDs.contains($0)
+                        && !unpersistedSessionIDs.contains($0)
+                }
                 .prefix(removalCount)
         )
     }
@@ -1858,23 +1866,32 @@ final class SessionStore: ObservableObject {
         if didLoadModels {
             availableModels = models
         }
-        // Only preserve rows the store still has a live record for: a draft
-        // created before the listing returned, or an open/cached conversation.
-        // Rows that only exist in the previous listing stay authoritative from
-        // the host, so a session deleted on disk does not linger forever.
+        // Only preserve rows the user is looking at right now (a draft created
+        // before the listing returned, or the selected conversation). Rows that
+        // only exist in the previous listing stay authoritative from the host,
+        // so a session deleted on disk — or a draft whose host session was
+        // closed — cannot linger forever as an unopenable row.
         if profile == .chat {
             chatSessions = Self.mergedSessionSummaries(
                 remote: sortedSessions,
-                existing: chatSessions.filter { records[$0.id] != nil }
+                existing: chatSessions.filter { keepsLocalRow($0.id) }
             )
         } else {
             workSessionsByProjectPath[cwd] = Self.mergedSessionSummaries(
                 remote: sortedSessions,
                 existing: (workSessionsByProjectPath[cwd] ?? []).filter {
-                    records[$0.id] != nil
+                    keepsLocalRow($0.id)
                 }
             )
         }
+    }
+
+    /// A row may come from local state instead of the host catalog only while
+    /// this process still owns a record for it *and* the user is on it. Anything
+    /// else has to be backed by a session file the host can open, otherwise
+    /// clicking the row can only fail with `session_not_found`.
+    private func keepsLocalRow(_ sessionId: String) -> Bool {
+        records[sessionId] != nil && selectedSessionIds.contains(sessionId)
     }
 
     /// Bootstrap can finish after a draft was created (or after a local cache
@@ -3270,10 +3287,20 @@ final class SessionStore: ObservableObject {
                 record.runState == .idle || record.runState == .failed ? nil : record.id
             }
         )
+        // A session only gets a file once its first message is written. Closing
+        // an unpersisted one removes it from the host registry with nothing on
+        // disk to reopen from, which is how a sidebar row becomes permanently
+        // unopenable (`Session not found`). Keep those cached; they are tiny.
+        let unpersistedSessionIDs = Set(
+            reducer.records.values
+                .filter { !FileManager.default.fileExists(atPath: $0.descriptor.path) }
+                .map(\.id)
+        )
         let candidates = SessionCachePolicy.evictionCandidates(
             recency: sessionRecency.filter { reducer.records[$0] != nil },
             protectedSessionIDs: selectedSessionIDs.union(additionalSessionIDs),
             runningSessionIDs: runningSessionIDs,
+            unpersistedSessionIDs: unpersistedSessionIDs,
             maximumCount: maximumCachedSessionCount
         )
         guard !candidates.isEmpty else { return }
@@ -3296,6 +3323,83 @@ final class SessionStore: ObservableObject {
             }
         }
         if didEvict { publishReducerState() }
+    }
+
+    /// Re-read the host catalog so the sidebar stops showing sessions that no
+    /// longer exist: deleted from another window, moved to the Trash, or a draft
+    /// whose host session was closed. Local rows survive only while the user is
+    /// still on them (see `keepsLocalRow`).
+    func reconcileSessions(
+        cwd: String,
+        profile: AgentHostSessionProfile,
+        sessionDirectory: String? = nil
+    ) async {
+        guard !isStopped else { return }
+        do {
+            try await start()
+            let listed = try await service.listSessions(
+                cwd: cwd,
+                sessionDirectory: sessionDirectory,
+                requestID: UUID().uuidString
+            )
+            let remote = Self.sortedSessionSummaries(listed)
+            if profile == .chat {
+                chatSessions = Self.mergedSessionSummaries(
+                    remote: remote,
+                    existing: chatSessions.filter { keepsLocalRow($0.id) }
+                )
+                if let selected = selectedChatSessionId,
+                   records[selected] == nil,
+                   !chatSessions.contains(where: { $0.id == selected }) {
+                    selectedChatSessionId = nil
+                    selectedSessionIds.remove(selected)
+                }
+            } else {
+                let rows = Self.mergedSessionSummaries(
+                    remote: remote,
+                    existing: (workSessionsByProjectPath[cwd] ?? []).filter {
+                        keepsLocalRow($0.id)
+                    }
+                )
+                workSessionsByProjectPath[cwd] = rows
+                if let selected = selectedWorkSessionIdByProjectPath[cwd],
+                   records[selected] == nil,
+                   !rows.contains(where: { $0.id == selected }) {
+                    selectedWorkSessionIdByProjectPath.removeValue(forKey: cwd)
+                    selectedSessionIds.remove(selected)
+                }
+            }
+            publishReducerState()
+        } catch {
+            // Reconciliation is best effort: a failed listing keeps the rows the
+            // window already shows instead of blanking the sidebar.
+        }
+    }
+
+    /// Drop a row the host says does not exist. Keeping it would leave a control
+    /// that can never be opened nor prompted.
+    func dropMissingSession(
+        sessionId: String,
+        cwd: String,
+        profile: AgentHostSessionProfile
+    ) {
+        cancelHistoryLoad(sessionID: sessionId)
+        cancelAttachment(sessionID: sessionId)
+        reducer.remove(sessionId: sessionId)
+        selectedSessionIds.remove(sessionId)
+        sessionRecency.removeAll { $0 == sessionId }
+        if profile == .chat {
+            chatSessions.removeAll { $0.id == sessionId }
+            if selectedChatSessionId == sessionId {
+                selectedChatSessionId = nil
+            }
+        } else {
+            workSessionsByProjectPath[cwd]?.removeAll { $0.id == sessionId }
+            if selectedWorkSessionIdByProjectPath[cwd] == sessionId {
+                selectedWorkSessionIdByProjectPath.removeValue(forKey: cwd)
+            }
+        }
+        publishReducerState()
     }
 
     private func project(

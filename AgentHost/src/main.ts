@@ -746,6 +746,36 @@ async function handleRequest(request: HostRequest): Promise<HostResponse> {
     const requestStartedAt = performance.now();
     const timings: Record<string, number> = {};
     if (typeof path !== "string") {
+      // A draft exists only in memory until its first message is written, so it
+      // has no file yet. Consulting the catalog first makes reopening a session
+      // the client still lists fail with `session_not_found`, which leaves a row
+      // that can never be opened again. Ask the live registry first: it is also
+      // the cheapest path (no directory scan).
+      const live = sessionRegistry.descriptor(sessionId as string);
+      if (live) {
+        const liveMcpChanged = mcpCoordinator.setSessionServers(
+          live.id,
+          parseACPMcpServers(request.params?.mcpServers),
+        );
+        if (liveMcpChanged) await sessionRegistry.reloadExtensions();
+        const liveAcpStartedAt = performance.now();
+        const liveState = await acpSessionState(live.id);
+        timings.acpState = performance.now() - liveAcpStartedAt;
+        timings.total = performance.now() - requestStartedAt;
+        reportHostTimings("session.open", live.id, timings);
+        return {
+          version: PROTOCOL_VERSION,
+          kind: "response",
+          id: request.id,
+          ok: true,
+          result: {
+            sessionId: live.id,
+            path: live.path,
+            cwd: live.cwd,
+            ...liveState,
+          },
+        };
+      }
       const catalogStartedAt = performance.now();
       const summary = (await sessionCatalog.list(cwd as string, sessionDirectory as string | undefined))
         .find((candidate) => candidate.id === sessionId);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -114,6 +114,53 @@ describe("ACP agent host process", () => {
         id: "sessions-1",
         result: { sessions: [] },
       });
+    } finally {
+      await stopHost(child, root);
+    }
+  });
+
+  test("resumes a draft that has no file yet instead of reporting session_not_found", async () => {
+    const { child, lines, root } = await startHost();
+    const readResponse = async (id: string) => {
+      while (true) {
+        const message = await lines.read();
+        if (message?.id === id) return message;
+      }
+    };
+    try {
+      const cwd = join(root, "workspace");
+      mkdirSync(cwd);
+      child.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "draft",
+        method: "session/new",
+        params: { cwd, _meta: { piWork: { profile: "work" } } },
+      })}\n`);
+      await child.stdin.flush();
+      const draft = await readResponse("draft");
+      const sessionId = draft.result?.sessionId;
+      expect(typeof sessionId).toBe("string");
+
+      // A draft is memory-only until its first message is written.
+      const sessionRoot = join(root, "sessions");
+      const persisted = existsSync(sessionRoot)
+        ? readdirSync(sessionRoot).flatMap((entry) => readdirSync(join(sessionRoot, entry)))
+        : [];
+      expect(persisted.filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+
+      child.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "reopen",
+        method: "session/resume",
+        params: { sessionId, cwd, _meta: { piWork: { profile: "work" } } },
+      })}\n`);
+      await child.stdin.flush();
+      const reopened = await readResponse("reopen");
+
+      // Reopening used to fail with `Session not found` because the catalog only
+      // knows files. The live registry has to answer first.
+      expect(reopened.error).toBeUndefined();
+      expect(reopened.result).toBeDefined();
     } finally {
       await stopHost(child, root);
     }

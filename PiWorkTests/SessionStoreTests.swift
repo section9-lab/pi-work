@@ -2001,6 +2001,79 @@ final class SessionStoreTests: XCTestCase {
         await store.stop()
     }
 
+    func testSessionCacheEvictionNeverDropsDraftsThatWereNeverWritten() {
+        let candidates = SessionCachePolicy.evictionCandidates(
+            recency: ["draft-a", "draft-b", "older"],
+            protectedSessionIDs: [],
+            runningSessionIDs: [],
+            unpersistedSessionIDs: ["draft-a", "draft-b"],
+            maximumCount: 2
+        )
+
+        // Closing a draft without a file removes it from the host for good, so it
+        // must never be evicted even when it is the oldest cached session.
+        XCTAssertEqual(candidates, ["older"])
+    }
+
+    func testReconcileDropsRowsDeletedOutsideTheWindow() async throws {
+        let host = FakeAgentHost()
+        await host.setSessions([
+            makeSummary(id: "keep"),
+            makeSummary(id: "gone", modifiedAt: "2026-08-10T00:00:00.000Z")
+        ])
+        let store = SessionStore(service: host)
+        try await store.bootstrap(cwd: "/tmp/project", sessionDirectory: nil, profile: .work)
+        XCTAssertEqual(
+            store.workSessionsByProjectPath["/tmp/project"]?.map(\.id).sorted(),
+            ["gone", "keep"]
+        )
+
+        // The host no longer lists "gone": its file was deleted while the window
+        // kept showing the row.
+        await host.setSessions([makeSummary(id: "keep")])
+        await store.reconcileSessions(cwd: "/tmp/project", profile: .work)
+
+        XCTAssertEqual(store.workSessionsByProjectPath["/tmp/project"]?.map(\.id), ["keep"])
+        await store.stop()
+    }
+
+    func testReconcileKeepsTheDraftTheUserIsLookingAt() async throws {
+        let host = FakeAgentHost()
+        await host.setSessions([])
+        let store = SessionStore(service: host)
+        let draft = try await store.createDraft(
+            cwd: "/tmp/project",
+            sessionDirectory: nil,
+            profile: .work
+        )
+
+        // A draft has no file yet, so the catalog cannot list it. The row must
+        // survive while the user is on it, otherwise creating a session would
+        // make it vanish on the next refresh.
+        await store.reconcileSessions(cwd: "/tmp/project", profile: .work)
+
+        XCTAssertEqual(store.workSessionsByProjectPath["/tmp/project"]?.map(\.id), [draft.id])
+        await store.stop()
+    }
+
+    func testDropMissingSessionClearsTheRowAndTheSelection() async throws {
+        let host = FakeAgentHost()
+        await host.setSessions([makeSummary(id: "ghost")])
+        let store = SessionStore(service: host)
+        try await store.bootstrap(cwd: "/tmp/project", sessionDirectory: nil, profile: .work)
+
+        store.dropMissingSession(
+            sessionId: "ghost",
+            cwd: "/tmp/project",
+            profile: .work
+        )
+
+        XCTAssertTrue((store.workSessionsByProjectPath["/tmp/project"] ?? []).isEmpty)
+        XCTAssertNil(store.selectedWorkSessionIdByProjectPath["/tmp/project"])
+        XCTAssertNil(store.records["ghost"])
+        await store.stop()
+    }
+
     private func waitUntil(
         timeoutNanoseconds: UInt64 = 1_000_000_000,
         condition: @escaping @MainActor () async -> Bool
