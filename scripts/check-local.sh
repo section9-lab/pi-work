@@ -39,7 +39,7 @@ step "Agent Host tests"
 
 step "Release workflow / packaging / appcast unit tests"
 python3 -m unittest scripts/test_agent_runtime_package.py scripts/test_release_workflow.py \
-  scripts/test_appcast.py scripts/test_ci_dependencies.py
+  scripts/test_appcast.py scripts/test_ci_dependencies.py scripts/test_lint_gate.py
 
 step "App update checks"
 bash scripts/test-app-updates.sh
@@ -56,7 +56,7 @@ if ! bash scripts/test-agent-runtime.sh; then
   bash scripts/test-agent-runtime.sh
 fi
 
-step "SwiftLint (baseline)"
+step "SwiftLint (budget gate)"
 LINT_REQUIRED=1 scripts/lint.sh all
 
 if [ "${WITH_TESTS:-0}" = "1" ]; then

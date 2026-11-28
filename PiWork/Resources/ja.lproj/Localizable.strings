@@ -273,6 +273,8 @@
 
 /* サインインとアカウント */
 "onboarding.terms" = "サインインすると、利用規約とプライバシーポリシーに同意したものとみなされます";
+"onboarding.local_mode" = "ローカルモードで続ける";
+"onboarding.local_hint" = "アカウントは不要です。セッションとモデル設定はこの Mac に保存され、あとからアカウントメニューでサインインできます。";
 "onboarding.welcome" = "pi-work へようこそ";
 "onboarding.email_title" = "メールでサインイン";
 "onboarding.code_title" = "確認コードを入力";
@@ -295,6 +297,10 @@
 "account.sign_out" = "サインアウト";
 "account.google" = "Google でサインイン";
 "account.email" = "メール確認コードでサインイン";
+"account.local_mode" = "ローカルモード";
+"account.local_mode_detail" = "サインインしていません";
+"account.sign_in" = "サインイン…";
+"account.offline" = "オフライン — 再試行中";
 "theme.system" = "システム";
 "theme.light" = "ライト";
 "theme.dark" = "ダーク";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "ブラウザでのサインインに失敗しました：%@";
 "auth.error.invalid_email" = "有効なメールアドレスを入力してください。";
 "auth.error.invalid_code" = "確認コードが正しくありません。もう一度入力してください。";
+"auth.error.network_unavailable" = "サインインサービスに接続できません。接続を確認して再試行するか、ローカルモードで続けてください。";
 "oauth.error.open_browser" = "デフォルトブラウザを開けません。";
 "oauth.error.timeout" = "ブラウザのコールバック待機がタイムアウトしました。";
 "oauth.error.callback_port" = "ローカルコールバックポートを作成できません。";

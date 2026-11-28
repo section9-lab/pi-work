@@ -273,6 +273,8 @@
 
 /* 登入與帳號 */
 "onboarding.terms" = "登入即表示你同意我們的服務條款與隱私權政策";
+"onboarding.local_mode" = "以本機模式繼續";
+"onboarding.local_hint" = "不需要帳號。工作階段與模型設定都保存在這台 Mac 上，之後可以在帳號選單登入。";
 "onboarding.welcome" = "歡迎使用 pi-work";
 "onboarding.email_title" = "使用電子郵件登入";
 "onboarding.code_title" = "輸入驗證碼";
@@ -295,6 +297,10 @@
 "account.sign_out" = "登出";
 "account.google" = "透過 Google 登入";
 "account.email" = "透過電子郵件驗證碼登入";
+"account.local_mode" = "本機模式";
+"account.local_mode_detail" = "未登入";
+"account.sign_in" = "登入…";
+"account.offline" = "離線，正在重試";
 "theme.system" = "跟隨系統";
 "theme.light" = "淺色";
 "theme.dark" = "深色";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "瀏覽器登入失敗：%@";
 "auth.error.invalid_email" = "請輸入有效的電子郵件地址。";
 "auth.error.invalid_code" = "驗證碼不正確，請重新輸入。";
+"auth.error.network_unavailable" = "無法連線登入服務。請檢查網路後重試，或以本機模式繼續。";
 "oauth.error.open_browser" = "無法開啟預設瀏覽器。";
 "oauth.error.timeout" = "等待瀏覽器回呼逾時。";
 "oauth.error.callback_port" = "無法建立本機回呼連接埠。";

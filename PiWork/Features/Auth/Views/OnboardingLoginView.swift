@@ -49,6 +49,8 @@ struct OnboardingLoginView: View {
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    localModeSection
                 }
                 .frame(width: 360)
 
@@ -65,6 +67,32 @@ struct OnboardingLoginView: View {
     }
 
     // MARK: - Steps
+
+    /// Escape hatch that does not depend on the auth service. Kept on every
+    /// step, below the error text, so it is the visible next action when the
+    /// issuer is down.
+    private var localModeSection: some View {
+        VStack(spacing: 6) {
+            Button {
+                authSession.enterLocalMode()
+            } label: {
+                Text(L10n.string("onboarding.local_mode"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(authSession.isAuthenticating)
+            .accessibilityHint(L10n.string("onboarding.local_hint"))
+
+            Text(L10n.string("onboarding.local_hint"))
+                .font(.system(size: 11))
+                .foregroundStyle(Color.primary.opacity(0.4))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 6)
+    }
 
     private var header: some View {
         VStack(spacing: 10) {

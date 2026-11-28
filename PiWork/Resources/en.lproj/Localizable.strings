@@ -273,6 +273,8 @@
 
 /* Onboarding and account */
 "onboarding.terms" = "By signing in, you agree to our Terms of Service and Privacy Policy";
+"onboarding.local_mode" = "Continue in local mode";
+"onboarding.local_hint" = "No account needed. Sessions and model settings stay on this Mac, and you can sign in later from the account menu.";
 "onboarding.welcome" = "Welcome to pi-work";
 "onboarding.email_title" = "Sign in with email";
 "onboarding.code_title" = "Enter verification code";
@@ -295,6 +297,10 @@
 "account.sign_out" = "Sign Out";
 "account.google" = "Signed in with Google";
 "account.email" = "Signed in with email code";
+"account.local_mode" = "Local mode";
+"account.local_mode_detail" = "Not signed in";
+"account.sign_in" = "Sign In…";
+"account.offline" = "Offline — retrying";
 "theme.system" = "System";
 "theme.light" = "Light";
 "theme.dark" = "Dark";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "Browser sign-in failed: %@";
 "auth.error.invalid_email" = "Enter a valid email address.";
 "auth.error.invalid_code" = "The verification code is incorrect. Try again.";
+"auth.error.network_unavailable" = "Can’t reach the sign-in service. Check your connection and try again, or continue in local mode.";
 "oauth.error.open_browser" = "Unable to open the default browser.";
 "oauth.error.timeout" = "Timed out waiting for the browser callback.";
 "oauth.error.callback_port" = "Unable to create a local callback port.";

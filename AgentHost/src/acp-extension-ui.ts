@@ -221,7 +221,8 @@ export function createACPExtensionUIContext(
       widgetDisposers.delete(key);
       const placement = options?.placement ?? "aboveEditor";
       let previousLines: string[] | undefined;
-      const publish = (output: string[]) => {
+      // Pi 1.7 returns `readonly string[]` from component render output.
+      const publish = (output: readonly string[]) => {
         const lines = output.map(stripTerminalSequences);
         if (previousLines?.length === lines.length
           && lines.every((line, index) => line === previousLines![index])) return;

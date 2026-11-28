@@ -1,8 +1,12 @@
 # SwiftLint configuration for PiWork.
 #
-# `.swiftlint.baseline.json` records the violations that already existed when
-# these rules were introduced. `scripts/lint.sh` passes it, so only new code has
-# to comply. Regenerate it after paying down debt with:
+# `scripts/lint-budget.json` records how many violations of each rule each file
+# already had when these rules were introduced; `scripts/lint_gate.py` counts
+# them per (rule, file), so only new violations fail. The budget is a count, not
+# SwiftLint's own baseline, because size-based rules (file_length,
+# type_body_length, …) report at the last line and quote the measured size —
+# SwiftLint's baseline goes stale every time a baselined file changes size.
+# Regenerate it after paying down debt with:
 #
 #   scripts/lint.sh baseline
 #

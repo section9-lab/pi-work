@@ -331,22 +331,11 @@ private struct SidebarTabHeader: View {
                 Capsule()
                     .fill(AppPalette.segmentedTrack)
 
-                GeometryReader { geometry in
-                    let indicatorWidth = (geometry.size.width - 6) / 2
-
-                    Capsule()
-                        .fill(AppPalette.raisedSurface)
-                        .shadow(color: AppPalette.subtleShadow, radius: 2, y: 1)
-                        .frame(width: indicatorWidth, height: geometry.size.height - 6)
-                        .offset(
-                            x: 3 + CGFloat(selectedTab.rawValue) * indicatorWidth,
-                            y: 3
-                        )
-                        .animation(
-                            accessibilityReduceMotion ? nil : .easeOut(duration: 0.2),
-                            value: selectedTab
-                        )
-                }
+                SegmentedTabIndicator(
+                    selectedTab: selectedTab,
+                    accessibilityReduceMotion: accessibilityReduceMotion
+                )
+                .equatable()
             }
         }
         .clipShape(Capsule())
@@ -367,6 +356,36 @@ private struct SidebarTabHeader: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The moving half of the segmented control. Kept in its own Equatable view:
+/// a tab switch also swaps the sidebar list and the detail pane, and every
+/// session-store publication rebuilds both. Without `.equatable()` those
+/// unrelated passes re-evaluate the capsule while its offset is animating,
+/// which shows up as dropped frames. As an equatable child it is touched only
+/// when `selectedTab` (or the motion setting) actually changes.
+private struct SegmentedTabIndicator: View, Equatable {
+    let selectedTab: SidebarTab
+    let accessibilityReduceMotion: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            let indicatorWidth = (geometry.size.width - 6) / 2
+
+            Capsule()
+                .fill(AppPalette.raisedSurface)
+                .shadow(color: AppPalette.subtleShadow, radius: 2, y: 1)
+                .frame(width: indicatorWidth, height: geometry.size.height - 6)
+                .offset(
+                    x: 3 + CGFloat(selectedTab.rawValue) * indicatorWidth,
+                    y: 3
+                )
+                .animation(
+                    accessibilityReduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.82),
+                    value: selectedTab
+                )
+        }
     }
 }
 
@@ -787,15 +806,22 @@ private struct LinkedFoldersHeader: View {
     }
 }
 
-/// Bottom-of-sidebar account row. Shows the signed-in user and opens the
-/// account popover (settings / help / sign out).
+/// Bottom-of-sidebar account row. Shows the signed-in user (or the local
+/// session) and opens the account popover (settings / help / sign out).
 private struct UserFooterView: View {
     @ObservedObject private var authSession = AuthSession.shared
     @State private var isPopoverPresented = false
     var updateController: AppUpdateController?
 
     private var displayName: String {
-        authSession.user?.displayName ?? "pi-work"
+        if authSession.isLocalMode { return L10n.string("account.local_mode") }
+        return authSession.user?.displayName ?? "pi-work"
+    }
+
+    private var accountSubtitle: String {
+        if authSession.isLocalMode { return L10n.string("account.local_mode_detail") }
+        if authSession.isOffline { return L10n.string("account.offline") }
+        return authSession.provider.accountSubtitle
     }
 
     private var initial: String {
@@ -831,13 +857,18 @@ private struct UserFooterView: View {
             UserAccountPopover(
                 isPresented: $isPopoverPresented,
                 accountName: displayName,
-                accountSubtitle: authSession.provider.accountSubtitle,
+                accountSubtitle: accountSubtitle,
                 accountInitial: initial,
                 accountAvatarURL: authSession.user?.avatarURL,
+                isLocalMode: authSession.isLocalMode,
                 onSettings: {
                     openLegacySettings()
                 },
                 onHelp: { isPopoverPresented = false },
+                onSignIn: {
+                    isPopoverPresented = false
+                    authSession.requestSignIn()
+                },
                 onLogout: {
                     isPopoverPresented = false
                     authSession.signOut()

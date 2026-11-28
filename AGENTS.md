@@ -22,7 +22,7 @@
 - Lint（只查暂存文件）：`scripts/lint.sh`
 - Lint（全仓）：`scripts/lint.sh all`
 - Lint（指定文件）：`scripts/lint.sh files PiWork/Foo.swift`
-- 重写基线（仅在主动还债后）：`scripts/lint.sh baseline`
+- 重写存量预算（仅在主动还债后）：`scripts/lint.sh baseline` → `scripts/lint-budget.json`
 - 复现 CI validate：`scripts/check-local.sh`（加 `WITH_TESTS=1` 再跑原生测试）
 - 安装 git 钩子：`scripts/install-hooks.sh`
 
@@ -36,7 +36,8 @@
 - `PiWork/Features/` 里不许写死 UI 文案：走 `L10n.string("key")`，并在 6 个 `Localizable.strings` 里补齐
 - 行长警告 160 / 错误 400；单文件警告 1200 / 错误 2500；函数体警告 180 / 错误 400
 
-新增规则：改 `.swiftlint.yml` 的 `custom_rules`，然后 `scripts/lint.sh baseline` 把存量记进基线。细节见 `docs/lint.md`。
+新增规则：改 `.swiftlint.yml` 的 `custom_rules`，然后 `scripts/lint.sh baseline` 把存量记进 `scripts/lint-budget.json`。
+存量按「规则 + 文件 → 条数」计，不用 SwiftLint 的 `--baseline`（尺寸类规则会让它一直漂移）。细节见 `docs/lint.md`。
 
 ## 代码约定（评审会看，lint 查不到）
 

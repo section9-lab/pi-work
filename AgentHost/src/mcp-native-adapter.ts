@@ -1,5 +1,5 @@
 /**
- * Pi 1.5.0 exposes the session extension publicly, but its desktop management
+ * Pi 1.7.0 exposes the session extension publicly, but its desktop management
  * primitives are internal. Keep the version-pinned imports in this one adapter;
  * transport, OAuth discovery, PKCE, refresh and process cleanup stay upstream.
  */
@@ -19,11 +19,13 @@ export {
 } from "../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js";
 export {
   isMcpToolName,
-  mcpNamespace,
   validateMcpServerConfig,
 } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/mcp-servers.js";
 export { FileAuthStorageBackend } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js";
-export { createMcpToolName } from "../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/tools.js";
+// Pi 1.7 moved the MCP naming helpers out of pi-coding-agent into pi-mcp's
+// public API. The implementations are byte-identical to 1.5, so tool names and
+// namespaces stay stable for stored sessions and saved server configurations.
+export { createMcpToolName, mcpNamespace } from "@earendil-works/pi-mcp";
 
 /**
  * Pi automatically shares cwd as a root. Some servers (including the official

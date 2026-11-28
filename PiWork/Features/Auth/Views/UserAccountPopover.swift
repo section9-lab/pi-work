@@ -18,8 +18,12 @@ struct UserAccountPopover: View {
     let accountSubtitle: String
     let accountInitial: String
     var accountAvatarURL: URL? = nil
+    /// Local sessions have no account to sign out of, so the last row becomes
+    /// the way back into sign-in.
+    var isLocalMode: Bool = false
     var onSettings: () -> Void
     var onHelp: () -> Void
+    var onSignIn: () -> Void = {}
     var onLogout: () -> Void
 
     private let contentInset: CGFloat = 12
@@ -84,10 +88,17 @@ struct UserAccountPopover: View {
             Divider()
                 .padding(.horizontal, contentInset)
 
-            MenuItem(icon: "arrow.right.square", title: L10n.string("account.sign_out"), isDestructive: true, action: {
-                isPresented = false
-                onLogout()
-            })
+            if isLocalMode {
+                MenuItem(icon: "arrow.right.to.line", title: L10n.string("account.sign_in"), action: {
+                    isPresented = false
+                    onSignIn()
+                })
+            } else {
+                MenuItem(icon: "arrow.right.square", title: L10n.string("account.sign_out"), isDestructive: true, action: {
+                    isPresented = false
+                    onLogout()
+                })
+            }
         }
         .padding(.vertical, 8)
         .background(

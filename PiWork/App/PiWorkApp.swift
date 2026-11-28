@@ -99,9 +99,10 @@ struct PiWorkApp: App {
     }
 }
 
-/// Gates the app on a valid session: onboarding until signed in, the project
-/// shell afterwards. `restoreSessionOnLaunch` runs once on cold start and
-/// silently refreshes an expired access token when it can.
+/// Gates the app on an access mode: onboarding until the user signs in or
+/// chooses local mode, the project shell afterwards. `restoreSessionOnLaunch`
+/// runs once on cold start and silently refreshes an expired access token when
+/// it can; a local session never touches the network.
 private struct RootView: View {
     @ObservedObject var authSession: AuthSession
     @ObservedObject var agentRuntime: AppAgentRuntime
@@ -112,7 +113,7 @@ private struct RootView: View {
 
     var body: some View {
         Group {
-            if authSession.isSignedIn {
+            if authSession.canUseApp {
                 if let sessionStore = agentRuntime.sessionStore,
                    let installedExtensionsStore = agentRuntime.installedExtensionsStore,
                    let scheduleRunner = agentRuntime.scheduleRunner {
@@ -156,8 +157,8 @@ private struct RootView: View {
             didRestore = true
             await authSession.restoreSessionOnLaunch()
         }
-        .task(id: authSession.isSignedIn) {
-            if authSession.isSignedIn {
+        .task(id: authSession.canUseApp) {
+            if authSession.canUseApp {
                 await agentRuntime.runtimeUpdateController?.start()
                 await agentRuntime.computerUseStore?.load(check: true)
                 agentRuntime.scheduleRunner?.start()

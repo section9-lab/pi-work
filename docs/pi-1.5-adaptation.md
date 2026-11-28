@@ -1,5 +1,8 @@
 # Pi 1.5 adaptation and validation
 
+> Historical record: PiWork now pins Pi 1.7.0. See
+> [Pi 1.7 adaptation and validation](pi-1.7-adaptation.md).
+
 PiWork pins `pi-ai`, `pi-coding-agent`, and `pi-tui` to **1.5.0**, with a regenerated Bun lockfile. The app, Host, SDK, Bun and resources are still updated together; Pi's CLI self-update command is not used to modify the bundled runtime. Bun 1.4.2 runs the architecture-neutral AgentHost bundle and also serves as the extension package manager, so the release no longer embeds a second runtime through `bun build --compile`.
 
 ## Changes, in validation order

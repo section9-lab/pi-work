@@ -30,6 +30,8 @@ extension AuthError: LocalizedError {
             return L10n.string("auth.error.invalid_email")
         case .invalidEmailCode:
             return L10n.string("auth.error.invalid_code")
+        case .networkUnavailable:
+            return L10n.string("auth.error.network_unavailable")
         }
     }
 }
@@ -44,7 +46,6 @@ private struct OpenAuthSessionAuthorization {
 final class AuthSession: ObservableObject {
     static let shared = AuthSession()
 
-    private static let isSignedInKey = "auth.isSignedIn"
     private static let providerKey = "auth.provider"
     private static let userKey = "auth.user"
 
@@ -74,9 +75,9 @@ final class AuthSession: ObservableObject {
         }
     }
 
-    @Published private(set) var isSignedIn: Bool {
+    @Published private(set) var accessMode: AuthAccessMode {
         didSet {
-            UserDefaults.standard.set(isSignedIn, forKey: Self.isSignedInKey)
+            modeStore.save(accessMode)
         }
     }
     @Published private(set) var provider: Provider {
@@ -92,47 +93,95 @@ final class AuthSession: ObservableObject {
     @Published private(set) var isAuthenticating = false
     @Published private(set) var lastErrorMessage: String?
 
+    /// True when the launch refresh failed for a transport reason. The session
+    /// stays signed in and the local runtime keeps working; a background task
+    /// retries until the issuer answers or the retry schedule runs out.
+    @Published private(set) var isOffline = false
+
     /// Email of the address we just sent a code to. Drives the "code sent
     /// to <email>" hint in the verify step and is the source of truth for
     /// resends so the user can't change it mid-flow.
     @Published private(set) var pendingEmail: String?
 
-    private let keychainStore = AuthKeychainStore()
+    private let defaults: UserDefaults
+    private let keychainStore: AuthTokenStoring
+    private let modeStore: AuthAccessModeStore
     private let webAuthenticator = OAuthWebAuthenticator()
+    private let makeClient: () -> OpenAuthClient
+
+    /// Backoff between background refresh attempts while the issuer is
+    /// unreachable. Empty disables the retry loop (tests use that).
+    var offlineRetryDelays: [Duration] = [
+        .seconds(20), .seconds(45), .seconds(90), .seconds(180), .seconds(300)
+    ]
+
+    private var offlineRetryTask: Task<Void, Never>?
 
     /// Owns the PKCE state for one email-OTP attempt. Recreated on cancel
     /// or when a fresh request comes in. Nil whenever the user isn't mid-
     /// flow.
     private var pendingEmailClient: EmailOTPClient?
 
-    private init() {
-        self.user = Self.loadPersistedUser()
-        self.isSignedIn = UserDefaults.standard.bool(forKey: Self.isSignedInKey)
-        let storedProvider = UserDefaults.standard.string(forKey: Self.providerKey)
+    init(
+        defaults: UserDefaults = .standard,
+        keychainStore: AuthTokenStoring = AuthKeychainStore(),
+        makeClient: @escaping () -> OpenAuthClient = { OpenAuthClient() }
+    ) {
+        self.defaults = defaults
+        self.modeStore = AuthAccessModeStore(defaults: defaults)
+        self.keychainStore = keychainStore
+        self.makeClient = makeClient
+        self.user = Self.loadPersistedUser(defaults: defaults)
+        self.accessMode = modeStore.load()
+        let storedProvider = defaults.string(forKey: Self.providerKey)
         self.provider = storedProvider.flatMap(Provider.init(rawValue:)) ?? .google
     }
 
+    var isSignedIn: Bool { accessMode == .signedIn }
+    var canUseApp: Bool { accessMode.canUseApp }
+    var isLocalMode: Bool { accessMode == .local }
+
+    /// Validates the stored credentials once per cold start.
+    ///
+    /// Only a rejection from the issuer clears the Keychain copy. A transport
+    /// failure keeps the credentials, keeps the app usable and retries in the
+    /// background, because a dead auth service must not lock the user out of
+    /// their local sessions.
     func restoreSessionOnLaunch() async {
+        guard accessMode == .signedIn else { return }
+
         guard let tokens = try? keychainStore.load() else {
-            isSignedIn = false
+            accessMode = .signedOut
             user = nil
             return
         }
 
-        let client = OpenAuthClient()
-        do {
-            if client.isAccessTokenValid(tokens.accessToken) {
+        let client = makeClient()
+        if client.isAccessTokenValid(tokens.accessToken) {
+            do {
                 applyAuthenticatedUser(try client.user(from: tokens.accessToken))
-            } else {
-                let refreshed = try await client.refresh(refreshToken: tokens.refreshToken)
-                try keychainStore.save(refreshed)
-                applyAuthenticatedUser(try client.user(from: refreshed.accessToken))
+            } catch {
+                // The claims are unreadable, but the token is still valid, so
+                // keep the persisted profile instead of signing out.
+                if user == nil {
+                    user = Self.loadPersistedUser(defaults: defaults)
+                }
             }
-        } catch {
+            return
+        }
+
+        do {
+            let refreshed = try await client.refresh(refreshToken: tokens.refreshToken)
+            try keychainStore.save(refreshed)
+            applyAuthenticatedUser(try client.user(from: refreshed.accessToken))
+        } catch let error as AuthError where error.discardsStoredCredentials {
             try? keychainStore.delete()
-            isSignedIn = false
+            isOffline = false
+            accessMode = .signedOut
             user = nil
             lastErrorMessage = error.localizedDescription
+        } catch {
+            applyOfflineSession(tokens: tokens)
         }
     }
 
@@ -143,7 +192,7 @@ final class AuthSession: ObservableObject {
 
         lastErrorMessage = nil
 
-        let client = OpenAuthClient()
+        let client = makeClient()
         do {
             let authorization = try await authorizeWithGoogle(client: client)
             let code = try client.authorizationCode(
@@ -212,7 +261,7 @@ final class AuthSession: ObservableObject {
         lastErrorMessage = nil
         do {
             let tokens = try await client.verifyCode(code)
-            let openauth = OpenAuthClient()
+            let openauth = makeClient()
             try keychainStore.save(tokens)
             applyAuthenticatedUser(try openauth.user(from: tokens.accessToken))
             cancelEmailLogin()
@@ -234,17 +283,98 @@ final class AuthSession: ObservableObject {
         lastErrorMessage = nil
     }
 
-    func signOut() {
-        try? keychainStore.delete()
+    /// Leaves the account surface for a strictly local session. The Keychain
+    /// copy is kept: the user may come back, and nothing about local mode
+    /// should invalidate a valid credential.
+    func enterLocalMode() {
+        offlineRetryTask?.cancel()
+        cancelEmailLogin()
+        clearLastError()
+        isOffline = false
         user = nil
-        isSignedIn = false
+        accessMode = .local
+    }
+
+    /// Drops back to onboarding from local mode so the user can sign in again.
+    func requestSignIn() {
+        guard accessMode == .local else { return }
+        clearLastError()
+        accessMode = .signedOut
+    }
+
+    func signOut() {
+        offlineRetryTask?.cancel()
+        try? keychainStore.delete()
+        cancelEmailLogin()
+        user = nil
+        isOffline = false
+        lastErrorMessage = nil
+        accessMode = .signedOut
     }
 
     private func applyAuthenticatedUser(_ user: AuthUser) {
         self.user = user
         provider = Provider(rawValue: user.provider) ?? .google
-        isSignedIn = true
+        isOffline = false
+        accessMode = .signedIn
         lastErrorMessage = nil
+        offlineRetryTask?.cancel()
+        offlineRetryTask = nil
+    }
+
+    /// Keeps the session signed in while the issuer is unreachable.
+    private func applyOfflineSession(tokens: AuthTokenSet) {
+        isOffline = true
+        lastErrorMessage = nil
+        if let decoded = try? makeClient().user(from: tokens.accessToken) {
+            user = decoded
+            provider = Provider(rawValue: decoded.provider) ?? .google
+        } else if user == nil {
+            user = Self.loadPersistedUser(defaults: defaults)
+        }
+        accessMode = .signedIn
+        startOfflineRetry()
+    }
+
+    private func startOfflineRetry() {
+        offlineRetryTask?.cancel()
+        guard !offlineRetryDelays.isEmpty else { return }
+
+        offlineRetryTask = Task { [weak self] in
+            guard let delays = self?.offlineRetryDelays else { return }
+            for delay in delays {
+                if Task.isCancelled { return }
+                try? await Task.sleep(for: delay)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                if await self.refreshWhileOffline() { return }
+            }
+        }
+    }
+
+    /// Returns true when retrying should stop: either the session recovered or
+    /// the issuer proved the refresh token unusable.
+    private func refreshWhileOffline() async -> Bool {
+        guard accessMode == .signedIn, isOffline, let tokens = try? keychainStore.load() else {
+            return true
+        }
+
+        let client = makeClient()
+        do {
+            let refreshed = try await client.refresh(refreshToken: tokens.refreshToken)
+            try keychainStore.save(refreshed)
+            applyAuthenticatedUser(try client.user(from: refreshed.accessToken))
+            return true
+        } catch let error as AuthError where error.discardsStoredCredentials {
+            try? keychainStore.delete()
+            isOffline = false
+            accessMode = .signedOut
+            user = nil
+            lastErrorMessage = error.localizedDescription
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func authorizeWithGoogle(client: OpenAuthClient) async throws -> OpenAuthSessionAuthorization {
@@ -264,8 +394,8 @@ final class AuthSession: ObservableObject {
         )
     }
 
-    private static func loadPersistedUser() -> AuthUser? {
-        guard let data = UserDefaults.standard.data(forKey: userKey) else {
+    private static func loadPersistedUser(defaults: UserDefaults = .standard) -> AuthUser? {
+        guard let data = defaults.data(forKey: userKey) else {
             return nil
         }
         return try? JSONDecoder().decode(AuthUser.self, from: data)
@@ -273,9 +403,9 @@ final class AuthSession: ObservableObject {
 
     private func persistUser(_ user: AuthUser?) {
         if let user, let data = try? JSONEncoder().encode(user) {
-            UserDefaults.standard.set(data, forKey: Self.userKey)
+            defaults.set(data, forKey: Self.userKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.userKey)
+            defaults.removeObject(forKey: Self.userKey)
         }
     }
 }

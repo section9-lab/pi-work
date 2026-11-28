@@ -273,6 +273,8 @@
 
 /* 로그인 및 계정 */
 "onboarding.terms" = "로그인하면 서비스 약관 및 개인정보 처리방침에 동의하는 것으로 간주됩니다";
+"onboarding.local_mode" = "로컬 모드로 계속";
+"onboarding.local_hint" = "계정이 필요하지 않습니다. 세션과 모델 설정은 이 Mac에 저장되며, 나중에 계정 메뉴에서 로그인할 수 있습니다.";
 "onboarding.welcome" = "pi-work에 오신 것을 환영합니다";
 "onboarding.email_title" = "이메일로 로그인";
 "onboarding.code_title" = "인증 코드 입력";
@@ -295,6 +297,10 @@
 "account.sign_out" = "로그아웃";
 "account.google" = "Google로 로그인됨";
 "account.email" = "이메일 코드로 로그인됨";
+"account.local_mode" = "로컬 모드";
+"account.local_mode_detail" = "로그인하지 않음";
+"account.sign_in" = "로그인…";
+"account.offline" = "오프라인 — 다시 시도 중";
 "theme.system" = "시스템";
 "theme.light" = "라이트";
 "theme.dark" = "다크";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "브라우저 로그인 실패: %@";
 "auth.error.invalid_email" = "올바른 이메일 주소를 입력하세요.";
 "auth.error.invalid_code" = "인증 코드가 올바르지 않습니다. 다시 입력하세요.";
+"auth.error.network_unavailable" = "로그인 서비스에 연결할 수 없습니다. 연결을 확인한 뒤 다시 시도하거나 로컬 모드로 계속하세요.";
 "oauth.error.open_browser" = "기본 브라우저를 열 수 없습니다.";
 "oauth.error.timeout" = "브라우저 콜백 대기 시간이 초과되었습니다.";
 "oauth.error.callback_port" = "로컬 콜백 포트를 만들 수 없습니다.";

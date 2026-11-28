@@ -273,6 +273,8 @@
 
 /* Inicio de sesión y cuenta */
 "onboarding.terms" = "Al iniciar sesión, aceptas nuestros Términos del servicio y la Política de privacidad";
+"onboarding.local_mode" = "Continuar en modo local";
+"onboarding.local_hint" = "No hace falta cuenta. Las sesiones y los ajustes de modelos se guardan en este Mac, y puedes iniciar sesión más tarde desde el menú de cuenta.";
 "onboarding.welcome" = "Te damos la bienvenida a pi-work";
 "onboarding.email_title" = "Iniciar sesión con correo";
 "onboarding.code_title" = "Introduce el código de verificación";
@@ -295,6 +297,10 @@
 "account.sign_out" = "Cerrar sesión";
 "account.google" = "Sesión iniciada con Google";
 "account.email" = "Sesión iniciada con código por correo";
+"account.local_mode" = "Modo local";
+"account.local_mode_detail" = "Sin sesión iniciada";
+"account.sign_in" = "Iniciar sesión…";
+"account.offline" = "Sin conexión: reintentando";
 "theme.system" = "Sistema";
 "theme.light" = "Claro";
 "theme.dark" = "Oscuro";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "Error de inicio de sesión en el navegador: %@";
 "auth.error.invalid_email" = "Introduce una dirección de correo válida.";
 "auth.error.invalid_code" = "El código de verificación es incorrecto. Inténtalo de nuevo.";
+"auth.error.network_unavailable" = "No se puede conectar con el servicio de inicio de sesión. Comprueba tu conexión e inténtalo de nuevo, o continúa en modo local.";
 "oauth.error.open_browser" = "No se puede abrir el navegador predeterminado.";
 "oauth.error.timeout" = "Se agotó el tiempo de espera de la devolución del navegador.";
 "oauth.error.callback_port" = "No se puede crear un puerto de devolución local.";

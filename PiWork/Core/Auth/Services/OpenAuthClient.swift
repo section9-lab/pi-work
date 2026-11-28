@@ -40,10 +40,22 @@ struct OpenAuthAuthorizationRequest {
 }
 
 struct OpenAuthClient {
+    /// The launch path refreshes expired tokens before the UI can be used, so
+    /// a dead issuer must fail fast instead of holding the default 60s timeout.
+    static let requestTimeout: TimeInterval = 10
+
+    static let defaultSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = requestTimeout * 2
+        configuration.waitsForConnectivity = false
+        return URLSession(configuration: configuration)
+    }()
+
     private let configuration: OpenAuthConfiguration
     private let session: URLSession
 
-    init(configuration: OpenAuthConfiguration = .current, session: URLSession = .shared) {
+    init(configuration: OpenAuthConfiguration = .current, session: URLSession = OpenAuthClient.defaultSession) {
         self.configuration = configuration
         self.session = session
     }
@@ -144,13 +156,19 @@ struct OpenAuthClient {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = formURLEncoded(parameters).data(using: .utf8)
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await send(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AuthError.invalidServerResponse
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             let detail = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            // 5xx and 429 mean the issuer is down or throttling, not that the
+            // refresh token is invalid. Report them as unreachable so callers
+            // keep the stored credentials and retry instead of signing out.
+            if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 {
+                throw AuthError.networkUnavailable("HTTP \(httpResponse.statusCode)")
+            }
             throw AuthError.tokenExchangeFailed(detail)
         }
 
@@ -161,6 +179,19 @@ struct OpenAuthClient {
             expiresIn: TimeInterval(decoded.expiresIn),
             issuedAt: Date()
         )
+    }
+
+    /// Transport failures (offline, DNS, refused connection, timeout) are
+    /// temporary by definition, so they surface as `networkUnavailable`
+    /// instead of looking like a rejected credential.
+    private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let error as URLError {
+            throw AuthError.networkUnavailable(error.localizedDescription)
+        } catch {
+            throw AuthError.networkUnavailable(error.localizedDescription)
+        }
     }
 
     private func formURLEncoded(_ parameters: [String: String]) -> String {

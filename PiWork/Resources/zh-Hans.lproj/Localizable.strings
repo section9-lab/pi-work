@@ -273,6 +273,8 @@
 
 /* 登录与账户 */
 "onboarding.terms" = "登录即表示你同意我们的服务条款与隐私政策";
+"onboarding.local_mode" = "以本地模式继续";
+"onboarding.local_hint" = "不需要账号。会话与模型设置都保存在这台 Mac 上，之后可以在账号菜单登录。";
 "onboarding.welcome" = "欢迎使用 pi-work";
 "onboarding.email_title" = "使用邮箱登录";
 "onboarding.code_title" = "输入验证码";
@@ -295,6 +297,10 @@
 "account.sign_out" = "退出登录";
 "account.google" = "通过 Google 登录";
 "account.email" = "通过邮箱验证码登录";
+"account.local_mode" = "本地模式";
+"account.local_mode_detail" = "未登录";
+"account.sign_in" = "登录…";
+"account.offline" = "离线，正在重试";
 "theme.system" = "跟随系统";
 "theme.light" = "浅色";
 "theme.dark" = "深色";
@@ -612,6 +618,7 @@
 "auth.error.browser" = "浏览器登录失败：%@";
 "auth.error.invalid_email" = "请输入有效的邮箱地址。";
 "auth.error.invalid_code" = "验证码不正确，请重新输入。";
+"auth.error.network_unavailable" = "无法连接登录服务。请检查网络后重试，或以本地模式继续。";
 "oauth.error.open_browser" = "无法打开默认浏览器。";
 "oauth.error.timeout" = "等待浏览器回调超时。";
 "oauth.error.callback_port" = "无法创建本地回调端口。";
